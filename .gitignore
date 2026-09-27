@@ -1,0 +1,6 @@
+/jig
+/bin
+*.db
+testdata/**/*.actual
+.superpowers/
+.worktrees/
