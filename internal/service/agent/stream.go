@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
@@ -40,6 +41,7 @@ func (r *Runner) apply(ctx context.Context, msg *core.Message, ev core.StreamEve
 		}
 		first := !hasToolCalls(*msg)
 		call := *ev.Call
+		call.Input = storableInput(call.Input)
 		msg.Parts = append(msg.Parts, core.Part{Kind: core.PartToolCall, Call: &call})
 		if first {
 			return r.d.Store.SaveMessage(ctx, *msg)
@@ -48,6 +50,21 @@ func (r *Runner) apply(ctx context.Context, msg *core.Message, ev core.StreamEve
 		msg.Usage = ev.Usage
 	}
 	return nil
+}
+
+// storableInput returns input unchanged when it is empty or valid JSON, and
+// otherwise (e.g. arguments truncated at the token limit) as a JSON string
+// holding the raw text, so the call can still be saved and execute answers
+// it with an invalid-input error.
+func storableInput(input json.RawMessage) json.RawMessage {
+	if len(input) == 0 || json.Valid(input) {
+		return input
+	}
+	b, err := json.Marshal(string(input))
+	if err != nil {
+		return json.RawMessage(`""`)
+	}
+	return b
 }
 
 // appendDelta appends text to msg's last part when it is of kind, and

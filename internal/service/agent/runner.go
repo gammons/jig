@@ -297,7 +297,7 @@ func answerPending(parts []core.Part) []core.Part {
 			continue
 		}
 		parts = append(parts, core.Part{Kind: core.PartToolResult, Result: &core.ToolResult{
-			CallID: p.Call.ID, Name: p.Call.Name, Output: "cancelled", IsError: true,
+			CallID: p.Call.ID, Name: p.Call.Name, Output: cancelledOutput, IsError: true,
 		}})
 	}
 	return parts
