@@ -359,6 +359,9 @@ The transforms are applied in this order:
 
 ### 6.3 TUI (`ui`)
 
+> **Superseded** by `docs/superpowers/specs/2026-09-27-jig-plan2-tui-design.md`.
+> The text below is kept only as a record of the original sketch.
+
 - **Layout:**
   - Transcript: scrollable, markdown via glamour, collapsible tool calls, and
     subagent runs shown inline and collapsed with a live status line.
