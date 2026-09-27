@@ -87,3 +87,6 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Need | Use |
 |---|---|
 | Time / sleeping / timeouts | `clock.Clock`, `clock.NewFake` |
+| Sortable, prefixed IDs | `ids.Gen` (`ids.New(clk, rnd)`, `g.Next("ses")`) |
+| Value types shared across layers (Message, Session, ModelRef, Agent, Config, Rule, ...) | `internal/core` |
+| Service ports the UIs call (`ChatService`, `SessionService`, `PermissionService`) | `internal/core` (`ports.go`) |
