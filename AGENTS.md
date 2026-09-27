@@ -83,10 +83,17 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 ## Invariants
 
 - No I/O in `ui`.
+- Every piece of mutable state has exactly one owner that serializes
+  access to it: `session.Service`'s mutex owns session read-modify-writes,
+  `ext.Registry` owns extension registration (only until `Freeze`),
+  `permission.Hook` owns its per-root-session grants, `agent.Proxy` owns
+  the runner late-binding. Nothing else mutates them directly.
 - The extension registry is frozen after startup: it is populated once and
   then read without locks.
 - All built-ins register through `ext.Registry`; runtime code depends on
-  `ext.View`.
+  `ext.View`, an immutable, read-only snapshot of the registry taken at
+  `Freeze` — every `View` method returns a fresh copy of its backing
+  slice, so callers cannot mutate it.
 - All time comes from `internal/clock`; no `time.Now()` or `time.Sleep` in
   `_test.go` files.
 - Tools return `IsError` results, not Go errors, except for ctx
@@ -127,3 +134,43 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Find a project's git root from a directory | `fsroot.GitRoot(dir)` |
 | Walk root→leaf ancestor directories for context/skill discovery | `fsroot.Chain(root, dir)` |
 | Parse a `---\n<yaml>\n---\n<body>` file | `frontmatter.Parse(src, &meta)` |
+| Resolve XDG base directories | `paths.Resolve(getenv)` (`ConfigDir`/`DataDir`/`CacheDir`) |
+| Build a `core.ToolResult` for a tool's `Run` | the `errResult(call, msg)` (sets `IsError`) / `okResult(call, output)` pattern: copied privately into each tool-providing package (`service/tools`, `service/task`, `service/skills`) rather than shared, so those packages stay independent — copy the three lines, don't import one another |
+| Resolve a tool's `path` input against `rc.WorkDir` | `resolvePath(workDir, path)` in `service/tools` (also backs `subjectPath` for `ext.Subjecter`) |
+
+## Adding a tool, transform, or hook
+
+Everything a built-in registers goes through `internal/app/registry.go`'s
+`buildRegistry`, in one of four `addX(r *ext.Registry, d registryDeps) error`
+steps. Add your new extension's constructor to the relevant step's slice;
+`registryDeps` already carries the collaborators (store, bus, agents,
+skills, ...) most extensions need.
+
+**A tool** (`ext.Tool`, optionally `ext.Subjecter` if it takes a
+permission-relevant path or command):
+1. Implement it in the right `service/...` package (existing tools live in
+   `service/tools`, `service/skills`, `service/task`; a new capability
+   gets its own package if it needs its own state).
+2. Give it a permission default in `permission.Defaults()`
+   (`internal/service/permission/rules.go`) if it should ever be
+   allowed/denied by name rather than falling back to `ask`.
+3. Construct it and append it to `addTools`'s `all` slice in
+   `internal/app/registry.go`.
+
+**A `ContextTransform`** (mutates the outgoing `core.LLMRequest`, e.g. to
+inject prompt sections):
+1. Implement `Priority()` and `Transform(ctx, rc, req)` in a
+   `service/...` package (see `service/prompt` for the existing ones).
+2. Pick a `Priority()` relative to the others in `addTransforms` — lower
+   runs first.
+3. Append it to `addTransforms`'s `all` slice in
+   `internal/app/registry.go`.
+
+**A `ToolHook`** (observes or intercepts every tool call's `Before`/`After`):
+1. Implement `ext.ToolHook` in a `service/...` package (see
+   `service/permission` for the existing one).
+2. Register it in `addHooks` in `internal/app/registry.go` via
+   `r.AddToolHook(...)`. Hooks run in registration order; a `Block`
+   verdict from an earlier hook short-circuits later ones.
+3. If it needs to remember state across calls, give it its own mutex —
+   it may run concurrently with other tool calls in the same run.

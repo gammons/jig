@@ -1,6 +1,6 @@
 # jig v1 — Core Design
 
-- **Status:** draft, awaiting review
+- **Status:** implemented (Plan 1: headless); Plan 2 (TUI) pending
 - **Date:** 2026-09-27
 - **Module:** `github.com/gammons/jig` · **Binary:** `jig`
 

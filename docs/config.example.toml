@@ -1,0 +1,111 @@
+# jig example configuration.
+#
+# jig merges TOML files in this shape from two places (see README.md
+# "Config files" for the full discovery/merge rules):
+#   - the global file: $XDG_CONFIG_HOME/jig/config.toml (default
+#     ~/.config/jig/config.toml)
+#   - project files: <dir>/.jig/config.toml for each directory from the
+#     git root down to the current directory (or just the current
+#     directory outside a git repo)
+#
+# Copy this file to one of those locations and trim it to what you need;
+# every key below is optional. Later files win, merged key by key (see
+# README.md for exactly how each key merges).
+#
+# Every string value may contain "{env:VAR}" (substituted with the
+# environment variable, or "" if unset) and "{file:path}" (substituted
+# with that file's contents, path resolved relative to this file's
+# directory, "~" expanded to $HOME) tokens, expanded before the TOML is
+# parsed.
+
+# The model used when an agent and --model both leave it unset, and
+# there is no session model already in play. "provider/model".
+default_model = "anthropic/claude-sonnet-4-6"
+
+# The model used for cheap background work: session titles and
+# compaction summaries. Falls back to default_model when unset.
+small_model = "anthropic/claude-haiku-4-5-20251001"
+
+# Reserved for the TUI (Plan 2); headless jig ignores it today.
+theme = "dark"
+
+# Extra files (or globs) whose contents are appended to the system
+# prompt, in order. This is how jig picks up superpowers: point at the
+# using-superpowers SKILL.md, and the rest of the superpowers skills
+# directory is found by the [skills] paths below. This must come before
+# any "[table]" header below: TOML assigns a bare "key = value" line to
+# whichever table was most recently opened.
+instructions = ["~/.agents/skills/using-superpowers/SKILL.md"]
+
+# One [providers.<id>] table per provider. <id> need not match a
+# built-in provider name; jig also autodetects built-in providers (like
+# "anthropic") from their usual API key env vars with no config at all.
+[providers.anthropic]
+type = "anthropic"
+api_key = "{env:ANTHROPIC_API_KEY}"
+base_url = "https://api.anthropic.com"
+models = [
+  "claude-sonnet-4-6",
+  "claude-haiku-4-5-20251001",
+  "claude-opus-4-5-20251101",
+]
+
+# Provider-specific options passed through to the client. Replaced
+# wholesale by whichever file sets it last, not deep-merged.
+[providers.anthropic.options]
+max_tokens = 8192
+
+# Short names for models, usable anywhere a model ref is accepted
+# (--model, agents.<name>.model, default_model, small_model).
+[model_aliases]
+haiku = "anthropic/claude-haiku-4-5-20251001"
+sonnet = "anthropic/claude-sonnet-4-6"
+opus = "anthropic/claude-opus-4-5-20251101"
+
+# One [agents.<name>] table per agent to add or override. Overlaying a
+# built-in name (build, plan, explore, general) merges field by field
+# over the built-in; any other name defines a brand new agent.
+[agents.explore]
+description = "Read-only subagent for investigating the codebase."
+mode = "subagent"
+# Give the explore subagent a cheaper model than the primary agent.
+model = "haiku"
+prompt = "You investigate the codebase; never write files or run commands."
+max_steps = 40
+can_spawn = false
+hidden = false
+tools = ["read", "glob", "grep", "skill"]
+
+# Per-agent permission overrides: highest precedence, above [permissions]
+# below and jig's built-in defaults.
+[agents.explore.permissions]
+bash = "deny"
+
+[agents.plan]
+# Give the plan agent the most capable model.
+model = "opus"
+
+# Global permission rules, above jig's built-in defaults but below any
+# agents.<name>.permissions. Each tool's rule is either a bare action
+# ("allow"/"ask"/"deny") or a table of glob pattern -> action; the most
+# specific matching pattern wins, ties favor deny over ask over allow,
+# and an unmatched subject falls back to the rule's default action
+# ("ask" if none is given).
+[permissions]
+write = "ask"
+edit = "ask"
+
+[permissions.bash]
+"git status*" = "allow"
+"git diff*" = "allow"
+"rm *" = "deny"
+"*" = "ask"
+
+# Extra directories to search for skills (SKILL.md files), in addition
+# to jig's built-in skill locations (see README.md "Skills").
+[skills]
+paths = ["~/.agents/skills", ".jig/skills"]
+
+# Reserved for the TUI (Plan 2); headless jig ignores it today.
+[keybinds]
+quit = "ctrl+c"
