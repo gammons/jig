@@ -29,6 +29,11 @@ func NewGrep(s Searcher) ext.Tool {
 
 func (g *grepTool) Name() string { return "grep" }
 
+// Subject implements ext.Subjecter: the directory searched.
+func (g *grepTool) Subject(rc ext.RunContext, input json.RawMessage) string {
+	return searchSubject(rc, input)
+}
+
 func (g *grepTool) Description() string {
 	return "Search file contents for a regular expression (RE2 syntax), " +
 		"optionally restricted to files matching an include glob."

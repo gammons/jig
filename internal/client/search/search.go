@@ -10,6 +10,14 @@ import (
 	"time"
 )
 
+// maxLineChars bounds a Match's Text: longer lines keep their first
+// maxLineChars characters followed by longLineNote.
+const maxLineChars = 500
+
+// longLineNote marks a Match whose line was cut at maxLineChars, as rg's
+// --max-columns-preview prints it.
+const longLineNote = " [... omitted end of long line]"
+
 // Match is one line found by Grep.
 type Match struct {
 	Path string

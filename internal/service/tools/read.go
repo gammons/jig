@@ -15,6 +15,7 @@ const (
 	defaultReadLimit = 2000
 	maxLineChars     = 2000
 	binarySniffBytes = 8192
+	maxReadBytes     = 50 * 1024
 )
 
 // readInput is the JSON input read accepts.
@@ -51,6 +52,12 @@ func (r *readTool) Schema() map[string]any {
 }
 
 func (r *readTool) Concurrent() bool { return true }
+
+// Subject implements ext.Subjecter: the absolute path being read, resolved
+// the same way Run resolves it.
+func (r *readTool) Subject(rc ext.RunContext, input json.RawMessage) string {
+	return subjectPath(rc, input)
+}
 
 // Run implements ext.Tool.
 func (r *readTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCall) (core.ToolResult, error) {
@@ -160,7 +167,8 @@ func splitLines(content []byte) []string {
 
 // formatLines renders the [offset, offset+limit) window of content's lines
 // as "<n>: <line>", 1-based, truncating long lines and noting when more
-// lines remain. It returns an error message (and no output) if offset is
+// lines remain. It stops adding lines once the output would exceed
+// maxReadBytes, noting the offset to continue from. It returns an error message (and no output) if offset is
 // past the end of the file.
 func formatLines(path string, content []byte, offset, limit int) (string, string) {
 	lines := splitLines(content)
@@ -184,14 +192,22 @@ func formatLines(path string, content []byte, offset, limit int) (string, string
 		end = len(lines)
 	}
 
-	out := make([]string, 0, end-start+1)
+	var b strings.Builder
 	for i := start; i < end; i++ {
-		out = append(out, fmt.Sprintf("%d: %s", offset+i-start, truncateLine(lines[i])))
+		line := fmt.Sprintf("%d: %s", i+1, truncateLine(lines[i]))
+		if i > start && b.Len()+1+len(line) > maxReadBytes {
+			fmt.Fprintf(&b, "\n(output truncated at 50 KB; continue with offset %d)", i+1)
+			return b.String(), ""
+		}
+		if i > start {
+			b.WriteByte('\n')
+		}
+		b.WriteString(line)
 	}
 	if end < len(lines) {
-		out = append(out, fmt.Sprintf("(more lines; continue with offset %d)", end+1))
+		fmt.Fprintf(&b, "\n(more lines; continue with offset %d)", end+1)
 	}
-	return strings.Join(out, "\n"), ""
+	return b.String(), ""
 }
 
 // truncateLine truncates line to maxLineChars runes, appending "…" if it

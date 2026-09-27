@@ -1,10 +1,12 @@
 package search
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,27 +38,65 @@ func (s *rgSearcher) Glob(ctx context.Context, dir, pattern string, limit int) (
 	return sortAndLimitPaths(entries, limit), nil
 }
 
-// Grep runs `rg --line-number --no-heading --color never [--glob include]
-// -e <pattern>` in dir.
+// Grep runs `rg --line-number --no-heading --color never --sort path
+// --max-columns 500 --max-columns-preview [--glob include] -e <pattern>`
+// in dir, reading matches as rg prints them and killing rg once limit
+// matches have arrived. --sort path makes the first limit matches the same
+// ones a full, sorted search would keep.
 func (s *rgSearcher) Grep(ctx context.Context, dir, pattern, include string, limit int) ([]Match, error) {
-	args := []string{"--line-number", "--no-heading", "--color", "never"}
+	args := []string{
+		"--line-number", "--no-heading", "--color", "never", "--sort", "path",
+		"--max-columns", strconv.Itoa(maxLineChars), "--max-columns-preview",
+	}
 	if include != "" {
 		args = append(args, "--glob", include)
 	}
 	args = append(args, "-e", pattern)
 
-	lines, err := s.run(ctx, dir, args...)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.rgPath, args...)
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
 	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("search: rg: %w", err)
+	}
 
-	matches := make([]Match, 0, len(lines))
-	for _, line := range lines {
-		if m, ok := parseRgMatch(line); ok {
+	matches, full := scanMatches(stdout, limit)
+	if full {
+		cancel()
+		_ = cmd.Wait()
+		return sortMatches(matches), nil
+	}
+	if err := cmd.Wait(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("search: rg %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return sortMatches(matches), nil
+}
+
+// scanMatches parses rg output lines from r until EOF or, when limit > 0,
+// until limit matches are read (full reports the latter).
+func scanMatches(r io.Reader, limit int) (matches []Match, full bool) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	for sc.Scan() {
+		if m, ok := parseRgMatch(sc.Text()); ok {
 			matches = append(matches, m)
+			if limit > 0 && len(matches) >= limit {
+				return matches, true
+			}
 		}
 	}
-	return applyLimit(sortMatches(matches), limit), nil
+	return matches, false
 }
 
 // run executes rg with args in dir and returns its stdout split into

@@ -60,6 +60,11 @@ func (g *globTool) Schema() map[string]any {
 
 func (g *globTool) Concurrent() bool { return true }
 
+// Subject implements ext.Subjecter: the directory searched.
+func (g *globTool) Subject(rc ext.RunContext, input json.RawMessage) string {
+	return searchSubject(rc, input)
+}
+
 // Run implements ext.Tool.
 func (g *globTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCall) (core.ToolResult, error) {
 	if err := ctx.Err(); err != nil {
@@ -106,6 +111,23 @@ func resolveSearchPath(rc ext.RunContext, path string) (string, string) {
 		return "", "path must be inside the working directory or absolute"
 	}
 	return abs, ""
+}
+
+// searchSubject is glob's and grep's permission subject: the search
+// directory resolved exactly as Run resolves it (rc.WorkDir when "path" is
+// empty), or "" when input does not parse or the path is rejected.
+func searchSubject(rc ext.RunContext, input json.RawMessage) string {
+	var in struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(input, &in); err != nil {
+		return ""
+	}
+	dir, errMsg := resolveSearchPath(rc, in.Path)
+	if errMsg != "" {
+		return ""
+	}
+	return dir
 }
 
 // formatMatchLines renders glob's one-path-per-line output, noting when

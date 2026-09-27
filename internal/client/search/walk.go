@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // walker implements Searcher with filepath.WalkDir, for use when rg is not
@@ -124,10 +125,19 @@ func grepFile(fullPath, rel string, re *regexp.Regexp) []Match {
 		line++
 		text := scanner.Text()
 		if re.MatchString(text) {
-			matches = append(matches, Match{Path: rel, Line: line, Text: text})
+			matches = append(matches, Match{Path: rel, Line: line, Text: previewLine(text)})
 		}
 	}
 	return matches
+}
+
+// previewLine cuts text to maxLineChars runes, marking the cut the way
+// `rg --max-columns-preview` does.
+func previewLine(text string) string {
+	if utf8.RuneCountInString(text) <= maxLineChars {
+		return text
+	}
+	return string([]rune(text)[:maxLineChars]) + longLineNote
 }
 
 // matchGlob reports whether relPath (slash-separated) matches pattern,
