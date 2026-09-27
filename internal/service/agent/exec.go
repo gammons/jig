@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
@@ -14,6 +15,12 @@ import (
 
 // cancelledOutput is the result text of a call cut short by cancellation.
 const cancelledOutput = "cancelled"
+
+// maxToolOutput bounds a tool result's Output, in bytes.
+const maxToolOutput = 50 * 1024
+
+// truncatedNotice is appended to an Output cut at maxToolOutput.
+const truncatedNotice = "\n[output truncated at 50 KB]"
 
 // executor holds the per-step state execute shares across calls.
 type executor struct {
@@ -81,6 +88,7 @@ func (ex *executor) call(ctx context.Context, call core.ToolCall) core.ToolResul
 	base := event.Base{SessionID: ex.rc.SessionID}
 	ex.r.d.Bus.Publish(event.ToolCallStarted{Base: base, MessageID: ex.rc.MessageID, Call: call})
 	res := ex.guarded(ctx, call)
+	res.Output = capOutput(res.Output)
 	res.CallID, res.Name = call.ID, call.Name
 	ex.r.d.Bus.Publish(event.ToolCallFinished{Base: base, MessageID: ex.rc.MessageID, Result: res})
 	return res
@@ -144,9 +152,15 @@ func (ex *executor) before(ctx context.Context, tool ext.Tool, call core.ToolCal
 	return call, core.ToolResult{}, false
 }
 
-// runTool runs tool, turning a ctx error into "cancelled" and any other
-// error into an error result. Panics are recovered by guarded.
-func runTool(ctx context.Context, rc ext.RunContext, tool ext.Tool, call core.ToolCall) core.ToolResult {
+// runTool runs tool, turning a ctx error into "cancelled", any other error
+// into an error result, and a panic into an error result, so After hooks
+// still see every call whose Run ran.
+func runTool(ctx context.Context, rc ext.RunContext, tool ext.Tool, call core.ToolCall) (res core.ToolResult) {
+	defer func() {
+		if v := recover(); v != nil {
+			res = errorResult(fmt.Sprintf("tool %s panicked: %v", call.Name, v))
+		}
+	}()
 	res, err := tool.Run(ctx, rc, call)
 	switch {
 	case err != nil && ctx.Err() != nil:
@@ -184,6 +198,20 @@ func objectInput(input json.RawMessage) (json.RawMessage, error) {
 		return nil, fmt.Errorf("input is null, want a JSON object")
 	}
 	return input, nil
+}
+
+// capOutput cuts out to at most maxToolOutput bytes, backing off to a
+// UTF-8 rune boundary, and appends truncatedNotice when it cut anything.
+// It bounds every tool's result, built-in or not, after the After hooks.
+func capOutput(out string) string {
+	if len(out) <= maxToolOutput {
+		return out
+	}
+	cut := maxToolOutput
+	for cut > 0 && !utf8.RuneStart(out[cut]) {
+		cut--
+	}
+	return out[:cut] + truncatedNotice
 }
 
 func errorResult(msg string) core.ToolResult {
