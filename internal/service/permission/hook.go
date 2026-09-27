@@ -33,7 +33,7 @@ func NewHook(cfg core.PermissionRules, asker Asker) *Hook {
 
 // Before implements ext.ToolHook.
 func (h *Hook) Before(ctx context.Context, rc ext.RunContext, tool ext.Tool, call core.ToolCall) (core.ToolCall, ext.Verdict, error) {
-	subject := subjectOf(tool, call)
+	subject := subjectOf(tool, rc, call)
 	rule := Effective(rc.Agent.Permissions, h.cfg)[call.Name]
 
 	switch Evaluate(rule, subject) {
@@ -53,12 +53,12 @@ func (h *Hook) After(_ context.Context, _ ext.RunContext, _ ext.Tool, _ core.Too
 
 // subjectOf derives a call's permission subject from tool, when tool
 // implements ext.Subjecter, or "" otherwise.
-func subjectOf(tool ext.Tool, call core.ToolCall) string {
+func subjectOf(tool ext.Tool, rc ext.RunContext, call core.ToolCall) string {
 	s, ok := tool.(ext.Subjecter)
 	if !ok {
 		return ""
 	}
-	return s.Subject(call.Input)
+	return s.Subject(rc, call.Input)
 }
 
 // ask honors an existing session grant for call.Name/subject under rc's

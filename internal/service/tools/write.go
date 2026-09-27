@@ -52,9 +52,11 @@ func (w *writeTool) Schema() map[string]any {
 
 func (w *writeTool) Concurrent() bool { return false }
 
-// Subject implements ext.Subjecter: the subject is the cleaned absolute
-// path being written.
-func (w *writeTool) Subject(input json.RawMessage) string { return subjectPath(input) }
+// Subject implements ext.Subjecter: the subject is the absolute path
+// being written, resolved the same way Run resolves it.
+func (w *writeTool) Subject(rc ext.RunContext, input json.RawMessage) string {
+	return subjectPath(rc, input)
+}
 
 // Run implements ext.Tool.
 func (w *writeTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCall) (core.ToolResult, error) {

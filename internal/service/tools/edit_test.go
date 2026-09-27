@@ -250,6 +250,39 @@ func TestEdit_SameOldAndNewString(t *testing.T) {
 	}
 }
 
+func TestEdit_EmptyOldStringRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.txt")
+	if err := os.WriteFile(path, []byte("hello world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tr := NewTracker()
+	readThenGet(t, tr, dir, path)
+
+	tool := NewEdit(OSFS(), tr)
+	call := mustCall(t, "edit", map[string]any{"path": path, "old_string": "", "new_string": "hi"})
+	res, err := tool.Run(context.Background(), rcFor(dir), call)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("got IsError false, want true for an empty old_string")
+	}
+	want := "old_string must not be empty"
+	if res.Output != want {
+		t.Errorf("got %q, want %q", res.Output, want)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "hello world" {
+		t.Error("file was modified despite the refusal")
+	}
+}
+
 func TestEdit_InvalidJSON(t *testing.T) {
 	dir := t.TempDir()
 	tool := NewEdit(OSFS(), NewTracker())

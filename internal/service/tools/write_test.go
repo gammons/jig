@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gammons/jig/internal/core"
+	"github.com/gammons/jig/internal/core/ext"
 )
 
 func TestWrite_NewFileNoReadNeeded(t *testing.T) {
@@ -125,15 +126,16 @@ func TestWrite_ExistingAfterReadSucceedsAndKeepsMode(t *testing.T) {
 func TestWriteEdit_SubjectIsAbsPath(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "f.txt")
+	rc := rcFor(dir)
 
 	writeTool := NewWrite(OSFS(), NewTracker())
 	editTool := NewEdit(OSFS(), NewTracker())
 
-	writeSubjecter, ok := writeTool.(interface{ Subject(json.RawMessage) string })
+	writeSubjecter, ok := writeTool.(ext.Subjecter)
 	if !ok {
 		t.Fatal("write tool does not implement ext.Subjecter")
 	}
-	editSubjecter, ok := editTool.(interface{ Subject(json.RawMessage) string })
+	editSubjecter, ok := editTool.(ext.Subjecter)
 	if !ok {
 		t.Fatal("edit tool does not implement ext.Subjecter")
 	}
@@ -142,7 +144,7 @@ func TestWriteEdit_SubjectIsAbsPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := writeSubjecter.Subject(input); got != path {
+	if got := writeSubjecter.Subject(rc, input); got != path {
 		t.Errorf("write Subject: got %q, want %q", got, path)
 	}
 
@@ -150,12 +152,52 @@ func TestWriteEdit_SubjectIsAbsPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := editSubjecter.Subject(editInput); got != path {
+	if got := editSubjecter.Subject(rc, editInput); got != path {
 		t.Errorf("edit Subject: got %q, want %q", got, path)
 	}
 
-	if got := writeSubjecter.Subject(json.RawMessage("not json")); got != "" {
+	if got := writeSubjecter.Subject(rc, json.RawMessage("not json")); got != "" {
 		t.Errorf("Subject on unparsable input: got %q, want \"\"", got)
+	}
+}
+
+// TestWriteEdit_SubjectMatchesRunPath verifies that Subject and Run agree
+// on the absolute path a relative input path resolves to, using
+// rc.WorkDir rather than the process's cwd: this guards against the two
+// disagreeing when a subagent's WorkDir differs from the process cwd.
+func TestWriteEdit_SubjectMatchesRunPath(t *testing.T) {
+	dir := t.TempDir()
+	if cwd, err := os.Getwd(); err == nil && cwd == dir {
+		t.Fatalf("test setup: rc.WorkDir %q must differ from the process cwd", dir)
+	}
+	rc := rcFor(dir)
+	relPath := filepath.Join("sub", "f.txt")
+	wantAbs := filepath.Join(dir, "sub", "f.txt")
+
+	writeTool := NewWrite(OSFS(), NewTracker())
+	writeSubjecter, ok := writeTool.(ext.Subjecter)
+	if !ok {
+		t.Fatal("write tool does not implement ext.Subjecter")
+	}
+
+	input, err := json.Marshal(map[string]any{"path": relPath, "content": "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := writeSubjecter.Subject(rc, input); got != wantAbs {
+		t.Errorf("Subject: got %q, want %q", got, wantAbs)
+	}
+
+	call := mustCall(t, "write", map[string]any{"path": relPath, "content": "hi"})
+	res, err := writeTool.Run(context.Background(), rc, call)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("IsError: %s", res.Output)
+	}
+	if _, err := os.Stat(wantAbs); err != nil {
+		t.Errorf("Run did not write to the path Subject computed (%s): %v", wantAbs, err)
 	}
 }
 

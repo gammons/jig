@@ -65,6 +65,12 @@ func (r *readTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 	if in.Path == "" {
 		return errResult(call, "path is required"), nil
 	}
+	if in.Offset < 0 {
+		return errResult(call, "offset must be >= 1"), nil
+	}
+	if in.Limit < 0 {
+		return errResult(call, "limit must be >= 1"), nil
+	}
 
 	abs := resolvePath(rc.WorkDir, in.Path)
 
@@ -138,13 +144,18 @@ func looksBinary(content []byte) bool {
 
 // splitLines splits content into lines the way a line-oriented editor
 // would: a single trailing newline does not produce an extra empty final
-// line. An empty file yields no lines.
+// line, and a trailing "\r" (CRLF line endings) is stripped from every
+// line so CRLF files render cleanly. An empty file yields no lines.
 func splitLines(content []byte) []string {
 	if len(content) == 0 {
 		return nil
 	}
 	s := strings.TrimSuffix(string(content), "\n")
-	return strings.Split(s, "\n")
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimSuffix(line, "\r")
+	}
+	return lines
 }
 
 // formatLines renders the [offset, offset+limit) window of content's lines

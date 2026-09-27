@@ -29,7 +29,9 @@ type subjecterTool struct {
 	fakeTool
 }
 
-func (s subjecterTool) Subject(input json.RawMessage) string { return s.subjecter(input) }
+func (s subjecterTool) Subject(_ ext.RunContext, input json.RawMessage) string {
+	return s.subjecter(input)
+}
 
 // scriptedAsker returns a fixed reply/error for every Ask call, and records
 // the requests it received.

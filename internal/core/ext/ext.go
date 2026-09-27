@@ -37,9 +37,11 @@ type Tool interface {
 
 // Subjecter is an optional Tool extension that derives the permission
 // subject (what a call is really asking permission for, e.g. a shell
-// command or a file path) from the tool's raw input.
+// command or a file path) from the call's RunContext and raw input. Tools
+// that resolve relative paths (or other rc-dependent values) must use the
+// same resolution rc gives Run, so Subject and Run can never disagree.
 type Subjecter interface {
-	Subject(input json.RawMessage) string
+	Subject(rc RunContext, input json.RawMessage) string
 }
 
 // Verdict is a ToolHook's decision about whether a tool call may proceed.

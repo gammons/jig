@@ -51,9 +51,11 @@ func (e *editTool) Schema() map[string]any {
 
 func (e *editTool) Concurrent() bool { return false }
 
-// Subject implements ext.Subjecter: the subject is the cleaned absolute
-// path being edited.
-func (e *editTool) Subject(input json.RawMessage) string { return subjectPath(input) }
+// Subject implements ext.Subjecter: the subject is the absolute path
+// being edited, resolved the same way Run resolves it.
+func (e *editTool) Subject(rc ext.RunContext, input json.RawMessage) string {
+	return subjectPath(rc, input)
+}
 
 // Run implements ext.Tool.
 func (e *editTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCall) (core.ToolResult, error) {
@@ -122,6 +124,9 @@ func parseEditInput(raw json.RawMessage) (editInput, string) {
 	}
 	if in.NewString == nil {
 		return editInput{}, "new_string is required"
+	}
+	if *in.OldString == "" {
+		return editInput{}, "old_string must not be empty"
 	}
 	if *in.OldString == *in.NewString {
 		return editInput{}, "old_string and new_string must differ"

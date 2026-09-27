@@ -243,6 +243,73 @@ func TestRead_RefusesCanceledContext(t *testing.T) {
 	}
 }
 
+func TestRead_NegativeOffsetRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewRead(OSFS(), NewTracker())
+	call := mustCall(t, "read", map[string]any{"path": path, "offset": -1})
+	res, err := tool.Run(context.Background(), rcFor(dir), call)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("got IsError false, want true for a negative offset")
+	}
+	want := "offset must be >= 1"
+	if res.Output != want {
+		t.Errorf("got %q, want %q", res.Output, want)
+	}
+}
+
+func TestRead_NegativeLimitRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewRead(OSFS(), NewTracker())
+	call := mustCall(t, "read", map[string]any{"path": path, "limit": -5})
+	res, err := tool.Run(context.Background(), rcFor(dir), call)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("got IsError false, want true for a negative limit")
+	}
+	want := "limit must be >= 1"
+	if res.Output != want {
+		t.Errorf("got %q, want %q", res.Output, want)
+	}
+}
+
+func TestRead_CRLFLinesStripped(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.txt")
+	if err := os.WriteFile(path, []byte("one\r\ntwo\r\nthree\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewRead(OSFS(), NewTracker())
+	call := mustCall(t, "read", map[string]any{"path": path})
+	res, err := tool.Run(context.Background(), rcFor(dir), call)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("IsError: %s", res.Output)
+	}
+
+	want := "1: one\n2: two\n3: three"
+	if res.Output != want {
+		t.Errorf("got %q, want %q", res.Output, want)
+	}
+}
+
 func TestRead_RelativePathResolvesAgainstWorkDir(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("hi\n"), 0o644); err != nil {

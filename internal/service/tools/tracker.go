@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gammons/jig/internal/core"
+	"github.com/gammons/jig/internal/core/ext"
 )
 
 // FS is the file-system capability read, write, and edit need. OSFS
@@ -117,21 +118,19 @@ func resolvePath(workDir, path string) string {
 	return filepath.Clean(filepath.Join(workDir, path))
 }
 
-// subjectPath extracts and resolves the "path" field of a tool's raw JSON
-// input to a cleaned absolute path, for use as an ext.Subjecter subject.
-// It returns "" if input does not parse or has no path.
-func subjectPath(input json.RawMessage) string {
+// subjectPath extracts the "path" field of a tool's raw JSON input and
+// resolves it exactly as Run does (via resolvePath, against rc.WorkDir),
+// for use as an ext.Subjecter subject. It returns "" if input does not
+// parse or has no path, so Subject and Run can never disagree about where
+// a relative path points.
+func subjectPath(rc ext.RunContext, input json.RawMessage) string {
 	var in struct {
 		Path string `json:"path"`
 	}
 	if err := json.Unmarshal(input, &in); err != nil || in.Path == "" {
 		return ""
 	}
-	abs, err := filepath.Abs(in.Path)
-	if err != nil {
-		return ""
-	}
-	return filepath.Clean(abs)
+	return resolvePath(rc.WorkDir, in.Path)
 }
 
 // errResult builds an IsError ToolResult for call with msg as its output.
