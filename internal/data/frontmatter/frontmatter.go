@@ -21,13 +21,20 @@ const delimiter = "---"
 // everything after the closing line's newline as body. If src does not
 // open with "---", meta is left untouched and body is src unchanged. CRLF
 // line endings are supported: they are treated like "\n" when locating the
-// delimiters, but body keeps its original bytes. An opening delimiter with
-// no closing delimiter is an error.
+// delimiters, but body keeps its original bytes. A delimiter line may carry
+// trailing whitespace (spaces or tabs) before its line ending. A closing
+// delimiter line may also be the last line of src with no trailing newline
+// at all, in which case body is "". An opening delimiter with no matching
+// closing delimiter anywhere in src is an error.
+//
+// Note: a line that is exactly "---" (ignoring trailing whitespace) inside
+// a YAML block scalar in the frontmatter body would be mistaken for the
+// closing delimiter; Parse does not track YAML block-scalar nesting.
 func Parse(src []byte, meta any) (string, error) {
 	data := bytes.TrimPrefix(src, []byte(utf8BOM))
 
 	firstNL := bytes.IndexByte(data, '\n')
-	if firstNL < 0 || trimCR(data[:firstNL]) != delimiter {
+	if firstNL < 0 || !isDelimiterLine(data[:firstNL]) {
 		return string(src), nil
 	}
 
@@ -36,10 +43,19 @@ func Parse(src []byte, meta any) (string, error) {
 	for {
 		next := bytes.IndexByte(data[pos:], '\n')
 		if next < 0 {
+			// No more newlines: the rest of src is the last line. If it is
+			// itself a closing delimiter, it terminates the block with an
+			// empty body; otherwise the block was never closed.
+			if isDelimiterLine(data[pos:]) {
+				if err := unmarshalYAML(data[yamlStart:pos], meta); err != nil {
+					return "", err
+				}
+				return "", nil
+			}
 			return "", fmt.Errorf("frontmatter: unterminated frontmatter block: no closing %q line", delimiter)
 		}
 		lineEnd := pos + next
-		if trimCR(data[pos:lineEnd]) == delimiter {
+		if isDelimiterLine(data[pos:lineEnd]) {
 			if err := unmarshalYAML(data[yamlStart:pos], meta); err != nil {
 				return "", err
 			}
@@ -49,10 +65,11 @@ func Parse(src []byte, meta any) (string, error) {
 	}
 }
 
-// trimCR strips a trailing "\r" from b (present when the source line ended
-// in "\r\n") and returns it as a string for delimiter comparison.
-func trimCR(b []byte) string {
-	return string(bytes.TrimSuffix(b, []byte("\r")))
+// isDelimiterLine reports whether b is a "---" delimiter line: b, with a
+// trailing "\r" (from a CRLF line ending) and any trailing spaces/tabs
+// removed, equals exactly "---".
+func isDelimiterLine(b []byte) bool {
+	return string(bytes.TrimRight(b, " \t\r")) == delimiter
 }
 
 // unmarshalYAML decodes b into meta, treating an all-whitespace block (the

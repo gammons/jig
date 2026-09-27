@@ -94,6 +94,36 @@ func TestParse_BOMBeforeOpeningDelimiter(t *testing.T) {
 	}
 }
 
+func TestParse_ClosingAtEOF(t *testing.T) {
+	src := "---\ntitle: Hi\n---"
+	var m meta
+	body, err := Parse([]byte(src), &m)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if m.Title != "Hi" {
+		t.Errorf("Title = %q, want %q", m.Title, "Hi")
+	}
+	if body != "" {
+		t.Errorf("body = %q, want %q", body, "")
+	}
+}
+
+func TestParse_DelimiterTrailingWhitespace(t *testing.T) {
+	src := "---  \ntitle: Hi\n---\t\nBody\n"
+	var m meta
+	body, err := Parse([]byte(src), &m)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if m.Title != "Hi" {
+		t.Errorf("Title = %q, want %q", m.Title, "Hi")
+	}
+	if body != "Body\n" {
+		t.Errorf("body = %q, want %q", body, "Body\n")
+	}
+}
+
 func TestParse_NotDelimiterOnFirstLine(t *testing.T) {
 	src := "---not-a-delimiter\nrest\n"
 	var m meta
