@@ -20,6 +20,19 @@ func write(t *testing.T, path, content string) {
 	}
 }
 
+func sameFile(t *testing.T, a, b string) bool {
+	t.Helper()
+	ra, err := filepath.EvalSymlinks(a)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", a, err)
+	}
+	rb, err := filepath.EvalSymlinks(b)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", b, err)
+	}
+	return ra == rb
+}
+
 func TestAgentsFiles_ClaudeFallbackPerLevel(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
@@ -183,9 +196,27 @@ func TestInstructions_DedupByAbsolutePathWithRelativeBaseDir(t *testing.T) {
 	if !filepath.IsAbs(files[0].Path) {
 		t.Errorf("Path = %q, want an absolute path", files[0].Path)
 	}
+	// The returned path may be tmp's physical form (macOS Getwd resolves
+	// /var to /private/var), so compare resolved forms.
 	want := filepath.Join(tmp, "sub", "one.md")
-	if files[0].Path != want {
-		t.Errorf("Path = %q, want %q", files[0].Path, want)
+	if !sameFile(t, files[0].Path, want) {
+		t.Errorf("Path = %q, want %q (or its resolved form)", files[0].Path, want)
+	}
+}
+
+func TestInstructions_DedupThroughSymlinkedDir(t *testing.T) {
+	baseDir := t.TempDir()
+	write(t, filepath.Join(baseDir, "real", "one.md"), "content\n")
+	if err := os.Symlink(filepath.Join(baseDir, "real"), filepath.Join(baseDir, "link")); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := Instructions([]string{"real/one.md", "link/one.md"}, baseDir, baseDir)
+	if err != nil {
+		t.Fatalf("Instructions: %v", err)
+	}
+	if len(files) != 1 {
+		t.Errorf("files = %+v, want 1 (same file through a symlinked dir)", files)
 	}
 }
 

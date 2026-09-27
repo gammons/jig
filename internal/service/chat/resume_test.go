@@ -3,6 +3,8 @@ package chat
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -47,6 +49,27 @@ func TestSend_ResumeInOtherCwdIsConfigError(t *testing.T) {
 	want := "session " + string(first.SessionID) + " belongs to " + f.workDir + "; re-run with --cwd " + f.workDir
 	if ce.Error() != want {
 		t.Errorf("err = %q, want %q", ce.Error(), want)
+	}
+}
+
+func TestSend_ResumeThroughSymlinkedCwd(t *testing.T) {
+	f := newFixture(t, llmtest.New(llmtest.Text("first"), llmtest.Text("second")), llmtest.New(llmtest.Text("T")))
+	first, err := f.svc.Send(context.Background(), core.SendRequest{Text: "one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(f.workDir, link); err != nil {
+		t.Fatal(err)
+	}
+	d := f.deps
+	d.WorkDir = link
+	other := New(d)
+	t.Cleanup(func() { _ = other.Close(context.Background()) })
+
+	if _, err := other.Send(context.Background(), core.SendRequest{SessionID: first.SessionID, Text: "two"}); err != nil {
+		t.Errorf("resume through symlinked cwd: err = %v, want nil", err)
 	}
 }
 

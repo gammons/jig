@@ -11,6 +11,7 @@ import (
 
 	"github.com/gammons/jig/internal/data/fsroot"
 	"github.com/gammons/jig/internal/data/paths"
+	"github.com/gammons/jig/internal/pathid"
 )
 
 // File is a context file's path and content.
@@ -59,7 +60,7 @@ func projectChain(gitRoot, workDir string) []string {
 }
 
 // Instructions resolves patterns (config's "instructions" list) into files,
-// in pattern order, de-duplicated by resolved absolute path. Each pattern
+// in pattern order, de-duplicated by pathid.Key (symlinks resolved). Each pattern
 // has "~" expanded against home; if the result is still relative, it is
 // resolved against baseDir. A pattern containing any of "*?[" is a glob:
 // filepath.Glob's matches are sorted and included, and an unmatched glob is
@@ -101,17 +102,18 @@ func Instructions(patterns []string, baseDir, home string) ([]File, error) {
 	return files, nil
 }
 
-// loadFile reads path and returns a *File, or nil if path's absolute form
-// was already in seen. It marks path as seen either way.
+// loadFile reads path and returns a *File, or nil if path's identity key
+// (symlinks resolved) was already in seen. It marks path as seen either way.
 func loadFile(path string, seen map[string]bool) (*File, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
 	}
-	if seen[abs] {
+	key := pathid.Key(path)
+	if seen[key] {
 		return nil, nil
 	}
-	seen[abs] = true
+	seen[key] = true
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

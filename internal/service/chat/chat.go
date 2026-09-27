@@ -12,6 +12,7 @@ import (
 
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/ext"
+	"github.com/gammons/jig/internal/pathid"
 	"github.com/gammons/jig/internal/service/session"
 )
 
@@ -167,7 +168,8 @@ func (s *Service) prepare(ctx context.Context, req core.SendRequest) (plan, erro
 
 // resume loads session id for a follow-up Send. A missing session, or one
 // started in a different working directory, is a ConfigError; any other
-// load failure is a run error.
+// load failure is a run error. Directories are compared by pathid.Key, so a
+// symlinked path to the session's Cwd resumes.
 func (s *Service) resume(ctx context.Context, id core.SessionID) (core.Session, error) {
 	sess, err := s.d.Sessions.Get(ctx, id)
 	switch {
@@ -175,7 +177,7 @@ func (s *Service) resume(ctx context.Context, id core.SessionID) (core.Session, 
 		return core.Session{}, configErr("session %q: %w", id, err)
 	case err != nil:
 		return core.Session{}, fmt.Errorf("session %q: %w", id, err)
-	case sess.Cwd != s.d.WorkDir:
+	case pathid.Key(sess.Cwd) != pathid.Key(s.d.WorkDir):
 		return core.Session{}, configErr("session %s belongs to %s; re-run with --cwd %s", id, sess.Cwd, sess.Cwd)
 	}
 	return sess, nil

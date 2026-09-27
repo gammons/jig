@@ -221,8 +221,14 @@ func TestRun_Dir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run err = %v, want nil", err)
 	}
+	// pwd may print the logical path (e.g. /var/... on macOS, where /var
+	// is a symlink to /private/var), so compare resolved forms.
 	got := strings.TrimSpace(string(res.Output))
-	if got != resolved {
-		t.Errorf("pwd output = %q, want %q", got, resolved)
+	gotResolved, err := filepath.EvalSymlinks(got)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", got, err)
+	}
+	if gotResolved != resolved {
+		t.Errorf("pwd output = %q (resolves to %q), want %q", got, gotResolved, resolved)
 	}
 }

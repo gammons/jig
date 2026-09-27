@@ -30,6 +30,7 @@ configuration or input are `*chat.ConfigError` (headless exit 2).
 cmd/jig/main.go                         entry: os.Exit(app.Run(...))
 internal/clock/                         Clock interface, Real, Fake
 internal/ids/                           sortable ID generator
+internal/pathid/                        path identity key (symlinks resolved)
 internal/archtest/                      architecture tests + allowlist
 internal/core/                          value types + ports (no services)
 internal/core/event/                    events + Bus
@@ -152,6 +153,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Scripted model for e2e tests (tag `jigtest`) | `jigtest.Script` + `writeScript`/`jigtestConfig` in `e2e/harness_test.go` |
 | One-shot, tool-less LLM call returning joined text | `agent.Complete(ctx, llm, system, user)` |
 | Session title placeholder (first line, ≤50 runes) | `session.PlaceholderTitle(text)` |
+| Compare two paths for identity (symlinks, macOS `/var` → `/private/var`) | `pathid.Key(p)` (`EvalSymlinks`, falling back to `Abs`) |
 | Expand a leading `~`/`~/` in a config path | `paths.ExpandHome(p, home)` |
 | Find a project's git root from a directory | `fsroot.GitRoot(dir)` |
 | Walk root→leaf ancestor directories for context/skill discovery | `fsroot.Chain(root, dir)` |
