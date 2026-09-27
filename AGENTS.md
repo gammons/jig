@@ -4,8 +4,8 @@
 
 ```
 make build      # go build -o bin/jig ./cmd/jig
-make test       # go test ./... -race
-make lint       # golangci-lint run
+make test       # go test ./... -race, then the jigtest-tagged e2e + jigtest tests
+make lint       # golangci-lint run, with and without --build-tags jigtest
 make fmt-check  # gofmt -l . must be empty
 make check      # all of the above
 ```
@@ -120,6 +120,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Value types shared across layers (Message, Session, ModelRef, Agent, Config, Rule, ...) | `internal/core` |
 | Service ports the UIs call (`ChatService`, `SessionService`, `PermissionService`) | `internal/core` (`ports.go`) |
 | Fake LLM for service tests | `llmtest.New(llmtest.Text(...), ...)` |
+| Scripted model for e2e tests (tag `jigtest`) | `jigtest.Script` + `writeScript`/`jigtestConfig` in `e2e/harness_test.go` |
 | One-shot, tool-less LLM call returning joined text | `agent.Complete(ctx, llm, system, user)` |
 | Session title placeholder (first line, ≤50 runes) | `session.PlaceholderTitle(text)` |
 | Expand a leading `~`/`~/` in a config path | `paths.ExpandHome(p, home)` |
