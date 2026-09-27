@@ -83,6 +83,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   `ext.View`.
 - All time comes from `internal/clock`; no `time.Now()` or `time.Sleep` in
   `_test.go` files.
+- Tools return `IsError` results, not Go errors, except for ctx
+  cancellation.
 
 ## Shared code — check here before writing a helper
 
