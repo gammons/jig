@@ -1,0 +1,96 @@
+// Package ext defines the extension points every built-in and future
+// plugin registers through: tools, permission hooks, context transforms,
+// event subscribers, commands, keybinds, and provider factories. Registry
+// collects them at startup; View is the read-only, frozen snapshot that
+// runtime code depends on.
+package ext
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+
+	"github.com/gammons/jig/internal/core"
+	"github.com/gammons/jig/internal/core/event"
+)
+
+// RunContext carries the identifiers and settings ambient to a single tool
+// call, hook invocation, or context transform within a run.
+type RunContext struct {
+	SessionID core.SessionID
+	RootID    core.SessionID
+	MessageID core.MessageID
+	Agent     core.Agent
+	Model     core.ModelRef
+	WorkDir   string
+	Depth     int
+}
+
+// Tool is an executable capability the model can call.
+type Tool interface {
+	Name() string
+	Description() string
+	Schema() map[string]any
+	Concurrent() bool
+	Run(ctx context.Context, rc RunContext, call core.ToolCall) (core.ToolResult, error)
+}
+
+// Subjecter is an optional Tool extension that derives the permission
+// subject (what a call is really asking permission for, e.g. a shell
+// command or a file path) from the tool's raw input.
+type Subjecter interface {
+	Subject(input json.RawMessage) string
+}
+
+// Verdict is a ToolHook's decision about whether a tool call may proceed.
+type Verdict struct {
+	Block  bool
+	Reason string
+}
+
+// ToolHook observes and may intercept every tool call.
+type ToolHook interface {
+	// Before runs before the tool executes. It may rewrite the call and/or
+	// block it. tool is resolved by the Runner, so hooks never need the
+	// registry.
+	Before(ctx context.Context, rc RunContext, tool Tool, call core.ToolCall) (core.ToolCall, Verdict, error)
+	// After runs once the tool has produced a result, and may rewrite it.
+	After(ctx context.Context, rc RunContext, tool Tool, call core.ToolCall, res core.ToolResult) core.ToolResult
+}
+
+// ContextTransform mutates an LLMRequest before it is sent, e.g. to inject
+// skills or trim history. Transforms run in ascending Priority order.
+type ContextTransform interface {
+	Priority() int
+	Transform(ctx context.Context, rc RunContext, req *core.LLMRequest) error
+}
+
+// EventSubscriber observes events published on the event.Bus.
+type EventSubscriber interface {
+	Handle(ctx context.Context, e event.Event)
+}
+
+// Command is a user-invocable slash command.
+type Command interface {
+	Name() string
+	Description() string
+	Run(ctx context.Context, args []string) error
+}
+
+// Keybind maps a key in a UI Mode to a Command name. When two Keybinds
+// share the same Mode and Key, the later-registered one wins.
+type Keybind struct {
+	Mode    string
+	Key     string
+	Command string
+}
+
+// ProviderFactory constructs a core.LLM for a given provider Type.
+type ProviderFactory interface {
+	Type() string
+	New(info core.ProviderInfo, cfg core.ProviderConfig, model string) (core.LLM, error)
+}
+
+// ErrFrozen is returned by every Registry Add* method once Freeze has been
+// called.
+var ErrFrozen = errors.New("ext: registry is frozen")

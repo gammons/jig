@@ -79,6 +79,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 - No I/O in `ui`.
 - The extension registry is frozen after startup: it is populated once and
   then read without locks.
+- All built-ins register through `ext.Registry`; runtime code depends on
+  `ext.View`.
 - All time comes from `internal/clock`; no `time.Now()` or `time.Sleep` in
   `_test.go` files.
 
