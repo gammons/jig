@@ -3,12 +3,14 @@ module github.com/gammons/jig
 go 1.27
 
 require (
+	charm.land/catwalk v0.52.56
 	github.com/BurntSushi/toml v1.6.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.59.0
 )
 
 require (
+	github.com/charmbracelet/x/etag v0.2.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
