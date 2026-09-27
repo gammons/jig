@@ -20,6 +20,12 @@ outside world only through small interfaces they declare. The UI learns about
 progress through an in-process event bus. `internal/app` is the only package
 that knows the concrete types.
 
+The UIs call services only through three ports in `internal/core/ports.go`:
+`core.ChatService` (implemented by `service/chat`), `core.SessionService`
+(implemented by `service/session`), and `core.PermissionService`
+(implemented by `permission.BusAsker`). `chat.Send` failures caused by
+configuration or input are `*chat.ConfigError` (headless exit 2).
+
 ```
 cmd/jig/main.go                         entry: os.Exit(app.Run(...))
 internal/clock/                         Clock interface, Real, Fake
@@ -87,6 +93,12 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   cancellation.
 - The agent Runner writes exactly one assistant message per model step; the
   results of that step's tool calls are parts on the same message.
+- The model sees `session.Service.History`: the last message holding a
+  `PartCompaction` and everything after it (all messages if none).
+  Compaction and title requests run on `agents.SmallModel(resolved model)`.
+- Session read-modify-writes (`Touch`, title save) go through
+  `session.Service`'s mutex; don't `Get`+`Update` a session concurrently
+  with a run.
 - `agent.Proxy` is the only setter-style late binding (for the task tool);
   `Set` panics if called twice.
 
@@ -99,6 +111,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Value types shared across layers (Message, Session, ModelRef, Agent, Config, Rule, ...) | `internal/core` |
 | Service ports the UIs call (`ChatService`, `SessionService`, `PermissionService`) | `internal/core` (`ports.go`) |
 | Fake LLM for service tests | `llmtest.New(llmtest.Text(...), ...)` |
+| One-shot, tool-less LLM call returning joined text | `agent.Complete(ctx, llm, system, user)` |
+| Session title placeholder (first line, ≤50 runes) | `session.PlaceholderTitle(text)` |
 | Expand a leading `~`/`~/` in a config path | `paths.ExpandHome(p, home)` |
 | Find a project's git root from a directory | `fsroot.GitRoot(dir)` |
 | Walk root→leaf ancestor directories for context/skill discovery | `fsroot.Chain(root, dir)` |
