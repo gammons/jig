@@ -87,8 +87,15 @@ func (b *BusAsker) Ask(ctx context.Context, req Request) (core.PermissionReply, 
 
 // Reply resolves the pending request named requestID, publishing
 // PermissionResolved and unblocking the matching Ask call. It returns an
-// error for an unknown or already-resolved id.
+// error for an unknown or already-resolved id, or for a Kind that isn't
+// one of ReplyOnce, ReplyAlways, or ReplyDeny; an invalid Kind leaves the
+// request pending instead of resolving it, so a buggy UI gets immediate
+// feedback and the caller can retry with a valid reply.
 func (b *BusAsker) Reply(requestID string, r core.PermissionReply) error {
+	if !validReplyKind(r.Kind) {
+		return fmt.Errorf("permission: invalid reply kind %q", r.Kind)
+	}
+
 	b.mu.Lock()
 	p, ok := b.pending[requestID]
 	if ok {
@@ -107,6 +114,17 @@ func (b *BusAsker) Reply(requestID string, r core.PermissionReply) error {
 		Reply:     r,
 	})
 	return nil
+}
+
+// validReplyKind reports whether kind is one of the three ReplyKind values
+// a PermissionReply is allowed to carry.
+func validReplyKind(kind core.ReplyKind) bool {
+	switch kind {
+	case core.ReplyOnce, core.ReplyAlways, core.ReplyDeny:
+		return true
+	default:
+		return false
+	}
 }
 
 // Pending returns the number of outstanding requests: those published but

@@ -123,6 +123,56 @@ func TestBusAsker_ReplyUnknownIDErrors(t *testing.T) {
 	}
 }
 
+func TestBusAsker_ReplyInvalidKindErrors(t *testing.T) {
+	bus := event.NewBus()
+	sub := bus.Subscribe()
+	defer sub.Close()
+
+	b := NewBusAsker(bus, newGen())
+
+	resCh := make(chan error, 1)
+	go func() {
+		_, err := b.Ask(context.Background(), Request{SessionID: core.SessionID("s1"), Tool: "bash"})
+		resCh <- err
+	}()
+
+	e := recvEvent(t, sub)
+	pr := e.(event.PermissionRequested)
+
+	err := b.Reply(pr.RequestID, core.PermissionReply{Kind: "bogus"})
+	if err == nil {
+		t.Fatal("Reply: want error for invalid kind, got nil")
+	}
+	want := `permission: invalid reply kind "bogus"`
+	if err.Error() != want {
+		t.Errorf("Reply err = %q, want %q", err.Error(), want)
+	}
+
+	// The request must still be pending: an invalid Kind must not resolve
+	// it, so Ask is still blocked and Pending() still counts it.
+	if b.Pending() != 1 {
+		t.Errorf("Pending() after invalid Reply = %d, want 1 (request must stay pending)", b.Pending())
+	}
+	select {
+	case err := <-resCh:
+		t.Fatalf("Ask returned early (err=%v), want it still blocked", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// A valid Reply for the same id must still work.
+	if err := b.Reply(pr.RequestID, core.PermissionReply{Kind: core.ReplyOnce}); err != nil {
+		t.Fatalf("Reply with valid kind: %v", err)
+	}
+	select {
+	case err := <-resCh:
+		if err != nil {
+			t.Fatalf("Ask err = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Ask to return after valid Reply")
+	}
+}
+
 func TestAsk_ContextCancelUnblocks(t *testing.T) {
 	bus := event.NewBus()
 	sub := bus.Subscribe()

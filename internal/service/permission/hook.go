@@ -79,14 +79,19 @@ func (h *Hook) ask(ctx context.Context, rc ext.RunContext, call core.ToolCall, s
 	case core.ReplyAlways:
 		h.grant(root, call.Name, subject)
 		return call, ext.Verdict{}, nil
+	case core.ReplyOnce:
+		return call, ext.Verdict{}, nil
 	case core.ReplyDeny:
 		reason := "user denied"
 		if reply.Message != "" {
 			reason = "user denied: " + reply.Message
 		}
 		return call, ext.Verdict{Block: true, Reason: reason}, nil
-	default: // core.ReplyOnce
-		return call, ext.Verdict{}, nil
+	default:
+		// Fail closed: an unrecognized Kind (including the zero value)
+		// must never pass a call. Never surface reply.Message here, since
+		// it came from an untrusted/invalid reply.
+		return call, ext.Verdict{Block: true, Reason: "user denied"}, nil
 	}
 }
 

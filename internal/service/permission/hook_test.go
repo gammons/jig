@@ -220,6 +220,88 @@ func TestHook_UsesSubjecterAndAgentPermissions(t *testing.T) {
 	}
 }
 
+func TestHook_UnknownReplyKindBlocks(t *testing.T) {
+	cfg := core.PermissionRules{"write": {Default: core.Ask}}
+	tool := fakeTool{name: "write"}
+	call := core.ToolCall{ID: "1", Name: "write"}
+
+	for _, kind := range []core.ReplyKind{"", "bogus"} {
+		t.Run(string(kind), func(t *testing.T) {
+			// A message is set to confirm it is ignored: fail-closed
+			// blocks with a bare "user denied", never leaking whatever
+			// the unrecognized reply happened to carry.
+			asker := &scriptedAsker{reply: core.PermissionReply{Kind: kind, Message: "should be ignored"}}
+			h := NewHook(cfg, asker)
+			_, v, err := h.Before(context.Background(), rc("s1", "s1", nil), tool, call)
+			if err != nil {
+				t.Fatalf("Before: %v", err)
+			}
+			if !v.Block {
+				t.Fatal("Verdict.Block = false, want true (fail closed on unknown reply kind)")
+			}
+			want := "user denied"
+			if v.Reason != want {
+				t.Errorf("Verdict.Reason = %q, want %q", v.Reason, want)
+			}
+		})
+	}
+}
+
+func TestHook_RootKeyFallsBackToSessionID(t *testing.T) {
+	cfg := core.PermissionRules{"write": {Default: core.Ask}}
+	asker := &scriptedAsker{reply: core.PermissionReply{Kind: core.ReplyAlways}}
+	h := NewHook(cfg, asker)
+	tool := fakeTool{name: "write"}
+	call := core.ToolCall{ID: "1", Name: "write"}
+
+	// RootID is empty on both calls, so grants must key on SessionID.
+	_, v, err := h.Before(context.Background(), rc("s1", "", nil), tool, call)
+	if err != nil || v.Block {
+		t.Fatalf("Before first call: v=%+v err=%v", v, err)
+	}
+	if len(asker.requests) != 1 {
+		t.Fatalf("asker calls = %d, want 1", len(asker.requests))
+	}
+
+	// Same SessionID, RootID still empty: grant must be honored.
+	_, v, err = h.Before(context.Background(), rc("s1", "", nil), tool, call)
+	if err != nil || v.Block {
+		t.Fatalf("Before second call (same session): v=%+v err=%v", v, err)
+	}
+	if len(asker.requests) != 1 {
+		t.Fatalf("asker calls after grant = %d, want 1 (grant should have been used)", len(asker.requests))
+	}
+
+	// Different SessionID, RootID still empty: must not see the grant.
+	_, v, err = h.Before(context.Background(), rc("s2", "", nil), tool, call)
+	if err != nil || v.Block {
+		t.Fatalf("Before third call (different session): v=%+v err=%v", v, err)
+	}
+	if len(asker.requests) != 2 {
+		t.Fatalf("asker calls under s2 = %d, want 2 (grant must not cross sessions)", len(asker.requests))
+	}
+}
+
+func TestHook_EmptyToolNameGoesToAskPath(t *testing.T) {
+	// No cfg or agent rule names "", and Defaults() doesn't either, so
+	// Evaluate falls back to an empty Rule{} -> empty Default -> Ask.
+	asker := &scriptedAsker{reply: core.PermissionReply{Kind: core.ReplyOnce}}
+	h := NewHook(core.PermissionRules{}, asker)
+	tool := fakeTool{name: ""}
+	call := core.ToolCall{ID: "1", Name: ""}
+
+	_, v, err := h.Before(context.Background(), rc("s1", "s1", nil), tool, call)
+	if err != nil {
+		t.Fatalf("Before: %v", err)
+	}
+	if v.Block {
+		t.Errorf("Verdict.Block = true, want false")
+	}
+	if len(asker.requests) != 1 {
+		t.Fatalf("asker calls = %d, want 1 (empty tool name must still go through Ask)", len(asker.requests))
+	}
+}
+
 func TestHook_After_ReturnsResultUnchanged(t *testing.T) {
 	h := NewHook(nil, &scriptedAsker{})
 	res := core.ToolResult{CallID: "1", Output: "hi"}
