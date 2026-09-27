@@ -8,19 +8,19 @@ import (
 
 	"charm.land/catwalk/pkg/catwalk"
 
+	"github.com/gammons/jig/internal/client/catalog"
 	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/data/agentfs"
 	"github.com/gammons/jig/internal/data/skillfs"
 	"github.com/gammons/jig/internal/data/store"
 	"github.com/gammons/jig/internal/service/agents"
-
-	"github.com/gammons/jig/internal/client/catalog"
 )
 
-// defaultCatwalkURL is the public catwalk service. catwalk.New() falls
-// back to localhost, so jig names the public one unless CATWALK_URL is set.
-const defaultCatwalkURL = "https://catwalk.charm.sh"
+// defaultCatwalkURL is the public catwalk service (the same default crush
+// uses). catwalk.New() falls back to http://localhost:8080, so jig names
+// the public one explicitly unless CATWALK_URL is set.
+const defaultCatwalkURL = "https://catwalk.charm.land"
 
 // openStore opens the SQLite store at <DataDir>/jig.db.
 func openStore(ctx context.Context, e env) (*store.Store, error) {

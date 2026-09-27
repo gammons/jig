@@ -108,7 +108,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   by publishing an app-local marker event and waiting for the renderer to
   reach it before closing the subscription.
 - The catalog refresh uses `$CATWALK_URL`, defaulting to
-  `https://catwalk.charm.sh`; it runs in the background and is never
+  `https://catwalk.charm.land`; it runs in the background and is never
   awaited.
 
 ## Shared code — check here before writing a helper

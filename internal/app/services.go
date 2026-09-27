@@ -38,12 +38,12 @@ func newRuntime(ctx context.Context, e env, asker permission.Asker, errw io.Writ
 		return nil, err
 	}
 	cat := newCatalog(e, clk)
-	startRefresh(ctx, cat)
 	rt := &runtime{bus: event.NewBus(), store: st}
 	if rt.chat, err = newChat(e, rt, cat, asker, errw); err != nil {
 		st.Close()
 		return nil, err
 	}
+	startRefresh(ctx, cat)
 	return rt, nil
 }
 

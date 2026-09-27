@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/gammons/jig/internal/core"
@@ -43,15 +44,7 @@ type drained struct{ event.Base }
 // returns the exit code. Send's error is printed only when the renderer
 // has not already reported it as the root session's RunFailed.
 func (rt *runtime) headless(ctx context.Context, opts runOpts, std Stdio) int {
-	sub := rt.bus.Subscribe()
-	feed, failed := make(chan event.Event), make(chan map[core.SessionID]bool, 1)
-	go forward(sub.C(), feed, failed)
-	done := make(chan struct{})
-	go func() {
-		plain.New(std.Out, std.Err).Run(feed)
-		close(done)
-	}()
-
+	r := startRendering(rt.bus, std.Out, std.Err)
 	res, err := rt.chat.Send(ctx, core.SendRequest{
 		SessionID: core.SessionID(opts.session),
 		Agent:     opts.agent,
@@ -62,10 +55,7 @@ func (rt *runtime) headless(ctx context.Context, opts runOpts, std Stdio) int {
 	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
 	_ = rt.chat.Close(closeCtx)
 	cancel()
-	rt.bus.Publish(drained{})
-	reported := <-failed
-	sub.Close()
-	<-done
+	reported := r.finish()
 
 	if err == nil {
 		return exitOK
@@ -74,6 +64,44 @@ func (rt *runtime) headless(ctx context.Context, opts runOpts, std Stdio) int {
 		fmt.Fprintln(std.Err, "error:", err)
 	}
 	return exitCode(err)
+}
+
+// rendering is a plain renderer fed from a bus subscription.
+type rendering struct {
+	bus    *event.Bus
+	sub    *event.Subscription
+	failed chan map[core.SessionID]bool
+	done   chan struct{}
+}
+
+// startRendering subscribes to bus and renders its events to out and
+// errw until finish is called.
+func startRendering(bus *event.Bus, out, errw io.Writer) *rendering {
+	r := &rendering{
+		bus:    bus,
+		sub:    bus.Subscribe(),
+		failed: make(chan map[core.SessionID]bool, 1),
+		done:   make(chan struct{}),
+	}
+	feed := make(chan event.Event)
+	go forward(r.sub.C(), feed, r.failed)
+	go func() {
+		plain.New(out, errw).Run(feed)
+		close(r.done)
+	}()
+	return r
+}
+
+// finish renders every event published before it was called, then stops
+// rendering and returns the sessions that published RunFailed. Closing
+// the subscription discards undelivered events, so finish first publishes
+// a drained marker and waits for the renderer's feed to reach it.
+func (r *rendering) finish() map[core.SessionID]bool {
+	r.bus.Publish(drained{})
+	reported := <-r.failed
+	r.sub.Close()
+	<-r.done
+	return reported
 }
 
 // forward copies events from in to out until it sees drained, then

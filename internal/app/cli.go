@@ -36,15 +36,37 @@ func parseRun(args []string, errw io.Writer) (runOpts, error) {
 	fs.BoolVar(&o.yes, "yes", false, "allow every tool call that would ask for permission")
 	fs.StringVar(&o.session, "session", "", "session ID to continue")
 	fs.StringVar(&o.cwd, "cwd", "", "working directory (default: current directory)")
-	if err := fs.Parse(args); err != nil {
+	words, err := parseInterspersed(fs, args)
+	if err != nil {
 		return runOpts{}, ErrUsage
 	}
-	o.prompt = strings.TrimSpace(strings.Join(fs.Args(), " "))
+	o.prompt = strings.TrimSpace(strings.Join(words, " "))
 	if o.prompt == "" {
 		fs.Usage()
 		return runOpts{}, ErrUsage
 	}
 	return o, nil
+}
+
+// parseInterspersed parses fs's flags anywhere in args and returns the
+// positional args in order. A "--" ends flag parsing: everything after it
+// is positional.
+func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
+	var words []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		rest := fs.Args()
+		if consumed := len(args) - len(rest); consumed > 0 && args[consumed-1] == "--" {
+			return append(words, rest...), nil
+		}
+		if len(rest) == 0 {
+			return words, nil
+		}
+		words = append(words, rest[0])
+		args = rest[1:]
+	}
 }
 
 // parseModels parses `jig models [provider]`.

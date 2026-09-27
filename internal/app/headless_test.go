@@ -1,6 +1,8 @@
 package app
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -83,6 +86,51 @@ models = ["m1"]
 	}
 	if !strings.HasPrefix(stderr, "error: ") || strings.Count(stderr, "\n") != 1 {
 		t.Errorf("stderr = %q, want exactly one error line", stderr)
+	}
+}
+
+func TestRun_CancelDuringRunExits1(t *testing.T) {
+	env := newTestEnv(t)
+	streaming := make(chan struct{})
+	var once sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if !strings.Contains(string(body), `"tools"`) {
+			io.WriteString(w, sseMessage("end_turn", sseText("Title")))
+			return
+		}
+		io.WriteString(w, sseEvent("message_start", `{"type":"message_start","message":{"model":"m1","id":"msg_1","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}}`))
+		w.(http.Flusher).Flush()
+		once.Do(func() { close(streaming) })
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+	env.writeConfig(t, fmt.Sprintf(`
+default_model = "fake/m1"
+[providers.fake]
+type = "anthropic"
+base_url = %q
+api_key = "k"
+models = ["m1"]
+`, srv.URL))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() {
+		select {
+		case <-streaming:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	var out, errw bytes.Buffer
+	code := Run(ctx, []string{"run", "--cwd", env.workDir, "hi"}, Stdio{Out: &out, Err: &errw}, env.getenv)
+	if code != exitRunFailed {
+		t.Errorf("exit = %d, want %d (stderr %q)", code, exitRunFailed, errw.String())
+	}
+	if !strings.HasPrefix(errw.String(), "error: ") || strings.Count(errw.String(), "\n") != 1 {
+		t.Errorf("stderr = %q, want exactly one error line", errw.String())
 	}
 }
 

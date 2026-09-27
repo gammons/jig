@@ -34,6 +34,34 @@ func TestCLI_ParseRunDefaults(t *testing.T) {
 	}
 }
 
+func TestCLI_ParseRunInterspersedFlags(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want runOpts
+	}{
+		{"flags after prompt", []string{"fix tests", "--yes", "--cwd", "/x"},
+			runOpts{yes: true, cwd: "/x", prompt: "fix tests"}},
+		{"flags between words", []string{"fix", "--model", "a/b", "tests"},
+			runOpts{model: "a/b", prompt: "fix tests"}},
+		{"double dash ends flags", []string{"--", "--yes"},
+			runOpts{prompt: "--yes"}},
+		{"double dash mid prompt", []string{"--agent", "plan", "say", "--", "--cwd", "x"},
+			runOpts{agent: "plan", prompt: "say --cwd x"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseRun(tc.args, &bytes.Buffer{})
+			if err != nil {
+				t.Fatalf("parseRun: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("parseRun(%q) = %+v, want %+v", tc.args, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCLI_EmptyPromptUsage(t *testing.T) {
 	for _, args := range [][]string{nil, {"--yes"}, {"  ", ""}} {
 		if _, err := parseRun(args, &bytes.Buffer{}); err == nil {
