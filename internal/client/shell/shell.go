@@ -4,7 +4,6 @@
 package shell
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,19 +11,29 @@ import (
 	"time"
 )
 
-// Spec describes a command to run.
+// Spec describes a command to run. If SpillPath is set, the full combined
+// output is streamed to that file as it is produced (created 0o600),
+// independent of TailBytes. If TailBytes is positive, memory retains only
+// the last TailBytes bytes of output instead of the whole thing.
 type Spec struct {
-	Command string
-	Dir     string
-	Timeout time.Duration
+	Command   string
+	Dir       string
+	Timeout   time.Duration
+	SpillPath string
+	TailBytes int
 }
 
 // Result is the outcome of running a Spec. Output is stdout and stderr
-// combined into a single buffer, in the order the process wrote to them.
+// combined into a single buffer, in the order the process wrote to them,
+// bounded to the last TailBytes bytes when Spec.TailBytes was positive.
+// TotalBytes is the full combined size actually produced, and Truncated
+// reports whether Output is missing some of it.
 type Result struct {
-	Output   []byte
-	ExitCode int
-	TimedOut bool
+	Output     []byte
+	ExitCode   int
+	TimedOut   bool
+	Truncated  bool
+	TotalBytes int64
 }
 
 // Runner runs shell commands via bash -c (sh -c if bash is not on PATH).
@@ -47,28 +56,42 @@ func (Runner) Run(ctx context.Context, s Spec) (Result, error) {
 	cmd := exec.CommandContext(runCtx, shellName(), "-c", s.Command)
 	cmd.Dir = s.Dir
 
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	cap, capErr := newCapture(s.TailBytes, s.SpillPath)
+	if capErr != nil {
+		return Result{}, fmt.Errorf("shell: spill file: %w", capErr)
+	}
+	cmd.Stdout = cap
+	cmd.Stderr = cap
 	configureProcessGroup(cmd)
 
 	err := cmd.Run()
+	_ = cap.Close()
+
+	build := func(exitCode int, timedOut bool) Result {
+		return Result{
+			Output:     cap.tail(),
+			ExitCode:   exitCode,
+			TimedOut:   timedOut,
+			Truncated:  s.TailBytes > 0 && cap.total > int64(s.TailBytes),
+			TotalBytes: cap.total,
+		}
+	}
 
 	if s.Timeout > 0 && errors.Is(runCtx.Err(), context.DeadlineExceeded) {
-		return Result{Output: out.Bytes(), ExitCode: -1, TimedOut: true}, nil
+		return build(-1, true), nil
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return Result{Output: out.Bytes(), ExitCode: -1}, ctxErr
+		return build(-1, false), ctxErr
 	}
 
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
-		return Result{Output: out.Bytes(), ExitCode: exitErr.ExitCode()}, nil
+		return build(exitErr.ExitCode(), false), nil
 	}
 	if err != nil {
-		return Result{Output: out.Bytes()}, fmt.Errorf("shell: %w", err)
+		return build(0, false), fmt.Errorf("shell: %w", err)
 	}
-	return Result{Output: out.Bytes(), ExitCode: 0}, nil
+	return build(0, false), nil
 }
 
 // shellName returns "bash" if it is on PATH, else "sh"; exec.Command
