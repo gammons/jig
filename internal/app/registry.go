@@ -1,7 +1,6 @@
 package app
 
 import (
-	"os"
 	"os/exec"
 	goruntime "runtime"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/gammons/jig/internal/data/contextfs"
 	"github.com/gammons/jig/internal/data/fsroot"
 	"github.com/gammons/jig/internal/data/store"
+	"github.com/gammons/jig/internal/ids"
 	"github.com/gammons/jig/internal/service/agent"
 	"github.com/gammons/jig/internal/service/agents"
 	"github.com/gammons/jig/internal/service/permission"
@@ -35,6 +35,8 @@ type registryDeps struct {
 	agents   *agents.Service
 	proxy    *agent.Proxy
 	asker    permission.Asker
+	ids      *ids.Gen
+	spillDir string
 }
 
 // buildRegistry registers every built-in tool, hook, transform, and
@@ -57,7 +59,7 @@ func addTools(r *ext.Registry, d registryDeps) error {
 		tools.NewRead(fsys, tr),
 		tools.NewWrite(fsys, tr),
 		tools.NewEdit(fsys, tr),
-		tools.NewBash(shellAdapter{shell.Runner{}}, os.TempDir()),
+		tools.NewBash(shellAdapter{shell.Runner{}}, d.spillDir, d.ids),
 		tools.NewGlob(srch),
 		tools.NewGrep(srch),
 		tools.NewTodo(d.store, d.bus),

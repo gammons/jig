@@ -185,3 +185,34 @@ func TestCapture_CloseErrorRecordedAsSpillErr(t *testing.T) {
 		t.Errorf("SpillErr = %v, want it to wrap os.ErrClosed", c.SpillErr())
 	}
 }
+
+// TestCapture_SpillRefusesExistingFile verifies the spill file is created
+// exclusively with mode 0600: an existing file (or a symlink planted at
+// the path) is never opened or overwritten.
+func TestCapture_SpillRefusesExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.log")
+	if err := os.WriteFile(path, []byte("precious"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := newCapture(10, path)
+	if c.SpillErr() == nil {
+		t.Error("SpillErr = nil, want an error for an existing spill path")
+	}
+	_, _ = c.Write([]byte("clobber"))
+	_ = c.Close()
+	if data, _ := os.ReadFile(path); string(data) != "precious" {
+		t.Errorf("existing file = %q, want it untouched", data)
+	}
+
+	fresh := filepath.Join(dir, "fresh.log")
+	c = newCapture(10, fresh)
+	_ = c.Close()
+	info, err := os.Stat(fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("spill mode = %o, want 600", perm)
+	}
+}

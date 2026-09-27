@@ -21,7 +21,8 @@ type capture struct {
 }
 
 // newCapture returns a capture ready to receive writes. If spillPath is
-// non-empty, it is created (or truncated) with mode 0o600 and every write
+// non-empty, it is created with mode 0o600 (failing if it already exists,
+// so a planted file or symlink is never followed) and every write
 // is mirrored to it; if that open fails, capture still buffers normally
 // and SpillErr reports the failure.
 func newCapture(tailBytes int, spillPath string) *capture {
@@ -30,7 +31,7 @@ func newCapture(tailBytes int, spillPath string) *capture {
 		c.buf = make([]byte, 0, tailBytes)
 	}
 	if spillPath != "" {
-		f, err := os.OpenFile(spillPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, spillMode)
+		f, err := os.OpenFile(spillPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, spillMode)
 		if err != nil {
 			c.spillErr = err
 			return c

@@ -47,7 +47,7 @@ func TestBash_TruncatesAndSavesFullOutput(t *testing.T) {
 		fullOutput: []byte(full),
 	}
 
-	tool := NewBash(sh, dir)
+	tool := NewBash(sh, dir, &seqIDs{})
 	call := mustCall(t, "bash", map[string]any{"command": "produce-big-output"})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -57,7 +57,7 @@ func TestBash_TruncatesAndSavesFullOutput(t *testing.T) {
 		t.Fatalf("IsError: %s", res.Output)
 	}
 
-	wantPath := filepath.Join(dir, fmt.Sprintf("jig-bash-%s.log", call.ID))
+	wantPath := filepath.Join(dir, "jig-bash-out_1.log")
 	if sh.gotSpec.SpillPath != wantPath {
 		t.Errorf("SpillPath = %q, want %q", sh.gotSpec.SpillPath, wantPath)
 	}
@@ -88,7 +88,7 @@ func TestBash_NonZeroExitNotError(t *testing.T) {
 		result: ShellResult{Output: []byte("boom"), ExitCode: 2, TotalBytes: 4},
 	}
 
-	tool := NewBash(sh, dir)
+	tool := NewBash(sh, dir, &seqIDs{})
 	call := mustCall(t, "bash", map[string]any{"command": "false"})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -103,7 +103,7 @@ func TestBash_NonZeroExitNotError(t *testing.T) {
 	}
 
 	// Spill file should be removed since output was not truncated.
-	spillPath := filepath.Join(dir, fmt.Sprintf("jig-bash-%s.log", call.ID))
+	spillPath := filepath.Join(dir, "jig-bash-out_1.log")
 	if _, err := os.Stat(spillPath); !os.IsNotExist(err) {
 		t.Errorf("spill file should have been removed, stat err = %v", err)
 	}
@@ -115,7 +115,7 @@ func TestBash_TimeoutCappedAndError(t *testing.T) {
 		result: ShellResult{Output: []byte("partial"), TimedOut: true, TotalBytes: 7},
 	}
 
-	tool := NewBash(sh, dir)
+	tool := NewBash(sh, dir, &seqIDs{})
 	call := mustCall(t, "bash", map[string]any{"command": "sleep 1000", "timeout_ms": 700000})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -135,7 +135,7 @@ func TestBash_TimeoutCappedAndError(t *testing.T) {
 func TestBash_DefaultAndInvalidTimeout(t *testing.T) {
 	dir := t.TempDir()
 	sh := &fakeShell{result: ShellResult{Output: []byte("ok")}}
-	tool := NewBash(sh, dir)
+	tool := NewBash(sh, dir, &seqIDs{})
 
 	// timeout_ms omitted -> default 120000ms.
 	call := mustCall(t, "bash", map[string]any{"command": "echo hi"})
@@ -159,7 +159,7 @@ func TestBash_DefaultAndInvalidTimeout(t *testing.T) {
 func TestBash_SubjectIsCommand(t *testing.T) {
 	dir := t.TempDir()
 	sh := &fakeShell{}
-	tool := NewBash(sh, dir)
+	tool := NewBash(sh, dir, &seqIDs{})
 	subjecter, ok := tool.(ext.Subjecter)
 	if !ok {
 		t.Fatal("bash tool does not implement ext.Subjecter")
@@ -178,7 +178,7 @@ func TestBash_SubjectIsCommand(t *testing.T) {
 func TestBash_MissingCommand(t *testing.T) {
 	dir := t.TempDir()
 	sh := &fakeShell{}
-	tool := NewBash(sh, dir)
+	tool := NewBash(sh, dir, &seqIDs{})
 
 	call := mustCall(t, "bash", map[string]any{})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
@@ -193,7 +193,7 @@ func TestBash_MissingCommand(t *testing.T) {
 func TestBash_RefusesCanceledContext(t *testing.T) {
 	dir := t.TempDir()
 	sh := &fakeShell{}
-	tool := NewBash(sh, dir)
+	tool := NewBash(sh, dir, &seqIDs{})
 	call := mustCall(t, "bash", map[string]any{"command": "echo hi"})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -211,7 +211,7 @@ func TestBash_RefusesCanceledContext(t *testing.T) {
 func TestBash_ShellErrorBecomesIsError(t *testing.T) {
 	dir := t.TempDir()
 	sh := &fakeShell{err: errors.New("boom")}
-	tool := NewBash(sh, dir)
+	tool := NewBash(sh, dir, &seqIDs{})
 	call := mustCall(t, "bash", map[string]any{"command": "echo hi"})
 
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
@@ -248,7 +248,7 @@ func TestBash_ShellErrorWithCanceledContextPropagatesErr(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sh := &cancelingShell{cancel: cancel, err: errors.New("boom")}
-	tool := NewBash(sh, dir)
+	tool := NewBash(sh, dir, &seqIDs{})
 	call := mustCall(t, "bash", map[string]any{"command": "echo hi"})
 
 	_, err := tool.Run(ctx, rcFor(dir), call)
@@ -270,7 +270,7 @@ func TestBash_TruncatedWithSpillErrorMessage(t *testing.T) {
 			SpillErr:   errors.New("disk full"),
 		},
 	}
-	tool := NewBash(sh, dir)
+	tool := NewBash(sh, dir, &seqIDs{})
 	call := mustCall(t, "bash", map[string]any{"command": "echo hi"})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {

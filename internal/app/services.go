@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"io"
+	"os"
 
 	"github.com/gammons/jig/internal/client/catalog"
 	"github.com/gammons/jig/internal/client/llm"
@@ -23,9 +24,10 @@ import (
 // runtime is a fully wired jig: the one event bus, the store backing it,
 // and the chat service the UIs drive.
 type runtime struct {
-	bus   *event.Bus
-	store *store.Store
-	chat  *chat.Service
+	bus      *event.Bus
+	store    *store.Store
+	chat     *chat.Service
+	spillDir string // private (0700) per-process dir for bash spill files
 }
 
 // newRuntime builds every service for e. asker answers permission
@@ -37,10 +39,15 @@ func newRuntime(ctx context.Context, e env, asker permission.Asker, errw io.Writ
 	if err != nil {
 		return nil, err
 	}
-	cat := newCatalog(e, clk)
-	rt := &runtime{bus: event.NewBus(), store: st}
-	if rt.chat, err = newChat(e, rt, cat, asker, errw); err != nil {
+	spillDir, err := os.MkdirTemp("", "jig-*")
+	if err != nil {
 		st.Close()
+		return nil, err
+	}
+	cat := newCatalog(e, clk)
+	rt := &runtime{bus: event.NewBus(), store: st, spillDir: spillDir}
+	if rt.chat, err = newChat(e, rt, cat, asker, errw); err != nil {
+		_ = rt.close()
 		return nil, err
 	}
 	startRefresh(ctx, cat)
@@ -67,7 +74,7 @@ func newChat(e env, rt *runtime, cat *catalog.Catalog, asker permission.Asker, e
 	view, err := buildRegistry(registryDeps{
 		env: e, clk: clk, bus: rt.bus, store: rt.store,
 		skills: skills.New(disc.skills, skillFS{}), sessions: sess, agents: ag,
-		proxy: proxy, asker: asker,
+		proxy: proxy, asker: asker, ids: idGen, spillDir: rt.spillDir,
 	})
 	if err != nil {
 		return nil, err
@@ -92,7 +99,11 @@ func providerView() (ext.View, error) {
 	return r.Freeze(), nil
 }
 
-// close releases rt's store.
+// close releases rt's store and removes its spill dir.
 func (rt *runtime) close() error {
-	return rt.store.Close()
+	rmErr := os.RemoveAll(rt.spillDir)
+	if err := rt.store.Close(); err != nil {
+		return err
+	}
+	return rmErr
 }

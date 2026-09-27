@@ -81,3 +81,29 @@ func TestE2E_UnknownModelAliasExits2(t *testing.T) {
 		t.Errorf("stderr = %q, want it to name the alias", stderr)
 	}
 }
+
+// TestE2E_CancelledBashLeavesNoSpillFiles interrupts a running bash call
+// and checks jig removed its private spill dir from TMPDIR.
+func TestE2E_CancelledBashLeavesNoSpillFiles(t *testing.T) {
+	env := newEnv(t)
+	tmp := filepath.Join(env.root, "tmp")
+	mkdir(t, tmp)
+	env.vars = append(env.vars, "TMPDIR="+tmp)
+	script := writeScript(t, env, "script.json", jigtest.Script{Models: map[string][]jigtest.Turn{
+		"m1": {{Calls: []jigtest.Call{call("../../b1", "bash", `{"command":"sleep 30"}`)}}},
+	}})
+	writeConfig(t, env, jigtestConfig(script, ""))
+
+	stderr, code := runUntilBashThenInterrupt(t, env, "--yes", "run something slow")
+	wantCode(t, code, 1, "", stderr)
+	entries, err := os.ReadDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("TMPDIR holds %v after the run, want it empty", entries)
+	}
+	if _, err := os.Stat(filepath.Join(env.root, "b1.log")); !os.IsNotExist(err) {
+		t.Errorf("spill file escaped via call ID: %v", err)
+	}
+}

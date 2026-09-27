@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/data/store"
+	"github.com/gammons/jig/internal/service/permission"
 )
 
 // testEnv is an isolated set of XDG dirs, a work dir, and an environment
@@ -288,5 +290,34 @@ func TestWarnProviderOptions_SkipsJigtestAndEmpty(t *testing.T) {
 		"warning: providers.zeta.options is not supported yet and is ignored\n"
 	if buf.String() != want {
 		t.Errorf("output = %q, want %q", buf.String(), want)
+	}
+}
+
+func TestRuntime_PrivateSpillDirRemovedOnClose(t *testing.T) {
+	env := newTestEnv(t)
+	t.Setenv("TMPDIR", t.TempDir())
+	e, err := loadEnv(env.workDir, env.getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt, err := newRuntime(t.Context(), e, permission.StaticAsker{}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(rt.spillDir)
+	if err != nil {
+		t.Fatalf("spill dir: %v", err)
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0o700 || !strings.HasPrefix(filepath.Base(rt.spillDir), "jig-") {
+		t.Errorf("spill dir %s mode %v, want a 0700 jig-* dir", rt.spillDir, info.Mode())
+	}
+	if err := os.WriteFile(filepath.Join(rt.spillDir, "jig-bash-out_1.log"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if _, err := os.Stat(rt.spillDir); !os.IsNotExist(err) {
+		t.Errorf("spill dir after close: stat err = %v, want not-exist", err)
 	}
 }

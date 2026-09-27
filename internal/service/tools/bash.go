@@ -49,16 +49,24 @@ type bashInput struct {
 	Description string `json:"description,omitempty"`
 }
 
+// IDSource mints unique, prefixed IDs (ids.Gen satisfies it).
+type IDSource interface {
+	Next(prefix string) string
+}
+
 // bashTool implements ext.Tool for the "bash" tool.
 type bashTool struct {
 	sh      Shell
 	tempDir string
+	ids     IDSource
 }
 
 // NewBash returns the "bash" tool, backed by sh. Full output over
-// bashTailBytes is spilled to tempDir.
-func NewBash(sh Shell, tempDir string) ext.Tool {
-	return &bashTool{sh: sh, tempDir: tempDir}
+// bashTailBytes is spilled to a file in tempDir, which should be private
+// to this process, named jig-bash-<id>.log with an id from ids (never the
+// provider's call ID, which is untrusted).
+func NewBash(sh Shell, tempDir string, ids IDSource) ext.Tool {
+	return &bashTool{sh: sh, tempDir: tempDir, ids: ids}
 }
 
 func (b *bashTool) Name() string { return "bash" }
@@ -104,7 +112,7 @@ func (b *bashTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 	}
 
 	timeoutMS := clampTimeoutMS(in.TimeoutMS)
-	spillPath := filepath.Join(b.tempDir, fmt.Sprintf("jig-bash-%s.log", call.ID))
+	spillPath := filepath.Join(b.tempDir, "jig-bash-"+b.ids.Next("out")+".log")
 
 	res, err := b.sh.Run(ctx, ShellSpec{
 		Command:   in.Command,
@@ -114,6 +122,7 @@ func (b *bashTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 		TailBytes: bashTailBytes,
 	})
 	if err != nil {
+		_ = os.Remove(spillPath)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return core.ToolResult{}, ctxErr
 		}
