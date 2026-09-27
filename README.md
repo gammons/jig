@@ -46,17 +46,19 @@ jig run [--agent A] [--model M] [--yes] [--session ID] [--cwd DIR] <prompt...>
   "Agents" below). Built-in primary agents are `build` (full tool
   access) and `plan` (asks before write/edit/bash).
 - `--model M` — a model ref, `provider/model` (e.g.
-  `anthropic/claude-opus-4-5-20251101`). It sets the *session's* model,
+  `anthropic/claude-opus-4-5-20251101`), or a `[model_aliases]` name
+  (e.g. `--model haiku`). It sets the *session's* model,
   which persists across turns in that session (`--session ID`) once
   set. It does **not** override an agent that has its own configured
   `model` — see "Models and per-agent models" for the full precedence.
-  Unlike `agents.<name>.model`, `--model` does not accept a
-  `[model_aliases]` name — pass the full `provider/model` ref.
+  An unknown alias is a configuration error (exit code 2).
 - `--yes` — allow every tool call that would otherwise ask for
   permission. Headless jig has no one to ask, so without `--yes` an
   `ask` rule denies the call (see "Permissions").
 - `--session ID` — continue an existing session instead of starting a
-  new one (see `jig sessions` for IDs).
+  new one (see `jig sessions` for IDs). The session must have been
+  started in the same working directory; otherwise jig exits 2 with
+  `session <id> belongs to <dir>; re-run with --cwd <dir>`.
 - `--cwd DIR` — run as if jig were started in DIR (default: the current
   directory). Config discovery, git-root detection, and tool paths all
   follow this directory.
@@ -105,6 +107,9 @@ the last file that sets them; `[providers.<id>]` and `[agents.<name>]`
 merge field by field; `[permissions]` (and `[agents.<name>.permissions]`)
 merge per tool, with `Default` replaced and patterns merged; `[skills]
 paths` and `instructions` are appended and de-duplicated.
+`[providers.<id>.options]` is not supported yet: `jig run` ignores it
+and prints `warning: providers.<id>.options is not supported yet and is
+ignored`.
 
 Every string value in a config file may contain substitution tokens,
 expanded before the TOML is parsed:
@@ -135,13 +140,15 @@ nothing set: either configure `default_model` or pass `--model`.
 
 `small_model` is used for cheap background work — session titles and
 conversation compaction — falling back to the run's already-resolved
-model when unset. `default_model` and `small_model` are both
-`provider/model` refs.
+model when unset. `default_model` and `small_model` are each a
+`provider/model` ref or a `[model_aliases]` name.
 
-`[model_aliases]` gives short names to models, usable in
-`agents.<name>.model` (TOML or markdown-frontmatter) in place of a
-`provider/model` ref — `default_model`, `small_model`, and `--model`
-always need the full ref:
+`[model_aliases]` gives short names to models, usable anywhere a model
+ref is accepted: `--model`, `default_model`, `small_model`, and
+`agents.<name>.model` (TOML or markdown frontmatter). A value
+containing `/` is always a `provider/model` ref; anything else must be
+an alias, and an undefined alias is a configuration error (exit code 2)
+naming the key that used it:
 
 ```toml
 [model_aliases]
@@ -238,13 +245,36 @@ be a bare action or a table of glob pattern to action, e.g.:
 
 The most specific matching pattern wins (ties favor `deny` over `ask`
 over `allow`); an unmatched call falls back to the rule's default
-action (`ask` if none is given).
+action (`ask` if none is given). The pattern's subject is the command
+for `bash`, the resolved absolute path for `read`, `write`, and `edit`,
+and the resolved search directory for `glob` and `grep` — so, e.g.,
+`[permissions.read]` `"*.env" = "deny"` blocks reading any `.env` file.
+
+A `bash` command allowed by a *pattern* (not by the tool's default) is
+downgraded to `ask` if it contains any of `;`, `&`, `|`, `` ` ``,
+`$(`, `>`, `<`, or a newline: `"git status*" = "allow"` allows
+`git status --short` but asks for `git status; rm -rf x`.
+
+**Subagents never exceed their parents.** A subagent spawned via
+`task` is checked against its own rules *and* the rules of every agent
+above it, and the most restrictive result wins (`deny` > `ask` >
+`allow`). So `--agent plan` (bash = `ask`) delegating to `general`
+still asks before bash, even if config sets `bash = "allow"`.
 
 **Headless mode never actually asks anyone.** An `ask` rule denies the
 call, explaining that the run needs `--yes`, unless `jig run` was
 invoked with `--yes`, in which case every `ask` is allowed for that
 run. `deny` always blocks, `--yes` or not. This is the standing
 interactive-permission-prompt behavior planned for the TUI in Plan 2.
+
+## Output limits
+
+Every tool result the model sees is capped at 50 KB (cut at a UTF-8
+boundary, with `[output truncated at 50 KB]` appended). `read` stops
+before 50 KB and says which `offset` to continue from; `grep` lines are
+cut to 500 characters and the search stops once 100 matches are found;
+`bash` keeps the last 30 KB of output and saves the full output to a
+private per-run temp directory (mode 0700, removed when jig exits).
 
 ## Development
 

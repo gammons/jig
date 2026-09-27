@@ -98,6 +98,28 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   `_test.go` files.
 - Tools return `IsError` results, not Go errors, except for ctx
   cancellation.
+- The executor caps every tool result at 50 KB (after the After hooks),
+  so a tool never needs its own cap for context safety; `read`, `grep`,
+  and `bash` still bound their own output more tightly.
+- `ToolHook.After` runs only when the tool's `Run` ran (including errors,
+  panics, and cancellation), never for blocked, unknown, or invalid
+  calls.
+- Permissions: `permission.Hook` evaluates the current agent's rules and
+  every entry of `rc.Ancestors` (each merged over config) and takes the
+  most restrictive action; `task` appends the parent's rules to the
+  child's `Ancestors`. A `bash` allow from a pattern is downgraded to ask
+  when the command has shell metacharacters. Session grants apply only
+  to `ask`.
+- Model strings go through `agents.ParseRef`/`Service.ResolveRef`
+  (`provider/model` or a `[model_aliases]` name) everywhere: `--model`,
+  `default_model`, `small_model`, agent `model` fields, startup
+  validation.
+- `chat.Send` resumes a session only from its own `Cwd`; only a missing
+  session (`session.ErrNotFound`, via `Store.IsNotFound`) is a
+  `ConfigError` on resume.
+- Bash spill files live in the per-process 0700 dir `internal/app`
+  creates (`runtime.spillDir`, removed on close), are named from
+  `ids.Gen` (never the call ID), and are created `O_EXCL` at 0600.
 - The agent Runner writes exactly one assistant message per model step; the
   results of that step's tool calls are parts on the same message.
 - The model sees `session.Service.History`: the last message holding a
@@ -137,6 +159,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Resolve XDG base directories | `paths.Resolve(getenv)` (`ConfigDir`/`DataDir`/`CacheDir`) |
 | Build a `core.ToolResult` for a tool's `Run` | `core.ToolError(call, msg)` (sets `IsError`) / `core.ToolOK(call, output)` |
 | Resolve a tool's `path` input against `rc.WorkDir` | `resolvePath(workDir, path)` in `service/tools` (also backs `subjectPath` for `ext.Subjecter`) |
+| Permission subject for a search tool's `path` input | `searchSubject(rc, input)` in `service/tools` |
+| Resolve a model string (ref or alias) | `agents.ParseRef(s, cfg.ModelAliases)` / `(*agents.Service).ResolveRef(s)` |
 
 ## Adding a tool, transform, or hook
 
