@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -200,6 +201,17 @@ func TestCreateChild_MissingParent(t *testing.T) {
 	f := newFixture(t, defaultCfg())
 	if _, err := f.svc.CreateChild(context.Background(), "ses_missing", "explore", smallModel, "x"); err == nil {
 		t.Error("CreateChild with missing parent: want error")
+	}
+}
+
+func TestGet_MissingWrapsErrNotFound(t *testing.T) {
+	f := newFixture(t, defaultCfg())
+	if _, err := f.svc.Get(context.Background(), "ses_missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get missing: err = %v, want ErrNotFound", err)
+	}
+	sess := f.create("build")
+	if _, err := f.svc.Get(context.Background(), sess.ID); err != nil {
+		t.Errorf("Get existing: %v", err)
 	}
 }
 

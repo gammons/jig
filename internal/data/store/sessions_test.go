@@ -162,6 +162,9 @@ func TestSessions_GetMissingIsErrNotFound(t *testing.T) {
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("GetSession missing: err = %v, want ErrNotFound", err)
 	}
+	if !s.IsNotFound(err) || s.IsNotFound(errors.New("other")) {
+		t.Error("IsNotFound misclassifies errors")
+	}
 }
 
 func TestSessions_UpdateMissingIsErrNotFound(t *testing.T) {

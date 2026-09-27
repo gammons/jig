@@ -4,6 +4,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -22,7 +23,13 @@ type Store interface {
 	ListSessions(ctx context.Context, parent core.SessionID, limit int) ([]core.Session, error)
 	SaveMessage(ctx context.Context, m core.Message) error
 	ListMessages(ctx context.Context, id core.SessionID) ([]core.Message, error)
+	// IsNotFound reports whether err means the requested session does
+	// not exist.
+	IsNotFound(err error) bool
 }
+
+// ErrNotFound is wrapped by Get's error when the session does not exist.
+var ErrNotFound = errors.New("session not found")
 
 // Agents looks up agents and resolves the models they run on.
 type Agents interface {
@@ -99,9 +106,14 @@ func (s *Service) CreateChild(ctx context.Context, parent core.SessionID, agentN
 	return sess, nil
 }
 
-// Get returns the session with id.
+// Get returns the session with id. When it does not exist, the error
+// wraps ErrNotFound.
 func (s *Service) Get(ctx context.Context, id core.SessionID) (core.Session, error) {
-	return s.d.Store.GetSession(ctx, id)
+	sess, err := s.d.Store.GetSession(ctx, id)
+	if err != nil && s.d.Store.IsNotFound(err) {
+		return core.Session{}, fmt.Errorf("%w: %w", ErrNotFound, err)
+	}
+	return sess, err
 }
 
 // Update stores sess's title, agent, model, and UpdatedAt as given.

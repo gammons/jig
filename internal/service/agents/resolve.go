@@ -2,6 +2,8 @@ package agents
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/gammons/jig/internal/core"
 )
@@ -10,9 +12,30 @@ import (
 // session, and cfg.DefaultModel are all zero/unset.
 var ErrNoModelConfigured = errors.New("no model configured: set default_model in config.toml or pass --model")
 
+// ParseRef resolves a model string: "provider/model" is parsed directly,
+// and anything else is looked up as an alias in aliases (whose value must
+// itself be "provider/model").
+func ParseRef(s string, aliases map[string]string) (core.ModelRef, error) {
+	if strings.Contains(s, "/") {
+		return core.ParseModelRef(s)
+	}
+	value, ok := aliases[s]
+	if !ok {
+		return core.ModelRef{}, fmt.Errorf("model alias %q is not defined in [model_aliases]", s)
+	}
+	return core.ParseModelRef(value)
+}
+
+// ResolveRef resolves a model string (a "provider/model" ref or a
+// [model_aliases] name) against s's config. It backs --model,
+// default_model, small_model, and agents' model fields.
+func (s *Service) ResolveRef(str string) (core.ModelRef, error) {
+	return ParseRef(str, s.cfg.ModelAliases)
+}
+
 // ResolveModel returns the first non-zero model among a's own Model,
-// parent, session, and cfg.DefaultModel, in that order. It errors if all
-// four are zero.
+// parent, session, and cfg.DefaultModel (which may be an alias), in that
+// order. It errors if all four are zero.
 func (s *Service) ResolveModel(a core.Agent, parent, session core.ModelRef) (core.ModelRef, error) {
 	if !a.Model.IsZero() {
 		return a.Model, nil
@@ -26,16 +49,16 @@ func (s *Service) ResolveModel(a core.Agent, parent, session core.ModelRef) (cor
 	if s.cfg.DefaultModel == "" {
 		return core.ModelRef{}, ErrNoModelConfigured
 	}
-	return core.ParseModelRef(s.cfg.DefaultModel)
+	return s.ResolveRef(s.cfg.DefaultModel)
 }
 
-// SmallModel returns cfg.SmallModel parsed as a ModelRef when set and
-// parsable, otherwise fallback.
+// SmallModel returns cfg.SmallModel (a ref or alias) resolved to a
+// ModelRef when set and resolvable, otherwise fallback.
 func (s *Service) SmallModel(fallback core.ModelRef) core.ModelRef {
 	if s.cfg.SmallModel == "" {
 		return fallback
 	}
-	ref, err := core.ParseModelRef(s.cfg.SmallModel)
+	ref, err := s.ResolveRef(s.cfg.SmallModel)
 	if err != nil {
 		return fallback
 	}

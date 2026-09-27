@@ -50,6 +50,7 @@ type Agents interface {
 	Get(name string) (core.Agent, bool)
 	Primary() []core.Agent
 	ResolveModel(a core.Agent, parent, session core.ModelRef) (core.ModelRef, error)
+	ResolveRef(s string) (core.ModelRef, error)
 }
 
 // LLMSource resolves a model to its client; Send uses it to preflight
@@ -135,9 +136,9 @@ func (s *Service) prepare(ctx context.Context, req core.SendRequest) (plan, erro
 	if req.SessionID == "" {
 		p.isNew = true
 	} else {
-		sess, err := s.d.Sessions.Get(ctx, req.SessionID)
+		sess, err := s.resume(ctx, req.SessionID)
 		if err != nil {
-			return plan{}, configErr("session %q: %w", req.SessionID, err)
+			return plan{}, err
 		}
 		p.sess = sess
 	}
@@ -150,7 +151,7 @@ func (s *Service) prepare(ctx context.Context, req core.SendRequest) (plan, erro
 
 	sessModel := parseOrZero(p.sess.Model)
 	if req.Model != "" {
-		if p.flag, err = core.ParseModelRef(req.Model); err != nil {
+		if p.flag, err = s.d.Agents.ResolveRef(req.Model); err != nil {
 			return plan{}, &ConfigError{Err: err}
 		}
 		sessModel = p.flag
@@ -162,6 +163,22 @@ func (s *Service) prepare(ctx context.Context, req core.SendRequest) (plan, erro
 		return plan{}, &ConfigError{Err: err}
 	}
 	return p, nil
+}
+
+// resume loads session id for a follow-up Send. A missing session, or one
+// started in a different working directory, is a ConfigError; any other
+// load failure is a run error.
+func (s *Service) resume(ctx context.Context, id core.SessionID) (core.Session, error) {
+	sess, err := s.d.Sessions.Get(ctx, id)
+	switch {
+	case errors.Is(err, session.ErrNotFound):
+		return core.Session{}, configErr("session %q: %w", id, err)
+	case err != nil:
+		return core.Session{}, fmt.Errorf("session %q: %w", id, err)
+	case sess.Cwd != s.d.WorkDir:
+		return core.Session{}, configErr("session %s belongs to %s; re-run with --cwd %s", id, sess.Cwd, sess.Cwd)
+	}
+	return sess, nil
 }
 
 // agentFor returns the primary agent name, or a ConfigError naming the

@@ -125,21 +125,12 @@ func parseMode(agentName, s string) (core.AgentMode, error) {
 // containing "/" is parsed directly; otherwise it is looked up in
 // cfg.ModelAliases.
 func resolveModelString(agentName, s string, cfg core.Config) (core.ModelRef, string, error) {
-	if strings.Contains(s, "/") {
-		ref, err := core.ParseModelRef(s)
-		if err != nil {
-			return core.ModelRef{}, "", fmt.Errorf("agent %q: %w", agentName, err)
-		}
-		return ref, "", nil
-	}
-
-	value, ok := cfg.ModelAliases[s]
-	if !ok {
-		return core.ModelRef{}, "", fmt.Errorf("agent %q: model alias %q is not defined in [model_aliases]", agentName, s)
-	}
-	ref, err := core.ParseModelRef(value)
+	ref, err := ParseRef(s, cfg.ModelAliases)
 	if err != nil {
 		return core.ModelRef{}, "", fmt.Errorf("agent %q: %w", agentName, err)
+	}
+	if strings.Contains(s, "/") {
+		return ref, "", nil
 	}
 	return ref, s, nil
 }

@@ -108,3 +108,42 @@ func TestSmallModel(t *testing.T) {
 		}
 	})
 }
+
+func TestResolveRef(t *testing.T) {
+	cfg := core.Config{ModelAliases: map[string]string{"fast": "jigtest/m2", "broken": "no-slash"}}
+	svc, err := New(cfg, Sources{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if got, err := svc.ResolveRef("anthropic/opus"); err != nil || got != (core.ModelRef{Provider: "anthropic", Model: "opus"}) {
+		t.Errorf("ResolveRef(provider/model) = %+v, %v", got, err)
+	}
+	if got, err := svc.ResolveRef("fast"); err != nil || got != (core.ModelRef{Provider: "jigtest", Model: "m2"}) {
+		t.Errorf("ResolveRef(fast) = %+v, %v", got, err)
+	}
+	if _, err := svc.ResolveRef("nope"); err == nil || err.Error() != `model alias "nope" is not defined in [model_aliases]` {
+		t.Errorf("ResolveRef(nope) err = %v", err)
+	}
+	if _, err := svc.ResolveRef("broken"); err == nil {
+		t.Error("ResolveRef(broken) = nil error, want a parse error")
+	}
+}
+
+func TestResolve_AliasesInDefaultAndSmallModel(t *testing.T) {
+	cfg := core.Config{
+		DefaultModel: "big",
+		SmallModel:   "fast",
+		ModelAliases: map[string]string{"big": "anthropic/opus", "fast": "anthropic/haiku"},
+	}
+	svc, err := New(cfg, Sources{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	got, err := svc.ResolveModel(core.Agent{}, core.ModelRef{}, core.ModelRef{})
+	if err != nil || got != (core.ModelRef{Provider: "anthropic", Model: "opus"}) {
+		t.Errorf("ResolveModel = %+v, %v; want anthropic/opus", got, err)
+	}
+	if got := svc.SmallModel(core.ModelRef{Provider: "x", Model: "y"}); got != (core.ModelRef{Provider: "anthropic", Model: "haiku"}) {
+		t.Errorf("SmallModel = %+v, want anthropic/haiku", got)
+	}
+}

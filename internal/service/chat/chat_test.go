@@ -87,6 +87,7 @@ type fixture struct {
 	touches  *touchCounter
 	svc      *Service
 	workDir  string
+	deps     Deps
 }
 
 // newFixture wires a chat Service over the real session service, agents
@@ -100,7 +101,10 @@ func newFixture(t *testing.T, main, small *llmtest.Client) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	ag, err := agents.New(core.Config{DefaultModel: mainModel().String(), SmallModel: smallModel().String()}, agents.Sources{})
+	ag, err := agents.New(core.Config{
+		DefaultModel: mainModel().String(), SmallModel: smallModel().String(),
+		ModelAliases: map[string]string{"alt": "other/m"},
+	}, agents.Sources{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +120,8 @@ func newFixture(t *testing.T, main, small *llmtest.Client) *fixture {
 		Bus: nopBus{}, Clock: clk, IDs: gen,
 	})
 	f := &fixture{t: t, llms: llms, sessions: sessions, touches: &touchCounter{Service: sessions}, workDir: t.TempDir()}
-	f.svc = New(Deps{Sessions: f.touches, Agents: ag, LLMs: llms, Runner: runner, WorkDir: f.workDir})
+	f.deps = Deps{Sessions: f.touches, Agents: ag, LLMs: llms, Runner: runner, WorkDir: f.workDir}
+	f.svc = New(f.deps)
 	t.Cleanup(func() { f.close() })
 	return f
 }

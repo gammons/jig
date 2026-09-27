@@ -45,6 +45,11 @@ func (s *Store) UpdateSession(ctx context.Context, sess core.Session) error {
 	return nil
 }
 
+// IsNotFound reports whether err is (or wraps) ErrNotFound.
+func (s *Store) IsNotFound(err error) bool {
+	return errors.Is(err, ErrNotFound)
+}
+
 // GetSession returns the session with the given id, or ErrNotFound if none
 // exists.
 func (s *Store) GetSession(ctx context.Context, id core.SessionID) (core.Session, error) {

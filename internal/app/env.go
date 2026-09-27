@@ -9,6 +9,7 @@ import (
 	"github.com/gammons/jig/internal/data/config"
 	"github.com/gammons/jig/internal/data/fsroot"
 	"github.com/gammons/jig/internal/data/paths"
+	"github.com/gammons/jig/internal/service/agents"
 )
 
 // env is everything resolved from the process environment and the
@@ -67,7 +68,7 @@ func resolveWorkDir(cwd string) (string, error) {
 }
 
 // validateModels checks that default_model and small_model, when set,
-// are "provider/model" refs.
+// are "provider/model" refs or defined [model_aliases] names.
 func validateModels(cfg core.Config) error {
 	for _, m := range []struct{ key, val string }{
 		{"default_model", cfg.DefaultModel},
@@ -76,7 +77,7 @@ func validateModels(cfg core.Config) error {
 		if m.val == "" {
 			continue
 		}
-		if _, err := core.ParseModelRef(m.val); err != nil {
+		if _, err := agents.ParseRef(m.val, cfg.ModelAliases); err != nil {
 			return fmt.Errorf("config: %s: %w", m.key, err)
 		}
 	}

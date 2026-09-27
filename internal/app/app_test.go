@@ -232,3 +232,28 @@ func TestSessions_ListsRootSessions(t *testing.T) {
 		t.Errorf("stdout = %q, want %q", out, want)
 	}
 }
+
+func TestRun_UnknownModelAliasExits2(t *testing.T) {
+	for _, key := range []string{"default_model", "small_model"} {
+		t.Run(key, func(t *testing.T) {
+			env := newTestEnv(t)
+			env.writeConfig(t, key+` = "nosuchalias"`+"\n")
+			code, _, stderr := env.run(t, "run", "--cwd", env.workDir, "hi")
+			if code != exitConfig {
+				t.Errorf("exit = %d, want %d", code, exitConfig)
+			}
+			want := "config: " + key + `: model alias "nosuchalias" is not defined in [model_aliases]`
+			if !strings.Contains(stderr, want) {
+				t.Errorf("stderr = %q, want %q", stderr, want)
+			}
+		})
+	}
+}
+
+func TestLoadEnv_AcceptsModelAliases(t *testing.T) {
+	env := newTestEnv(t)
+	env.writeConfig(t, "default_model = \"big\"\nsmall_model = \"fast\"\n\n[model_aliases]\nbig = \"anthropic/opus\"\nfast = \"anthropic/haiku\"\n")
+	if _, err := loadEnv(env.workDir, env.getenv); err != nil {
+		t.Fatalf("loadEnv: %v", err)
+	}
+}
