@@ -85,6 +85,10 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   `_test.go` files.
 - Tools return `IsError` results, not Go errors, except for ctx
   cancellation.
+- The agent Runner writes exactly one assistant message per model step; the
+  results of that step's tool calls are parts on the same message.
+- `agent.Proxy` is the only setter-style late binding (for the task tool);
+  `Set` panics if called twice.
 
 ## Shared code — check here before writing a helper
 
