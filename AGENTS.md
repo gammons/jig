@@ -67,6 +67,13 @@ Dependency rules (spec §3.2), enforced by `internal/archtest`:
 - `client/...` and `data/...` never import `service/...` or `ui/...`.
 - Only `internal/app` imports concrete implementations from every layer.
 
+## Architecture tests
+
+`internal/archtest` parses every `.go` file in the repo and enforces the
+layer-import rules and size limits above, plus a no-package-mutable-vars
+and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
+`internal/archtest/allowlist.go` with a justification.
+
 ## Invariants
 
 - No I/O in `ui`.
