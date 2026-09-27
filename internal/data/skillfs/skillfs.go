@@ -42,7 +42,13 @@ func Discover(dirs []string) ([]core.Skill, []Warning) {
 			continue
 		}
 		for _, entry := range entries {
-			if !entry.IsDir() {
+			path := filepath.Join(dir, entry.Name())
+			isDir, warn := resolveIsDir(entry, path)
+			if warn != nil {
+				warnings = append(warnings, *warn)
+				continue
+			}
+			if !isDir {
 				continue
 			}
 			skill, warns, ok := readSkill(dir, entry.Name())
@@ -60,6 +66,22 @@ func Discover(dirs []string) ([]core.Skill, []Warning) {
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result, warnings
+}
+
+// resolveIsDir reports whether entry (at path) is a directory. os.ReadDir
+// reports a symlink's own type (never a directory, even when it points to
+// one), so a symlink is resolved by following it with os.Stat; a dangling
+// symlink returns a Warning instead of silently being treated as "not a
+// directory".
+func resolveIsDir(entry os.DirEntry, path string) (bool, *Warning) {
+	if entry.Type()&os.ModeSymlink == 0 {
+		return entry.IsDir(), nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, &Warning{Path: path, Msg: fmt.Sprintf("broken symlink: %v", err)}
+	}
+	return info.IsDir(), nil
 }
 
 // readSkill reads dir/name/SKILL.md, if present, and builds a core.Skill

@@ -151,6 +151,44 @@ func TestInstructions_DeduplicatedByAbsolutePath(t *testing.T) {
 	}
 }
 
+func TestInstructions_DedupByAbsolutePathWithRelativeBaseDir(t *testing.T) {
+	tmp := t.TempDir()
+	write(t, filepath.Join(tmp, "sub", "one.md"), "content\n")
+
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origWD); err != nil {
+			t.Fatalf("Chdir back: %v", err)
+		}
+	}()
+
+	// baseDir is relative ("."), so the two patterns resolve to lexically
+	// different strings ("sub/one.md" vs the absolute path) that are only
+	// provably the same file once resolved to an absolute path from the
+	// current working directory (tmp).
+	patterns := []string{"sub/one.md", filepath.Join(tmp, "sub", "one.md")}
+	files, err := Instructions(patterns, ".", tmp)
+	if err != nil {
+		t.Fatalf("Instructions: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("files = %+v, want 1 (de-duplicated by absolute path even with a relative baseDir)", files)
+	}
+	if !filepath.IsAbs(files[0].Path) {
+		t.Errorf("Path = %q, want an absolute path", files[0].Path)
+	}
+	want := filepath.Join(tmp, "sub", "one.md")
+	if files[0].Path != want {
+		t.Errorf("Path = %q, want %q", files[0].Path, want)
+	}
+}
+
 func TestInstructions_PatternOrderPreserved(t *testing.T) {
 	baseDir := t.TempDir()
 	write(t, filepath.Join(baseDir, "z.md"), "z\n")

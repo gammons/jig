@@ -101,19 +101,22 @@ func Instructions(patterns []string, baseDir, home string) ([]File, error) {
 	return files, nil
 }
 
-// loadFile reads path and returns a *File, or nil if path's cleaned form
+// loadFile reads path and returns a *File, or nil if path's absolute form
 // was already in seen. It marks path as seen either way.
 func loadFile(path string, seen map[string]bool) (*File, error) {
-	clean := filepath.Clean(path)
-	if seen[clean] {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	if seen[abs] {
 		return nil, nil
 	}
-	seen[clean] = true
+	seen[abs] = true
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return &File{Path: clean, Content: string(data)}, nil
+	return &File{Path: abs, Content: string(data)}, nil
 }
 
 // resolvePattern expands a leading "~" in pattern against home, then joins

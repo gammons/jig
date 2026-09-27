@@ -44,11 +44,19 @@ func Discover(dirs []string) (map[string]core.AgentConfig, []skillfs.Warning) {
 			continue
 		}
 		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			if !strings.HasSuffix(entry.Name(), ".md") {
+				continue
+			}
+			path := filepath.Join(dir, entry.Name())
+			isFile, warn := resolveIsFile(entry, path)
+			if warn != nil {
+				warnings = append(warnings, *warn)
+				continue
+			}
+			if !isFile {
 				continue
 			}
 			name := strings.TrimSuffix(entry.Name(), ".md")
-			path := filepath.Join(dir, entry.Name())
 			cfg, warn, ok := readAgent(path)
 			if warn != nil {
 				warnings = append(warnings, *warn)
@@ -60,6 +68,22 @@ func Discover(dirs []string) (map[string]core.AgentConfig, []skillfs.Warning) {
 		}
 	}
 	return agents, warnings
+}
+
+// resolveIsFile reports whether entry (at path) is a regular file.
+// os.ReadDir reports a symlink's own type (never IsDir, regardless of its
+// target), so a symlink is resolved by following it with os.Stat; a
+// dangling symlink returns a Warning instead of silently being treated as
+// "not a file".
+func resolveIsFile(entry os.DirEntry, path string) (bool, *skillfs.Warning) {
+	if entry.Type()&os.ModeSymlink == 0 {
+		return !entry.IsDir(), nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, &skillfs.Warning{Path: path, Msg: fmt.Sprintf("broken symlink: %v", err)}
+	}
+	return info.Mode().IsRegular(), nil
 }
 
 // readAgent reads and parses path into a core.AgentConfig. ok is false if

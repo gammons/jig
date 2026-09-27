@@ -246,6 +246,36 @@ func TestAgentDiscover_LaterDirWins(t *testing.T) {
 	}
 }
 
+func TestAgentDiscover_SymlinkedFileDiscovered(t *testing.T) {
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	realPath := writeAgent(t, realDir, "real-agent", "---\ndescription: via symlink\n---\nBody text\n")
+
+	linksDir := filepath.Join(root, "links")
+	if err := os.MkdirAll(linksDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", linksDir, err)
+	}
+	linkPath := filepath.Join(linksDir, "linked-agent.md")
+	if err := os.Symlink(realPath, linkPath); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	agents, warnings := Discover([]string{linksDir})
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	agent, ok := agents["linked-agent"]
+	if !ok {
+		t.Fatalf("agents = %v, want linked-agent (symlinked .md file must be discovered)", agents)
+	}
+	if agent.Description != "via symlink" {
+		t.Errorf("Description = %q, want %q", agent.Description, "via symlink")
+	}
+	if agent.Prompt != "Body text\n" {
+		t.Errorf("Prompt = %q, want %q", agent.Prompt, "Body text\n")
+	}
+}
+
 func TestAgentDiscover_MissingDirsSkipped(t *testing.T) {
 	agents, warnings := Discover([]string{"/no/such/agents/dir"})
 	if len(agents) != 0 {

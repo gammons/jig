@@ -162,3 +162,49 @@ func TestSkillDiscover_NonDirEntriesIgnored(t *testing.T) {
 		t.Errorf("skills = %v, want just [real]", skills)
 	}
 }
+
+func TestSkillDiscover_SymlinkedDirDiscovered(t *testing.T) {
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	writeSkill(t, realDir, "realskill", "---\ndescription: via symlink\n---\nBody\n")
+
+	linksDir := filepath.Join(root, "links")
+	if err := os.MkdirAll(linksDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", linksDir, err)
+	}
+	if err := os.Symlink(filepath.Join(realDir, "realskill"), filepath.Join(linksDir, "linked")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	skills, warnings := Discover([]string{linksDir})
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("skills = %v, want 1 (symlinked skill dir must be discovered)", skills)
+	}
+	if skills[0].Name != "linked" {
+		t.Errorf("Name = %q, want %q", skills[0].Name, "linked")
+	}
+	if skills[0].Description != "via symlink" {
+		t.Errorf("Description = %q, want %q", skills[0].Description, "via symlink")
+	}
+}
+
+func TestSkillDiscover_DanglingSymlinkWarns(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Symlink(filepath.Join(dir, "does-not-exist"), filepath.Join(dir, "broken")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	skills, warnings := Discover([]string{dir})
+	if len(skills) != 0 {
+		t.Errorf("skills = %v, want none", skills)
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %v, want 1 (dangling symlink must warn, not be silent)", warnings)
+	}
+	if warnings[0].Path != filepath.Join(dir, "broken") {
+		t.Errorf("warning Path = %q, want %q", warnings[0].Path, filepath.Join(dir, "broken"))
+	}
+}
