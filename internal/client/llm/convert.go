@@ -5,6 +5,7 @@
 package llm
 
 import (
+	"encoding/json"
 	"errors"
 
 	"charm.land/fantasy"
@@ -96,6 +97,19 @@ func convertUserMessage(m core.Message) fantasy.Message {
 // error result. An assistant message with no content parts at all (e.g. a
 // run interrupted before it produced anything) is dropped: Anthropic and
 // friends reject empty message content.
+// replayInput returns a stored tool call's input as sent back to a
+// provider: unchanged when it is a JSON object, "{}" otherwise (invalid
+// JSON, a string, array, number, null, or empty). Providers expect object
+// arguments; Gemini, for one, drops a non-object FunctionCall and then
+// rejects the orphaned FunctionResponse.
+func replayInput(input json.RawMessage) string {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(input, &obj); err != nil || obj == nil {
+		return "{}"
+	}
+	return string(input)
+}
+
 func convertAssistantMessage(m core.Message) []fantasy.Message {
 	var content []fantasy.MessagePart
 	var callOrder []string
@@ -111,7 +125,7 @@ func convertAssistantMessage(m core.Message) []fantasy.Message {
 			content = append(content, fantasy.ToolCallPart{
 				ToolCallID: p.Call.ID,
 				ToolName:   p.Call.Name,
-				Input:      string(p.Call.Input),
+				Input:      replayInput(p.Call.Input),
 			})
 			callOrder = append(callOrder, p.Call.ID)
 		case core.PartToolResult:

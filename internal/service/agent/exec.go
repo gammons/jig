@@ -80,10 +80,22 @@ func (ex *executor) batch(ctx context.Context, calls []core.ToolCall, out []core
 func (ex *executor) call(ctx context.Context, call core.ToolCall) core.ToolResult {
 	base := event.Base{SessionID: ex.rc.SessionID}
 	ex.r.d.Bus.Publish(event.ToolCallStarted{Base: base, MessageID: ex.rc.MessageID, Call: call})
-	res := ex.resolveAndRun(ctx, call)
+	res := ex.guarded(ctx, call)
 	res.CallID, res.Name = call.ID, call.Name
 	ex.r.d.Bus.Publish(event.ToolCallFinished{Base: base, MessageID: ex.rc.MessageID, Result: res})
 	return res
+}
+
+// guarded runs resolveAndRun, turning a panic anywhere in the pipeline (a
+// Before hook, the tool, or an After hook) into an error result, so one
+// misbehaving extension cannot crash a parallel batch.
+func (ex *executor) guarded(ctx context.Context, call core.ToolCall) (res core.ToolResult) {
+	defer func() {
+		if v := recover(); v != nil {
+			res = errorResult(fmt.Sprintf("tool %s panicked: %v", call.Name, v))
+		}
+	}()
+	return ex.resolveAndRun(ctx, call)
 }
 
 // resolveAndRun resolves call's tool, validates its input, runs the Before
@@ -132,14 +144,9 @@ func (ex *executor) before(ctx context.Context, tool ext.Tool, call core.ToolCal
 	return call, core.ToolResult{}, false
 }
 
-// runTool runs tool, turning a panic into an error result, a ctx error
-// into "cancelled", and any other error into an error result.
-func runTool(ctx context.Context, rc ext.RunContext, tool ext.Tool, call core.ToolCall) (res core.ToolResult) {
-	defer func() {
-		if v := recover(); v != nil {
-			res = errorResult(fmt.Sprintf("tool %s panicked: %v", tool.Name(), v))
-		}
-	}()
+// runTool runs tool, turning a ctx error into "cancelled" and any other
+// error into an error result. Panics are recovered by guarded.
+func runTool(ctx context.Context, rc ext.RunContext, tool ext.Tool, call core.ToolCall) core.ToolResult {
 	res, err := tool.Run(ctx, rc, call)
 	switch {
 	case err != nil && ctx.Err() != nil:

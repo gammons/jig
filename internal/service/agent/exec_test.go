@@ -480,3 +480,39 @@ func TestRunner_CancelledRunPairsEveryToolCall(t *testing.T) {
 		t.Errorf("calls=%d results=%v, want 4 paired", calls, results)
 	}
 }
+
+// panicHook panics in Before for calls with ID id.
+type panicHook struct{ id string }
+
+func (h panicHook) Before(_ context.Context, _ ext.RunContext, _ ext.Tool, call core.ToolCall) (core.ToolCall, ext.Verdict, error) {
+	if call.ID == h.id {
+		panic("hook kaboom")
+	}
+	return call, ext.Verdict{}, nil
+}
+
+func (h panicHook) After(_ context.Context, _ ext.RunContext, _ ext.Tool, _ core.ToolCall, res core.ToolResult) core.ToolResult {
+	return res
+}
+
+func TestExec_HookPanicInConcurrentBatchRecovered(t *testing.T) {
+	r, rec := newExecRunner(panicHook{id: "c1"})
+	x := stubTool{name: "x", concurrent: true}
+	res := r.execute(context.Background(), execRC(), []ext.Tool{x},
+		[]core.ToolCall{llmtest.Call("c1", "x", `{}`), llmtest.Call("c2", "x", `{}`)})
+	if !res[0].IsError || res[0].Output != "tool x panicked: hook kaboom" || res[0].CallID != "c1" || res[0].Name != "x" {
+		t.Errorf("result 0 = %+v, want hook panic error", res[0])
+	}
+	if res[1].IsError || res[1].Output != "ok:{}" || res[1].CallID != "c2" {
+		t.Errorf("result 1 = %+v, want ok", res[1])
+	}
+	finished := map[string]bool{}
+	for _, e := range rec.all() {
+		if f, ok := e.(event.ToolCallFinished); ok {
+			finished[f.Result.CallID] = true
+		}
+	}
+	if !finished["c1"] || !finished["c2"] {
+		t.Errorf("finished = %v, want c1 and c2", finished)
+	}
+}

@@ -220,3 +220,31 @@ func TestToFantasy_NeverAppliesAnthropicCacheItself(t *testing.T) {
 		}
 	}
 }
+
+func TestToFantasy_NonObjectToolInputReplaysAsEmptyObject(t *testing.T) {
+	cases := []struct{ name, input, want string }{
+		{"wrapped invalid", `"{\"path\": \"a.go\", \"con"`, `{}`},
+		{"array", `[1,2]`, `{}`},
+		{"null", `null`, `{}`},
+		{"number", `42`, `{}`},
+		{"invalid", `{not json`, `{}`},
+		{"empty", ``, `{}`},
+		{"object", `{"loc":"nyc"}`, `{"loc":"nyc"}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := core.LLMRequest{Messages: []core.Message{{Role: core.RoleAssistant, Parts: []core.Part{
+				{Kind: core.PartToolCall, Call: &core.ToolCall{ID: "c1", Name: "write", Input: json.RawMessage(c.input)}},
+				{Kind: core.PartToolResult, Result: &core.ToolResult{CallID: "c1", Name: "write", Output: "bad", IsError: true}},
+			}}}}
+			call := ToFantasy(req)
+			tc, ok := call.Prompt[0].Content[0].(fantasy.ToolCallPart)
+			if !ok {
+				t.Fatalf("part = %#v, want ToolCallPart", call.Prompt[0].Content[0])
+			}
+			if tc.Input != c.want {
+				t.Errorf("Input = %q, want %q", tc.Input, c.want)
+			}
+		})
+	}
+}
