@@ -105,6 +105,15 @@ func decodePart(kind, data string) (core.Part, error) {
 		if err := json.Unmarshal([]byte(data), &call); err != nil {
 			return core.Part{}, err
 		}
+		// json.RawMessage's UnmarshalJSON copies the literal "null" bytes
+		// verbatim instead of decoding them to nil, so a nil Input that was
+		// marshaled to JSON null comes back as a non-nil 4-byte
+		// json.RawMessage("null") rather than nil. Normalize that one case
+		// back to nil so nil Input round-trips exactly; any other Input,
+		// including an explicit "{}", is left untouched.
+		if string(call.Input) == "null" {
+			call.Input = nil
+		}
 		return core.Part{Kind: core.PartToolCall, Call: &call}, nil
 	case core.PartToolResult:
 		var result core.ToolResult

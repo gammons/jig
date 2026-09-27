@@ -163,6 +163,51 @@ func TestMessages_RoundTripAllPartKinds(t *testing.T) {
 	}
 }
 
+func TestMessages_NilToolCallInputRoundTrips(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	seedSession(t, s, "ses_1")
+
+	msg := core.Message{
+		ID:        "msg_1",
+		SessionID: "ses_1",
+		Role:      core.RoleAssistant,
+		Status:    core.StatusComplete,
+		Parts: []core.Part{
+			{Kind: core.PartToolCall, Call: &core.ToolCall{ID: "call_nil", Name: "read", Input: nil}},
+			{Kind: core.PartToolCall, Call: &core.ToolCall{ID: "call_empty", Name: "read", Input: json.RawMessage(`{}`)}},
+		},
+		CreatedAt: time.UnixMilli(1_700_000_000_500),
+	}
+	if err := s.SaveMessage(ctx, msg); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+
+	list, err := s.ListMessages(ctx, "ses_1")
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	if len(list) != 1 || len(list[0].Parts) != 2 {
+		t.Fatalf("ListMessages = %+v, want 1 message with 2 parts", list)
+	}
+
+	nilCall := list[0].Parts[0].Call
+	if nilCall == nil {
+		t.Fatal("nil-input part: Call is nil")
+	}
+	if nilCall.Input != nil {
+		t.Errorf("nil Input round-tripped as %q (%v), want nil", string(nilCall.Input), []byte(nilCall.Input))
+	}
+
+	emptyCall := list[0].Parts[1].Call
+	if emptyCall == nil {
+		t.Fatal("empty-input part: Call is nil")
+	}
+	if !reflect.DeepEqual(emptyCall.Input, json.RawMessage(`{}`)) {
+		t.Errorf("{} Input round-tripped as %q, want %q", string(emptyCall.Input), "{}")
+	}
+}
+
 func TestMessages_SaveNonexistentSessionErrors(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
