@@ -14,7 +14,9 @@ import (
 // Spec describes a command to run. If SpillPath is set, the full combined
 // output is streamed to that file as it is produced (created 0o600),
 // independent of TailBytes. If TailBytes is positive, memory retains only
-// the last TailBytes bytes of output instead of the whole thing.
+// the last TailBytes bytes of output instead of the whole thing. A
+// SpillPath that cannot be opened or written does not fail the command;
+// see Result.SpillErr.
 type Spec struct {
 	Command   string
 	Dir       string
@@ -27,13 +29,16 @@ type Spec struct {
 // combined into a single buffer, in the order the process wrote to them,
 // bounded to the last TailBytes bytes when Spec.TailBytes was positive.
 // TotalBytes is the full combined size actually produced, and Truncated
-// reports whether Output is missing some of it.
+// reports whether Output is missing some of it. SpillErr is set if
+// Spec.SpillPath was set but could not be opened or fully written to; the
+// command still runs either way.
 type Result struct {
 	Output     []byte
 	ExitCode   int
 	TimedOut   bool
 	Truncated  bool
 	TotalBytes int64
+	SpillErr   error
 }
 
 // Runner runs shell commands via bash -c (sh -c if bash is not on PATH).
@@ -56,24 +61,22 @@ func (Runner) Run(ctx context.Context, s Spec) (Result, error) {
 	cmd := exec.CommandContext(runCtx, shellName(), "-c", s.Command)
 	cmd.Dir = s.Dir
 
-	cap, capErr := newCapture(s.TailBytes, s.SpillPath)
-	if capErr != nil {
-		return Result{}, fmt.Errorf("shell: spill file: %w", capErr)
-	}
-	cmd.Stdout = cap
-	cmd.Stderr = cap
+	cp := newCapture(s.TailBytes, s.SpillPath)
+	cmd.Stdout = cp
+	cmd.Stderr = cp
 	configureProcessGroup(cmd)
 
 	err := cmd.Run()
-	_ = cap.Close()
+	_ = cp.Close()
 
 	build := func(exitCode int, timedOut bool) Result {
 		return Result{
-			Output:     cap.tail(),
+			Output:     cp.tail(),
 			ExitCode:   exitCode,
 			TimedOut:   timedOut,
-			Truncated:  s.TailBytes > 0 && cap.total > int64(s.TailBytes),
-			TotalBytes: cap.total,
+			Truncated:  s.TailBytes > 0 && cp.total > int64(s.TailBytes),
+			TotalBytes: cp.total,
+			SpillErr:   cp.SpillErr(),
 		}
 	}
 

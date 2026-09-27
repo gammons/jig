@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -200,5 +201,86 @@ func TestBash_RefusesCanceledContext(t *testing.T) {
 	_, err := tool.Run(ctx, rcFor(dir), call)
 	if err == nil {
 		t.Fatal("got nil error, want ctx.Err() for a canceled context")
+	}
+}
+
+// TestBash_ShellErrorBecomesIsError verifies that a non-ctx-cancellation
+// error from Shell.Run is turned into an IsError ToolResult with a nil Go
+// error, per the "tools return IsError, not Go errors, except for ctx
+// cancellation" invariant.
+func TestBash_ShellErrorBecomesIsError(t *testing.T) {
+	dir := t.TempDir()
+	sh := &fakeShell{err: errors.New("boom")}
+	tool := NewBash(sh, dir)
+	call := mustCall(t, "bash", map[string]any{"command": "echo hi"})
+
+	res, err := tool.Run(context.Background(), rcFor(dir), call)
+	if err != nil {
+		t.Fatalf("Run err = %v, want nil (non-ctx Shell errors become IsError results)", err)
+	}
+	if !res.IsError {
+		t.Fatal("got IsError false, want true for a non-ctx Shell error")
+	}
+	if !strings.Contains(res.Output, "boom") {
+		t.Errorf("Output = %q, want it to mention the underlying error", res.Output)
+	}
+}
+
+// cancelingShell is a Shell that cancels its own caller's context
+// synchronously before returning an error, letting a test deterministically
+// exercise the "ctx became done during Shell.Run" path without a real race,
+// time.Sleep, or time.Now.
+type cancelingShell struct {
+	cancel context.CancelFunc
+	err    error
+}
+
+func (c *cancelingShell) Run(context.Context, ShellSpec) (ShellResult, error) {
+	c.cancel()
+	return ShellResult{}, c.err
+}
+
+// TestBash_ShellErrorWithCanceledContextPropagatesErr verifies that when
+// ctx is done by the time Shell.Run returns an error, bash propagates
+// ctx.Err() as a Go error rather than turning it into an IsError result.
+func TestBash_ShellErrorWithCanceledContextPropagatesErr(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sh := &cancelingShell{cancel: cancel, err: errors.New("boom")}
+	tool := NewBash(sh, dir)
+	call := mustCall(t, "bash", map[string]any{"command": "echo hi"})
+
+	_, err := tool.Run(ctx, rcFor(dir), call)
+	if err == nil {
+		t.Fatal("got nil error, want ctx.Err() when ctx was canceled during Shell.Run")
+	}
+}
+
+// TestBash_TruncatedWithSpillErrorMessage verifies that when the output
+// was truncated but the full output could not be spilled to disk, bash
+// says so honestly instead of claiming a path that doesn't have the data.
+func TestBash_TruncatedWithSpillErrorMessage(t *testing.T) {
+	dir := t.TempDir()
+	sh := &fakeShell{
+		result: ShellResult{
+			Output:     []byte("tail-data"),
+			Truncated:  true,
+			TotalBytes: 100,
+			SpillErr:   errors.New("disk full"),
+		},
+	}
+	tool := NewBash(sh, dir)
+	call := mustCall(t, "bash", map[string]any{"command": "echo hi"})
+	res, err := tool.Run(context.Background(), rcFor(dir), call)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("IsError: %s", res.Output)
+	}
+	want := "[output truncated; full output unavailable: disk full]\ntail-data"
+	if res.Output != want {
+		t.Errorf("Output = %q, want %q", res.Output, want)
 	}
 }

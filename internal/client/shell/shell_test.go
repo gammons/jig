@@ -184,6 +184,31 @@ func TestRun_SpillFileHasEverything(t *testing.T) {
 	}
 }
 
+func TestRun_SpillOpenFailureSetsSpillErr(t *testing.T) {
+	var r Runner
+	spillPath := filepath.Join(t.TempDir(), "missing-dir", "out.log")
+	res, err := r.Run(context.Background(), Spec{
+		Command:   "echo hi",
+		TailBytes: 100,
+		SpillPath: spillPath,
+	})
+	if err != nil {
+		t.Fatalf("Run err = %v, want nil (a spill-open failure must not abort the command)", err)
+	}
+	if res.SpillErr == nil {
+		t.Fatal("SpillErr = nil, want non-nil for an unopenable spill path")
+	}
+	if got, want := string(res.Output), "hi\n"; got != want {
+		t.Errorf("Output = %q, want %q", got, want)
+	}
+	if res.ExitCode != 0 {
+		t.Errorf("ExitCode = %d, want 0", res.ExitCode)
+	}
+	if _, statErr := os.Stat(spillPath); !os.IsNotExist(statErr) {
+		t.Errorf("expected no spill file to exist, stat err = %v", statErr)
+	}
+}
+
 func TestRun_Dir(t *testing.T) {
 	var r Runner
 	dir := t.TempDir()

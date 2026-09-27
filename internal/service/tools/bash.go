@@ -34,6 +34,7 @@ type ShellResult struct {
 	TimedOut   bool
 	Truncated  bool
 	TotalBytes int64
+	SpillErr   error
 }
 
 // Shell is the process-execution capability bash needs.
@@ -113,7 +114,10 @@ func (b *bashTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 		TailBytes: bashTailBytes,
 	})
 	if err != nil {
-		return core.ToolResult{}, err
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return core.ToolResult{}, ctxErr
+		}
+		return errResult(call, fmt.Sprintf("bash failed: %v", err)), nil
 	}
 
 	return formatBashResult(call, res, spillPath, timeoutMS), nil
@@ -132,14 +136,18 @@ func clampTimeoutMS(ms int) int {
 }
 
 // formatBashResult builds bash's ToolResult from a ShellResult: it
-// prefixes a truncation notice (and keeps the spill file) or removes the
-// spill file when the output was not truncated, then appends an exit
-// code or timeout marker.
+// prefixes a truncation notice (naming the spill path on success, or the
+// underlying error if the spill failed) or removes the spill file when
+// the output was not truncated, then appends an exit code or timeout
+// marker.
 func formatBashResult(call core.ToolCall, res ShellResult, spillPath string, timeoutMS int) core.ToolResult {
 	output := string(res.Output)
-	if res.Truncated {
+	switch {
+	case res.Truncated && res.SpillErr != nil:
+		output = fmt.Sprintf("[output truncated; full output unavailable: %v]\n%s", res.SpillErr, output)
+	case res.Truncated:
 		output = fmt.Sprintf("[output truncated; full output: %s]\n%s", spillPath, output)
-	} else {
+	default:
 		_ = os.Remove(spillPath)
 	}
 

@@ -8,18 +8,23 @@ const spillMode = 0o600
 // capture is an io.Writer that a running command's combined stdout+stderr
 // is written to. It tracks the total byte count, optionally mirrors every
 // write to a spill file on disk, and optionally keeps only the trailing
-// tailBytes of the data in memory.
+// tailBytes of the data in memory. A spill-file failure (open, write, or
+// close) never fails the command: it is recorded in spillErr instead, so
+// callers can report it honestly rather than claiming a path that doesn't
+// have the data.
 type capture struct {
 	tailBytes int
 	buf       []byte
 	total     int64
 	spill     *os.File
+	spillErr  error
 }
 
 // newCapture returns a capture ready to receive writes. If spillPath is
 // non-empty, it is created (or truncated) with mode 0o600 and every write
-// is mirrored to it.
-func newCapture(tailBytes int, spillPath string) (*capture, error) {
+// is mirrored to it; if that open fails, capture still buffers normally
+// and SpillErr reports the failure.
+func newCapture(tailBytes int, spillPath string) *capture {
 	c := &capture{tailBytes: tailBytes}
 	if tailBytes > 0 {
 		c.buf = make([]byte, 0, tailBytes)
@@ -27,19 +32,23 @@ func newCapture(tailBytes int, spillPath string) (*capture, error) {
 	if spillPath != "" {
 		f, err := os.OpenFile(spillPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, spillMode)
 		if err != nil {
-			return nil, err
+			c.spillErr = err
+			return c
 		}
 		c.spill = f
 	}
-	return c, nil
+	return c
 }
 
 // Write implements io.Writer. It always succeeds from the caller's
-// perspective (a spill-file write error does not fail the command).
+// perspective: a spill-file write error is recorded in spillErr (first
+// one wins) rather than failing the command.
 func (c *capture) Write(p []byte) (int, error) {
 	c.total += int64(len(p))
 	if c.spill != nil {
-		_, _ = c.spill.Write(p)
+		if _, err := c.spill.Write(p); err != nil && c.spillErr == nil {
+			c.spillErr = err
+		}
 	}
 	if c.tailBytes > 0 {
 		c.appendTail(p)
@@ -67,10 +76,19 @@ func (c *capture) appendTail(p []byte) {
 // tail returns the bytes currently retained in memory.
 func (c *capture) tail() []byte { return c.buf }
 
-// Close closes the spill file, if any.
+// SpillErr returns the first spill-file failure (open, write, or close)
+// encountered, or nil if there was none.
+func (c *capture) SpillErr() error { return c.spillErr }
+
+// Close closes the spill file, if any, recording a failure in spillErr
+// when one hasn't already been recorded.
 func (c *capture) Close() error {
-	if c.spill != nil {
-		return c.spill.Close()
+	if c.spill == nil {
+		return nil
 	}
-	return nil
+	err := c.spill.Close()
+	if err != nil && c.spillErr == nil {
+		c.spillErr = err
+	}
+	return err
 }
