@@ -101,6 +101,15 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   with a run.
 - `agent.Proxy` is the only setter-style late binding (for the task tool);
   `Set` panics if called twice.
+- `llm.Source` resolves provider factories through a providers-only
+  frozen view (`app.providerView`): the session service needs the Source,
+  and the task tool in the main registry needs the session service.
+- `event.Subscription.Close` discards undelivered events. Headless drains
+  by publishing an app-local marker event and waiting for the renderer to
+  reach it before closing the subscription.
+- The catalog refresh uses `$CATWALK_URL`, defaulting to
+  `https://catwalk.charm.sh`; it runs in the background and is never
+  awaited.
 
 ## Shared code — check here before writing a helper
 
