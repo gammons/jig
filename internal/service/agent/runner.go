@@ -184,16 +184,31 @@ func (r *Runner) step(ctx context.Context, st *run) (core.Message, error) {
 	return msg, nil
 }
 
-// stopAtMaxSteps appends the max-steps notice to last and saves it.
+// stopAtMaxSteps appends the max-steps notice to last, publishes it as a
+// TextDelta on last (after a "\n" when last already has text, matching how
+// text parts are joined), and saves it.
 func (r *Runner) stopAtMaxSteps(ctx context.Context, st *run, last core.Message) (core.Message, error) {
-	last.Parts = append(last.Parts, core.Part{
-		Kind: core.PartText,
-		Text: fmt.Sprintf("[stopped: reached max_steps (%d)]", st.maxSteps),
-	})
+	notice := fmt.Sprintf("[stopped: reached max_steps (%d)]", st.maxSteps)
+	delta := notice
+	if hasText(last) {
+		delta = "\n" + notice
+	}
+	last.Parts = append(last.Parts, core.Part{Kind: core.PartText, Text: notice})
+	r.d.Bus.Publish(event.TextDelta{Base: event.Base{SessionID: last.SessionID}, MessageID: last.ID, Text: delta})
 	if err := r.d.Store.SaveMessage(ctx, last); err != nil {
 		return r.abort(ctx, last, err)
 	}
 	return last, nil
+}
+
+// hasText reports whether m has a non-empty text part.
+func hasText(m core.Message) bool {
+	for _, p := range m.Parts {
+		if p.Kind == core.PartText && p.Text != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // abort ends a run on err: an interrupted message (with every unanswered

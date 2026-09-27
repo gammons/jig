@@ -11,6 +11,10 @@ import (
 // maxAttempts is the total number of tries a step's request gets.
 const maxAttempts = 3
 
+// maxRetryAfter caps a provider's Retry-After, so a hostile or buggy
+// value cannot stall a run for long.
+const maxRetryAfter = 60 * time.Second
+
 // stream consumes req into msg, retrying retryable provider errors that
 // arrive before any stream event.
 func (r *Runner) stream(ctx context.Context, st *run, req core.LLMRequest, msg *core.Message) error {
@@ -32,7 +36,8 @@ func (r *Runner) stream(ctx context.Context, st *run, req core.LLMRequest, msg *
 }
 
 // retryDelay reports whether attempt's err may be retried and how long to
-// wait first: the provider's RetryAfter if set, else 1s, then 2s.
+// wait first: the provider's RetryAfter if set (capped at maxRetryAfter),
+// else 1s, then 2s.
 func retryDelay(err error, received bool, attempt int) (time.Duration, bool) {
 	if received || attempt >= maxAttempts {
 		return 0, false
@@ -42,7 +47,7 @@ func retryDelay(err error, received bool, attempt int) (time.Duration, bool) {
 		return 0, false
 	}
 	if le.RetryAfter > 0 {
-		return le.RetryAfter, true
+		return min(le.RetryAfter, maxRetryAfter), true
 	}
 	return time.Duration(attempt) * time.Second, true
 }

@@ -24,6 +24,7 @@ type Renderer struct {
 	children map[core.SessionID]int // child session -> nesting depth (>= 1)
 	wrote    bool                   // any root text written to out
 	lastNL   bool                   // the last byte written to out was '\n'
+	newStep  bool                   // a root message started since root text was last written
 }
 
 // New returns a Renderer writing to out and errw.
@@ -44,9 +45,13 @@ func (r *Renderer) handle(e event.Event) {
 	case event.SubagentSpawned:
 		r.children[ev.Child] = depth + 1
 		r.line(depth, "↳ %s: %s", ev.Agent, ev.Description)
+	case event.MessageStarted:
+		if !child && r.wrote {
+			r.newStep = true
+		}
 	case event.TextDelta:
 		if !child {
-			r.text(ev.Text)
+			r.stepText(ev.Text)
 		}
 	case event.ToolCallStarted:
 		r.line(depth, "→ %s", toolLine(ev.Call))
@@ -63,6 +68,23 @@ func (r *Renderer) handle(e event.Event) {
 			r.line(0, "error: %s", ev.Err)
 		}
 	}
+}
+
+// stepText writes root text, first separating it from an earlier step's
+// text by exactly one blank line.
+func (r *Renderer) stepText(s string) {
+	if s == "" {
+		return
+	}
+	if r.newStep {
+		r.newStep = false
+		if r.lastNL {
+			r.text("\n")
+		} else {
+			r.text("\n\n")
+		}
+	}
+	r.text(s)
 }
 
 func (r *Renderer) text(s string) {

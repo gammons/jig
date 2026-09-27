@@ -107,3 +107,47 @@ func TestPlain_TrailingNewline(t *testing.T) {
 		})
 	}
 }
+
+func TestPlain_BlankLineBetweenSteps(t *testing.T) {
+	out, _ := render(
+		event.MessageStarted{Base: base("root"), MessageID: "m1"},
+		event.TextDelta{Base: base("root"), MessageID: "m1", Text: "Let me look."},
+		event.ToolCallStarted{Base: base("root"), Call: call("read", `{"path":"a"}`)},
+		event.ToolCallFinished{Base: base("root"), Result: core.ToolResult{Name: "read", Output: "x"}},
+		event.MessageStarted{Base: base("root"), MessageID: "m2"},
+		event.TextDelta{Base: base("root"), MessageID: "m2", Text: "Done."},
+		event.RunFinished{Base: base("root")},
+	)
+	if want := "Let me look.\n\nDone.\n"; out != want {
+		t.Errorf("stdout = %q, want %q", out, want)
+	}
+}
+
+func TestPlain_StepSeparatorAfterTrailingNewline(t *testing.T) {
+	out, _ := render(
+		event.MessageStarted{Base: base("root"), MessageID: "m1"},
+		event.TextDelta{Base: base("root"), MessageID: "m1", Text: "one\n"},
+		event.MessageStarted{Base: base("root"), MessageID: "m2"},
+		event.MessageStarted{Base: base("kid"), MessageID: "k1"},
+		event.MessageStarted{Base: base("root"), MessageID: "m3"},
+		event.TextDelta{Base: base("root"), MessageID: "m3", Text: "two"},
+		event.RunFinished{Base: base("root")},
+	)
+	if want := "one\n\ntwo\n"; out != want {
+		t.Errorf("stdout = %q, want %q", out, want)
+	}
+}
+
+func TestPlain_NoSeparatorBeforeFirstTextOrForTextlessStep(t *testing.T) {
+	out, _ := render(
+		event.MessageStarted{Base: base("root"), MessageID: "m1"},
+		event.ToolCallStarted{Base: base("root"), Call: call("read", `{}`)},
+		event.MessageStarted{Base: base("root"), MessageID: "m2"},
+		event.TextDelta{Base: base("root"), MessageID: "m2", Text: "only"},
+		event.MessageStarted{Base: base("root"), MessageID: "m3"},
+		event.RunFinished{Base: base("root")},
+	)
+	if want := "only\n"; out != want {
+		t.Errorf("stdout = %q, want %q", out, want)
+	}
+}
