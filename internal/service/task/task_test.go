@@ -15,6 +15,7 @@ import (
 type fakeSessions struct {
 	createErr error
 	getErr    error
+	getFn     func(ctx context.Context, id core.SessionID) (core.Session, error)
 	sessions  map[core.SessionID]core.Session
 	nextID    core.SessionID
 
@@ -36,7 +37,10 @@ func (f *fakeSessions) CreateChild(_ context.Context, parent core.SessionID, age
 	return core.Session{ID: id, ParentID: parent, Agent: agent}, nil
 }
 
-func (f *fakeSessions) Get(_ context.Context, id core.SessionID) (core.Session, error) {
+func (f *fakeSessions) Get(ctx context.Context, id core.SessionID) (core.Session, error) {
+	if f.getFn != nil {
+		return f.getFn(ctx, id)
+	}
 	if f.getErr != nil {
 		return core.Session{}, f.getErr
 	}
@@ -333,7 +337,8 @@ func TestTask_ContinueRequiresOwnChild(t *testing.T) {
 		}}
 		agentsSvc := &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}}
 		runner := &fakeRunner{}
-		tool := New(sessions, agentsSvc, runner, &recordingPublisher{})
+		pub := &recordingPublisher{}
+		tool := New(sessions, agentsSvc, runner, pub)
 
 		rc := ext.RunContext{SessionID: "parent1"}
 		call := mustTaskCall(t, map[string]any{
@@ -351,6 +356,17 @@ func TestTask_ContinueRequiresOwnChild(t *testing.T) {
 		}
 		if sessions.gotAgent != "" {
 			t.Error("CreateChild was called on a continuation, want not called")
+		}
+
+		if len(pub.events) != 1 {
+			t.Fatalf("published %d events, want 1", len(pub.events))
+		}
+		sp, ok := pub.events[0].(event.SubagentSpawned)
+		if !ok {
+			t.Fatalf("event type = %T, want event.SubagentSpawned", pub.events[0])
+		}
+		if sp.Session() != "parent1" || sp.Child != "child9" || sp.Agent != "explore" || sp.Description != "d" {
+			t.Errorf("SubagentSpawned = %+v, want Session=parent1 Child=child9 Agent=explore Description=d", sp)
 		}
 	})
 
@@ -376,6 +392,56 @@ func TestTask_ContinueRequiresOwnChild(t *testing.T) {
 		want := `session "child9" is not a subagent session of this session`
 		if res.Output != want {
 			t.Errorf("Output = %q, want %q", res.Output, want)
+		}
+		if runner.called {
+			t.Error("Runner.Run was called, want not called")
+		}
+	})
+
+	t.Run("session_id does not exist", func(t *testing.T) {
+		sessions := &fakeSessions{sessions: map[core.SessionID]core.Session{}}
+		agentsSvc := &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}}
+		runner := &fakeRunner{}
+		tool := New(sessions, agentsSvc, runner, &recordingPublisher{})
+
+		rc := ext.RunContext{SessionID: "parent1"}
+		call := mustTaskCall(t, map[string]any{
+			"agent": "explore", "description": "d", "prompt": "continue please", "session_id": "nope",
+		})
+		res, err := tool.Run(context.Background(), rc, call)
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if !res.IsError {
+			t.Fatal("IsError = false, want true")
+		}
+		want := `session "nope" is not a subagent session of this session`
+		if res.Output != want {
+			t.Errorf("Output = %q, want %q (same fixed message as wrong-parent, not the raw store error)", res.Output, want)
+		}
+		if runner.called {
+			t.Error("Runner.Run was called, want not called")
+		}
+	})
+
+	t.Run("session_id lookup fails while ctx is done", func(t *testing.T) {
+		sessions := &fakeSessions{}
+		ctx, cancel := context.WithCancel(context.Background())
+		sessions.getFn = func(ctx context.Context, id core.SessionID) (core.Session, error) {
+			cancel() // simulate the ctx being cancelled during the Get call itself
+			return core.Session{}, ctx.Err()
+		}
+		agentsSvc := &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}}
+		runner := &fakeRunner{}
+		tool := New(sessions, agentsSvc, runner, &recordingPublisher{})
+
+		rc := ext.RunContext{SessionID: "parent1"}
+		call := mustTaskCall(t, map[string]any{
+			"agent": "explore", "description": "d", "prompt": "continue please", "session_id": "child9",
+		})
+		_, err := tool.Run(ctx, rc, call)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err = %v, want context.Canceled", err)
 		}
 		if runner.called {
 			t.Error("Runner.Run was called, want not called")
@@ -423,6 +489,36 @@ func TestTask_ChildErrorIsWrapped(t *testing.T) {
 		t.Fatal("IsError = false, want true")
 	}
 	want := `<task_result session_id="child1">` + "\n" + "error: boom" + "\n" + `</task_result>`
+	if res.Output != want {
+		t.Errorf("Output = %q, want %q", res.Output, want)
+	}
+}
+
+// TestTask_ChildBusyErrorIsWrapped pins that Run's IsError-wrapping of a
+// child error is generic: any error the Runner returns while the parent
+// ctx is still live (not just a plain error, but e.g. an ErrBusy-style
+// sentinel from a real agent.Runner) becomes the IsError wrapper, never a
+// Go-level error.
+func TestTask_ChildBusyErrorIsWrapped(t *testing.T) {
+	busyErr := errors.New("agent: session already has a running turn")
+	sub := exploreAgent(core.ModelRef{Provider: "a", Model: "m"})
+	sessions := &fakeSessions{nextID: "child1"}
+	agentsSvc := &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}}
+	runner := &fakeRunner{runFn: func(ctx context.Context, rc ext.RunContext, text string) (core.Message, error) {
+		return core.Message{}, busyErr
+	}}
+	tool := New(sessions, agentsSvc, runner, &recordingPublisher{})
+
+	rc := ext.RunContext{SessionID: "parent1"}
+	call := mustTaskCall(t, map[string]any{"agent": "explore", "description": "d", "prompt": "p"})
+	res, err := tool.Run(context.Background(), rc, call)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("IsError = false, want true")
+	}
+	want := `<task_result session_id="child1">` + "\n" + "error: agent: session already has a running turn" + "\n" + `</task_result>`
 	if res.Output != want {
 		t.Errorf("Output = %q, want %q", res.Output, want)
 	}

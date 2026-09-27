@@ -162,12 +162,23 @@ func (t *taskTool) resolveChild(ctx context.Context, rc ext.RunContext, in taskI
 
 	sess, err := t.sessions.Get(ctx, core.SessionID(in.SessionID))
 	if err != nil {
-		return "", err.Error(), nil
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", "", ctxErr
+		}
+		return "", notSubagentMsg(in.SessionID), nil
 	}
 	if sess.ParentID != rc.SessionID {
-		return "", fmt.Sprintf("session %q is not a subagent session of this session", in.SessionID), nil
+		return "", notSubagentMsg(in.SessionID), nil
 	}
 	return sess.ID, "", nil
+}
+
+// notSubagentMsg is the uniform denial for a session_id that either does
+// not exist or is not a subagent session of the calling session: callers
+// must not be able to distinguish "not found" from "not yours" by error
+// text.
+func notSubagentMsg(id string) string {
+	return fmt.Sprintf("session %q is not a subagent session of this session", id)
 }
 
 // rootID returns rc.RootID, falling back to rc.SessionID when unset.
