@@ -111,3 +111,70 @@ func TestCustomProviderFromConfig(t *testing.T) {
 		t.Errorf("Provider.Endpoint = %q, want %q", p.Endpoint, "http://localhost:11434/v1")
 	}
 }
+
+// TestCustomProviderOverridesExistingCatalogProvider pins the collision
+// branch of mergeCustom: when a custom config entry's ID matches a provider
+// already in the catalog (here "anthropic", from the embedded fallback),
+// the config's BaseURL overrides Endpoint and its models are appended
+// alongside the existing ones, but Name/Type are left as the catalog's.
+func TestCustomProviderOverridesExistingCatalogProvider(t *testing.T) {
+	dir := t.TempDir()
+	clk := clock.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+
+	base, ok := New(Options{
+		CachePath: filepath.Join(dir, "catalog.json"),
+		Clock:     clk,
+	}).Provider("anthropic")
+	if !ok {
+		t.Fatal("Provider(anthropic) not found in embedded fallback, want it present as the collision target")
+	}
+	if len(base.Models) == 0 {
+		t.Fatal("embedded anthropic provider has no models, want at least one to check existing models survive the merge")
+	}
+
+	c := New(Options{
+		CachePath: filepath.Join(dir, "catalog.json"),
+		Clock:     clk,
+		Custom: map[string]core.ProviderConfig{
+			"anthropic": {
+				Type:    "should-be-ignored",
+				BaseURL: "http://localhost:9999/v1",
+				Models:  []string{"custom-model"},
+			},
+		},
+	})
+
+	p, ok := c.Provider("anthropic")
+	if !ok {
+		t.Fatal("Provider(anthropic) not found after custom override")
+	}
+
+	// Endpoint overridden.
+	if p.Endpoint != "http://localhost:9999/v1" {
+		t.Errorf("Provider.Endpoint = %q, want %q", p.Endpoint, "http://localhost:9999/v1")
+	}
+	// Name/Type unchanged from the catalog, not taken from the custom config.
+	if p.Name != base.Name {
+		t.Errorf("Provider.Name = %q, want unchanged %q", p.Name, base.Name)
+	}
+	if p.Type != base.Type {
+		t.Errorf("Provider.Type = %q, want unchanged %q (not the custom config's %q)", p.Type, base.Type, "should-be-ignored")
+	}
+	// Existing models still present.
+	if len(p.Models) != len(base.Models)+1 {
+		t.Fatalf("Provider.Models has %d entries, want %d existing + 1 custom", len(p.Models), len(base.Models))
+	}
+	for _, m := range base.Models {
+		if _, ok := c.Model(m.Ref); !ok {
+			t.Errorf("existing model %v no longer resolvable after custom override", m.Ref)
+		}
+	}
+	// New model resolvable via Model().
+	custom, ok := c.Model(core.ModelRef{Provider: "anthropic", Model: "custom-model"})
+	if !ok {
+		t.Fatal("Model(anthropic/custom-model) not found, want the appended custom model resolvable")
+	}
+	if custom.Name != "custom-model" {
+		t.Errorf("custom model Name = %q, want %q", custom.Name, "custom-model")
+	}
+}
