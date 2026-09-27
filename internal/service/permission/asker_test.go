@@ -252,3 +252,30 @@ func TestStaticAsker(t *testing.T) {
 		}
 	})
 }
+
+func TestAsk_ContextCancelPublishesResolved(t *testing.T) {
+	bus := event.NewBus()
+	sub := bus.Subscribe()
+	defer sub.Close()
+
+	b := NewBusAsker(bus, newGen())
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = b.Ask(ctx, Request{SessionID: core.SessionID("s1"), Tool: "bash"})
+	}()
+
+	pr := recvEvent(t, sub).(event.PermissionRequested)
+	cancel()
+	<-done
+
+	rr, ok := recvEvent(t, sub).(event.PermissionResolved)
+	if !ok {
+		t.Fatal("want PermissionResolved after cancellation")
+	}
+	want := core.PermissionReply{Kind: core.ReplyDeny, Message: "cancelled"}
+	if rr.RequestID != pr.RequestID || rr.Reply != want || rr.Session() != "s1" {
+		t.Errorf("PermissionResolved = %+v, want %s %+v on s1", rr, pr.RequestID, want)
+	}
+}

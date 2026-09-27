@@ -57,7 +57,9 @@ func NewBusAsker(pub event.Publisher, idGen *ids.Gen) *BusAsker {
 // Ask publishes a PermissionRequested event and blocks until Reply is
 // called for the request's ID, or ctx is done, whichever comes first. On
 // ctx cancellation the pending entry is removed before Ask returns, so a
-// later Reply for the same ID errors instead of blocking.
+// later Reply for the same ID errors instead of blocking, and
+// PermissionResolved is published with a "cancelled" deny so a UI can
+// dismiss the prompt.
 func (b *BusAsker) Ask(ctx context.Context, req Request) (core.PermissionReply, error) {
 	id := b.ids.Next("perm")
 	ch := make(chan core.PermissionReply, 1)
@@ -79,8 +81,17 @@ func (b *BusAsker) Ask(ctx context.Context, req Request) (core.PermissionReply, 
 		return reply, nil
 	case <-ctx.Done():
 		b.mu.Lock()
+		_, stillPending := b.pending[id]
 		delete(b.pending, id)
 		b.mu.Unlock()
+		// If Reply claimed the request first, it publishes the resolution.
+		if stillPending {
+			b.pub.Publish(event.PermissionResolved{
+				Base:      event.Base{SessionID: req.SessionID},
+				RequestID: id,
+				Reply:     core.PermissionReply{Kind: core.ReplyDeny, Message: "cancelled"},
+			})
+		}
 		return core.PermissionReply{}, ctx.Err()
 	}
 }
