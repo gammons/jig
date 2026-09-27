@@ -86,6 +86,7 @@ internal/app/            composition root: one file per subsystem, construction 
 internal/core/           ports (service interfaces) and value types; no logic
 internal/core/ext/       extension registry and extension-point interfaces
 internal/core/event/     typed events and the in-process pub/sub bus
+internal/core/llmtest/   scripted fake of the core.LLM port (usable from service tests)
 
 UI layer
   internal/ui/           App router, reducer chain, per-mode key tables
@@ -105,7 +106,7 @@ Service layer
 
 Client layer
   internal/client/llm/          llm.Client interface + fantasy adapter
-  internal/client/llm/llmtest/  scripted fake client
+  internal/client/llm/jigtest/  test-build-only provider that replays scripts (e2e)
   internal/client/catalog/      catwalk catalog (embedded snapshot + cached refresh)
   internal/client/shell/        process execution for bash
   internal/client/search/       ripgrep execution for grep/glob, with a Go fallback
@@ -143,16 +144,17 @@ These are enforced by `internal/archtest`.
   `PermissionResolved`, `SubagentSpawned`, `RunFinished`, and `RunFailed`.
 - Every event carries `SessionID` (and `ParentSessionID` where it applies).
 - The UI turns a subscription into `tea.Msg`s. Services never call the UI.
-- Delivery to subscribers uses bounded buffered channels. When a delta
-  subscriber falls behind, adjacent deltas are merged rather than dropped.
-  Lifecycle events are never merged or dropped.
+- Each subscriber has its own queue, and `Publish` never blocks. When a
+  subscriber falls behind, adjacent undelivered deltas for the same message are
+  merged, so the queue stays small. Nothing is dropped, and lifecycle events
+  are never merged.
 
 ### 3.4 Extension registry (`core/ext`)
 
 | Point | Shape | v1 registrants |
 |---|---|---|
 | `Tool` | `Name()`, `Schema()`, `Concurrent() bool`, `Run(ctx, Call) (Result, error)` | built-in tools, `task`, `skill` |
-| `ToolHook` | `Before(ctx, Call) (Call, Decision, error)`, `After(ctx, Call, Result) Result` | permission service |
+| `ToolHook` | `Before(ctx, rc, tool, Call) (Call, Verdict, error)`, `After(ctx, rc, tool, Call, Result) Result` | permission service |
 | `ContextTransform` | `Transform(ctx, *Request) error`, ordered by priority | env info, agent prompt, instructions, AGENTS.md, skill list |
 | `EventSubscriber` | `Handle(ctx, event.Event)` | none (reserved) |
 | `Command` | `Name()`, `Description()`, `Run(ctx, args) error` | `/new`, `/sessions`, `/model`, `/agent`, `/compact`, `/quit` |
@@ -274,9 +276,13 @@ Each tool is one file in `service/tools` and depends on narrow interfaces
 
 ### 5.2 Permissions (`service/permission`)
 
-- **Rules** map `tool → allow | ask | deny`. For `bash`, rules are ordered glob
-  patterns matched against the command (e.g. `"git status*" = "allow"`,
-  `"*" = "ask"`).
+- **Rules** map `tool → allow | ask | deny`, or `tool → { pattern = action }`.
+  Patterns are wildcard globs (`*` matches any run of characters) matched
+  against the tool's *permission subject*: the command for `bash`, the path
+  for `write`/`edit`.
+  - TOML tables are unordered, so the **most specific** matching pattern wins
+    (the one with the most literal characters). On a tie, `deny` > `ask` >
+    `allow`. Example: `"git status*" = "allow"`, `"*" = "ask"`.
 - **Precedence:** agent rules > project config > global config > defaults.
   The defaults are `allow` for read, glob, grep, todo, task, and skill, and
   `ask` for write, edit, and bash.
@@ -453,7 +459,9 @@ Structural rules:
 - UI: `charm.land/bubbletea/v2`, `lipgloss/v2`, `bubbles/v2`, glamour.
 - Models: `charm.land/catwalk` (MIT) for the catalog and `charm.land/fantasy`
   (Apache-2.0) for the LLM client, wrapped behind `client/llm`.
-- Storage: `modernc.org/sqlite` (pure Go) with sqlc-generated queries.
+- Storage: `modernc.org/sqlite` (pure Go) with hand-written `database/sql`
+  queries, one file per table (sqlc was dropped to avoid a cgo-heavy tool
+  dependency).
 - Config and frontmatter: `BurntSushi/toml`, `yaml.v3`.
 - CLI: stdlib `flag` with subcommands (`jig`, `jig run`, `jig models`,
   `jig sessions`).
