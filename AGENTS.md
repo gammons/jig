@@ -93,3 +93,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Value types shared across layers (Message, Session, ModelRef, Agent, Config, Rule, ...) | `internal/core` |
 | Service ports the UIs call (`ChatService`, `SessionService`, `PermissionService`) | `internal/core` (`ports.go`) |
 | Fake LLM for service tests | `llmtest.New(llmtest.Text(...), ...)` |
+| Expand a leading `~`/`~/` in a config path | `paths.ExpandHome(p, home)` |
+| Find a project's git root from a directory | `fsroot.GitRoot(dir)` |
+| Walk root→leaf ancestor directories for context/skill discovery | `fsroot.Chain(root, dir)` |
+| Parse a `---\n<yaml>\n---\n<body>` file | `frontmatter.Parse(src, &meta)` |
