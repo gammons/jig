@@ -68,23 +68,23 @@ func (g *globTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 
 	var in globInput
 	if err := json.Unmarshal(call.Input, &in); err != nil {
-		return errResult(call, fmt.Sprintf("invalid input: %v", err)), nil
+		return core.ToolError(call, fmt.Sprintf("invalid input: %v", err)), nil
 	}
 	if in.Pattern == "" {
-		return errResult(call, "pattern is required"), nil
+		return core.ToolError(call, "pattern is required"), nil
 	}
 
 	dir, errMsg := resolveSearchPath(rc, in.Path)
 	if errMsg != "" {
-		return errResult(call, errMsg), nil
+		return core.ToolError(call, errMsg), nil
 	}
 
 	paths, err := g.s.Glob(ctx, dir, in.Pattern, searchLimit)
 	if err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 
-	return okResult(call, formatMatchLines(paths, searchLimit)), nil
+	return core.ToolOK(call, formatMatchLines(paths, searchLimit)), nil
 }
 
 // resolveSearchPath resolves path (glob/grep's optional "path" input)

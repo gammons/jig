@@ -63,19 +63,19 @@ func (t *todoTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 
 	var in todoInput
 	if err := json.Unmarshal(call.Input, &in); err != nil {
-		return errResult(call, fmt.Sprintf("invalid input: %v", err)), nil
+		return core.ToolError(call, fmt.Sprintf("invalid input: %v", err)), nil
 	}
 	if errMsg := validateTodos(in.Todos); errMsg != "" {
-		return errResult(call, errMsg), nil
+		return core.ToolError(call, errMsg), nil
 	}
 
 	if err := t.store.ReplaceTodos(ctx, rc.SessionID, in.Todos); err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 
 	t.pub.Publish(event.TodosUpdated{Base: event.Base{SessionID: rc.SessionID}, Todos: in.Todos})
 
-	return okResult(call, renderTodos(in.Todos)), nil
+	return core.ToolOK(call, renderTodos(in.Todos)), nil
 }
 
 // validateTodos checks every todo's status is one of pending, in_progress,

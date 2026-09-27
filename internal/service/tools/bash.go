@@ -97,10 +97,10 @@ func (b *bashTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 
 	var in bashInput
 	if err := json.Unmarshal(call.Input, &in); err != nil {
-		return errResult(call, fmt.Sprintf("invalid input: %v", err)), nil
+		return core.ToolError(call, fmt.Sprintf("invalid input: %v", err)), nil
 	}
 	if in.Command == "" {
-		return errResult(call, "command is required"), nil
+		return core.ToolError(call, "command is required"), nil
 	}
 
 	timeoutMS := clampTimeoutMS(in.TimeoutMS)
@@ -117,7 +117,7 @@ func (b *bashTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return core.ToolResult{}, ctxErr
 		}
-		return errResult(call, fmt.Sprintf("bash failed: %v", err)), nil
+		return core.ToolError(call, fmt.Sprintf("bash failed: %v", err)), nil
 	}
 
 	return formatBashResult(call, res, spillPath, timeoutMS), nil
@@ -153,10 +153,10 @@ func formatBashResult(call core.ToolCall, res ShellResult, spillPath string, tim
 
 	if res.TimedOut {
 		output += fmt.Sprintf("\n[timed out after %ds]", timeoutMS/1000)
-		return errResult(call, output)
+		return core.ToolError(call, output)
 	}
 	if res.ExitCode != 0 {
 		output += fmt.Sprintf("\n[exit code %d]", res.ExitCode)
 	}
-	return okResult(call, output)
+	return core.ToolOK(call, output)
 }

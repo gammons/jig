@@ -132,14 +132,3 @@ func subjectPath(rc ext.RunContext, input json.RawMessage) string {
 	}
 	return resolvePath(rc.WorkDir, in.Path)
 }
-
-// errResult builds an IsError ToolResult for call with msg as its output.
-func errResult(call core.ToolCall, msg string) core.ToolResult {
-	return core.ToolResult{CallID: call.ID, Name: call.Name, Output: msg, IsError: true}
-}
-
-// okResult builds a successful ToolResult for call with output as its
-// output.
-func okResult(call core.ToolCall, output string) core.ToolResult {
-	return core.ToolResult{CallID: call.ID, Name: call.Name, Output: output}
-}

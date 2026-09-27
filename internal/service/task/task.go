@@ -96,21 +96,21 @@ func (t *taskTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 
 	in, errMsg := parseTaskInput(call.Input)
 	if errMsg != "" {
-		return errResult(call, errMsg), nil
+		return core.ToolError(call, errMsg), nil
 	}
 
 	if rc.Depth >= MaxDepth {
-		return errResult(call, fmt.Sprintf("subagent depth limit (%d) reached", MaxDepth)), nil
+		return core.ToolError(call, fmt.Sprintf("subagent depth limit (%d) reached", MaxDepth)), nil
 	}
 
 	sub, ok := t.agents.Get(in.Agent)
 	if !ok || !isSubagent(t.agents.Subagents(), in.Agent) {
-		return errResult(call, unknownAgentMsg(in.Agent, t.agents.Subagents())), nil
+		return core.ToolError(call, unknownAgentMsg(in.Agent, t.agents.Subagents())), nil
 	}
 
 	model, err := t.agents.ResolveModel(sub, rc.Model, core.ModelRef{})
 	if err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 
 	childID, errMsg, err := t.resolveChild(ctx, rc, in, model)
@@ -118,7 +118,7 @@ func (t *taskTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 		return core.ToolResult{}, err
 	}
 	if errMsg != "" {
-		return errResult(call, errMsg), nil
+		return core.ToolError(call, errMsg), nil
 	}
 
 	t.pub.Publish(event.SubagentSpawned{
@@ -141,10 +141,10 @@ func (t *taskTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return core.ToolResult{}, ctxErr
 		}
-		return errResult(call, wrapResult(childID, fmt.Sprintf("error: %v", err))), nil
+		return core.ToolError(call, wrapResult(childID, fmt.Sprintf("error: %v", err))), nil
 	}
 
-	return okResult(call, wrapResult(childID, joinText(msg))), nil
+	return core.ToolOK(call, wrapResult(childID, joinText(msg))), nil
 }
 
 // resolveChild returns the session to run: an existing subagent session
@@ -242,15 +242,4 @@ func joinText(m core.Message) string {
 // wrapResult wraps body in the task_result tag naming the child session.
 func wrapResult(id core.SessionID, body string) string {
 	return fmt.Sprintf("<task_result session_id=%q>\n%s\n</task_result>", id, body)
-}
-
-// errResult builds an IsError ToolResult for call with msg as its output.
-func errResult(call core.ToolCall, msg string) core.ToolResult {
-	return core.ToolResult{CallID: call.ID, Name: call.Name, Output: msg, IsError: true}
-}
-
-// okResult builds a successful ToolResult for call with output as its
-// output.
-func okResult(call core.ToolCall, output string) core.ToolResult {
-	return core.ToolResult{CallID: call.ID, Name: call.Name, Output: output}
 }

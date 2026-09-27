@@ -65,7 +65,7 @@ func (e *editTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 
 	in, errMsg := parseEditInput(call.Input)
 	if errMsg != "" {
-		return errResult(call, errMsg), nil
+		return core.ToolError(call, errMsg), nil
 	}
 
 	abs := resolvePath(rc.WorkDir, in.Path)
@@ -73,31 +73,31 @@ func (e *editTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 	info, statErr := e.fs.Stat(abs)
 	if statErr != nil {
 		if os.IsNotExist(statErr) {
-			return errResult(call, abs+" does not exist"), nil
+			return core.ToolError(call, abs+" does not exist"), nil
 		}
-		return errResult(call, statErr.Error()), nil
+		return core.ToolError(call, statErr.Error()), nil
 	}
 	if err := e.tr.CheckWritable(rc.SessionID, abs, info); err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 
 	content, err := e.fs.ReadFile(abs)
 	if err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 
 	updated, count, errMsg := applyEdit(string(content), *in.OldString, *in.NewString, in.ReplaceAll)
 	if errMsg != "" {
-		return errResult(call, errMsg), nil
+		return core.ToolError(call, errMsg), nil
 	}
 
 	if err := e.fs.WriteFile(abs, []byte(updated), info.Mode()); err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 
 	newInfo, err := e.fs.Stat(abs)
 	if err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 	e.tr.MarkRead(rc.SessionID, abs, newInfo)
 
@@ -105,7 +105,7 @@ func (e *editTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 	if count != 1 {
 		plural = "s"
 	}
-	return okResult(call, fmt.Sprintf("replaced %d occurrence%s in %s", count, plural, abs)), nil
+	return core.ToolOK(call, fmt.Sprintf("replaced %d occurrence%s in %s", count, plural, abs)), nil
 }
 
 // parseEditInput unmarshals raw into an editInput, returning an error

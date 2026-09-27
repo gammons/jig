@@ -135,7 +135,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Walk root→leaf ancestor directories for context/skill discovery | `fsroot.Chain(root, dir)` |
 | Parse a `---\n<yaml>\n---\n<body>` file | `frontmatter.Parse(src, &meta)` |
 | Resolve XDG base directories | `paths.Resolve(getenv)` (`ConfigDir`/`DataDir`/`CacheDir`) |
-| Build a `core.ToolResult` for a tool's `Run` | the `errResult(call, msg)` (sets `IsError`) / `okResult(call, output)` pattern: copied privately into each tool-providing package (`service/tools`, `service/task`, `service/skills`) rather than shared, so those packages stay independent — copy the three lines, don't import one another |
+| Build a `core.ToolResult` for a tool's `Run` | `core.ToolError(call, msg)` (sets `IsError`) / `core.ToolOK(call, output)` |
 | Resolve a tool's `path` input against `rc.WorkDir` | `resolvePath(workDir, path)` in `service/tools` (also backs `subjectPath` for `ext.Subjecter`) |
 
 ## Adding a tool, transform, or hook

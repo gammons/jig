@@ -46,10 +46,12 @@ jig run [--agent A] [--model M] [--yes] [--session ID] [--cwd DIR] <prompt...>
   "Agents" below). Built-in primary agents are `build` (full tool
   access) and `plan` (asks before write/edit/bash).
 - `--model M` — a model ref, `provider/model` (e.g.
-  `anthropic/claude-opus-4-5-20251101`). Overrides the agent's
-  configured model, the session's model, and `default_model`. Unlike
-  `agents.<name>.model`, `--model` does not accept a `[model_aliases]`
-  name — pass the full `provider/model` ref.
+  `anthropic/claude-opus-4-5-20251101`). It sets the *session's* model,
+  which persists across turns in that session (`--session ID`) once
+  set. It does **not** override an agent that has its own configured
+  `model` — see "Models and per-agent models" for the full precedence.
+  Unlike `agents.<name>.model`, `--model` does not accept a
+  `[model_aliases]` name — pass the full `provider/model` ref.
 - `--yes` — allow every tool call that would otherwise ask for
   permission. Headless jig has no one to ask, so without `--yes` an
   `ask` rule denies the call (see "Permissions").
@@ -117,11 +119,24 @@ Other data locations: the session/message database is
 
 ## Models and per-agent models
 
-`default_model` picks the model used when neither `--model` nor an
-agent's own `model` is set. `small_model` is used for cheap background
-work — session titles and conversation compaction — falling back to
-the run's already-resolved model when unset. Both are `provider/model`
-refs.
+Each turn resolves a model from, in precedence order (highest first):
+
+1. The running agent's own configured `model` (`agents.<name>.model`,
+   set in TOML or a markdown agent's frontmatter).
+2. For a subagent spawned by the `task` tool, its parent's resolved
+   model.
+3. The session's model: whatever `--model` set on this or an earlier
+   turn of the same session (`--session ID`) — `--model` writes it once
+   and it sticks.
+4. `default_model`.
+
+It is an error (exit code 2) to reach the end of that chain with
+nothing set: either configure `default_model` or pass `--model`.
+
+`small_model` is used for cheap background work — session titles and
+conversation compaction — falling back to the run's already-resolved
+model when unset. `default_model` and `small_model` are both
+`provider/model` refs.
 
 `[model_aliases]` gives short names to models, usable in
 `agents.<name>.model` (TOML or markdown-frontmatter) in place of a
@@ -167,6 +182,13 @@ The file stem is the agent name; frontmatter fields
 (`description`, `mode`, `model`, `max_steps`, `can_spawn`, `hidden`,
 `tools`, `permissions`) map onto the same fields as `[agents.<name>]`,
 and the markdown body is the agent's prompt.
+
+An agent definition's precedence (lowest to highest, each overlaying
+the last field by field) is: built-in < global TOML
+(`config.toml`'s `[agents.<name>]`) < global markdown
+(`.../jig/agents/*.md`) < project TOML (`.jig/config.toml`'s
+`[agents.<name>]`) < project markdown (`.jig/agents/*.md` and
+`.claude/agents/*.md`).
 
 ## Skills
 

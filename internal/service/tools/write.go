@@ -66,13 +66,13 @@ func (w *writeTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCa
 
 	var in writeInput
 	if err := json.Unmarshal(call.Input, &in); err != nil {
-		return errResult(call, fmt.Sprintf("invalid input: %v", err)), nil
+		return core.ToolError(call, fmt.Sprintf("invalid input: %v", err)), nil
 	}
 	if in.Path == "" {
-		return errResult(call, "path is required"), nil
+		return core.ToolError(call, "path is required"), nil
 	}
 	if in.Content == nil {
-		return errResult(call, "content is required"), nil
+		return core.ToolError(call, "content is required"), nil
 	}
 
 	abs := resolvePath(rc.WorkDir, in.Path)
@@ -82,27 +82,27 @@ func (w *writeTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCa
 	switch {
 	case statErr == nil:
 		if err := w.tr.CheckWritable(rc.SessionID, abs, existing); err != nil {
-			return errResult(call, err.Error()), nil
+			return core.ToolError(call, err.Error()), nil
 		}
 		mode = existing.Mode()
 	case os.IsNotExist(statErr):
 		// New file: no prior read required.
 	default:
-		return errResult(call, statErr.Error()), nil
+		return core.ToolError(call, statErr.Error()), nil
 	}
 
 	if err := w.fs.MkdirAll(filepath.Dir(abs), newDirMode); err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 	if err := w.fs.WriteFile(abs, []byte(*in.Content), mode); err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 
 	newInfo, err := w.fs.Stat(abs)
 	if err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 	w.tr.MarkRead(rc.SessionID, abs, newInfo)
 
-	return okResult(call, fmt.Sprintf("wrote %d bytes to %s", len(*in.Content), abs)), nil
+	return core.ToolOK(call, fmt.Sprintf("wrote %d bytes to %s", len(*in.Content), abs)), nil
 }

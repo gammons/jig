@@ -52,23 +52,23 @@ func (g *grepTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 
 	var in grepInput
 	if err := json.Unmarshal(call.Input, &in); err != nil {
-		return errResult(call, fmt.Sprintf("invalid input: %v", err)), nil
+		return core.ToolError(call, fmt.Sprintf("invalid input: %v", err)), nil
 	}
 	if in.Pattern == "" {
-		return errResult(call, "pattern is required"), nil
+		return core.ToolError(call, "pattern is required"), nil
 	}
 
 	dir, errMsg := resolveSearchPath(rc, in.Path)
 	if errMsg != "" {
-		return errResult(call, errMsg), nil
+		return core.ToolError(call, errMsg), nil
 	}
 
 	matches, err := g.s.Grep(ctx, dir, in.Pattern, in.Include, searchLimit)
 	if err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 
-	return okResult(call, formatGrepLines(matches, searchLimit)), nil
+	return core.ToolOK(call, formatGrepLines(matches, searchLimit)), nil
 }
 
 // formatGrepLines renders grep's "path:line: text" output, noting when

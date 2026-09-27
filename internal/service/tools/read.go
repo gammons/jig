@@ -60,23 +60,23 @@ func (r *readTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 
 	var in readInput
 	if err := json.Unmarshal(call.Input, &in); err != nil {
-		return errResult(call, fmt.Sprintf("invalid input: %v", err)), nil
+		return core.ToolError(call, fmt.Sprintf("invalid input: %v", err)), nil
 	}
 	if in.Path == "" {
-		return errResult(call, "path is required"), nil
+		return core.ToolError(call, "path is required"), nil
 	}
 	if in.Offset < 0 {
-		return errResult(call, "offset must be >= 1"), nil
+		return core.ToolError(call, "offset must be >= 1"), nil
 	}
 	if in.Limit < 0 {
-		return errResult(call, "limit must be >= 1"), nil
+		return core.ToolError(call, "limit must be >= 1"), nil
 	}
 
 	abs := resolvePath(rc.WorkDir, in.Path)
 
 	info, err := r.fs.Stat(abs)
 	if err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 	if info.IsDir() {
 		return r.readDir(call, abs)
@@ -89,10 +89,10 @@ func (r *readTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 func (r *readTool) readDir(call core.ToolCall, abs string) (core.ToolResult, error) {
 	entries, err := r.fs.ReadDir(abs)
 	if err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 	if len(entries) == 0 {
-		return okResult(call, "(empty directory)"), nil
+		return core.ToolOK(call, "(empty directory)"), nil
 	}
 
 	lines := make([]string, 0, len(entries))
@@ -103,7 +103,7 @@ func (r *readTool) readDir(call core.ToolCall, abs string) (core.ToolResult, err
 		}
 		lines = append(lines, name)
 	}
-	return okResult(call, strings.Join(lines, "\n")), nil
+	return core.ToolOK(call, strings.Join(lines, "\n")), nil
 }
 
 // readFile reads abs, checks it for binary content, and formats the
@@ -112,19 +112,19 @@ func (r *readTool) readDir(call core.ToolCall, abs string) (core.ToolResult, err
 func (r *readTool) readFile(call core.ToolCall, rc ext.RunContext, abs string, in readInput, info fs.FileInfo) (core.ToolResult, error) {
 	content, err := r.fs.ReadFile(abs)
 	if err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 	if looksBinary(content) {
-		return errResult(call, abs+" appears to be binary"), nil
+		return core.ToolError(call, abs+" appears to be binary"), nil
 	}
 
 	out, ierr := formatLines(abs, content, in.Offset, in.Limit)
 	if ierr != "" {
-		return errResult(call, ierr), nil
+		return core.ToolError(call, ierr), nil
 	}
 
 	r.tr.MarkRead(rc.SessionID, abs, info)
-	return okResult(call, out), nil
+	return core.ToolOK(call, out), nil
 }
 
 // looksBinary reports whether content's first binarySniffBytes contain a

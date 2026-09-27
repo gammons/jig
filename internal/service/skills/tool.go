@@ -54,25 +54,25 @@ func (t skillTool) Run(ctx context.Context, _ ext.RunContext, call core.ToolCall
 
 	var in skillInput
 	if err := json.Unmarshal(call.Input, &in); err != nil {
-		return errResult(call, fmt.Sprintf("invalid input: %v", err)), nil
+		return core.ToolError(call, fmt.Sprintf("invalid input: %v", err)), nil
 	}
 
 	sk, ok := t.svc.byName[in.ID]
 	if !ok {
-		return errResult(call, fmt.Sprintf("unknown skill %q; available: %s", in.ID, strings.Join(t.svc.names, ", "))), nil
+		return core.ToolError(call, fmt.Sprintf("unknown skill %q; available: %s", in.ID, strings.Join(t.svc.names, ", "))), nil
 	}
 
 	body, err := t.svc.fsys.ReadBody(sk.Path)
 	if err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 
 	files, err := t.listFiles(sk)
 	if err != nil {
-		return errResult(call, err.Error()), nil
+		return core.ToolError(call, err.Error()), nil
 	}
 
-	return okResult(call, formatSkillOutput(sk, body, files)), nil
+	return core.ToolOK(call, formatSkillOutput(sk, body, files)), nil
 }
 
 // listFiles returns the absolute paths of every regular file under
@@ -117,15 +117,4 @@ func formatSkillOutput(sk core.Skill, body string, files []string) string {
 			"<skill_files>\n%s\n</skill_files>\n</skill_content>",
 		sk.Name, sk.Name, body, sk.Dir, strings.Join(fileTags, "\n"),
 	)
-}
-
-// errResult builds an IsError ToolResult for call with msg as its output.
-func errResult(call core.ToolCall, msg string) core.ToolResult {
-	return core.ToolResult{CallID: call.ID, Name: call.Name, Output: msg, IsError: true}
-}
-
-// okResult builds a successful ToolResult for call with output as its
-// output.
-func okResult(call core.ToolCall, output string) core.ToolResult {
-	return core.ToolResult{CallID: call.ID, Name: call.Name, Output: output}
 }
