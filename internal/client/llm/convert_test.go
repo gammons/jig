@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"charm.land/fantasy"
-	"charm.land/fantasy/providers/anthropic"
 
 	"github.com/gammons/jig/internal/core"
 )
@@ -177,36 +176,47 @@ func TestToFantasy_CompactionBecomesSummaryUserMessage(t *testing.T) {
 	}
 }
 
-func TestApplyAnthropicCache_MarksLastSystemPartAndLastMessages(t *testing.T) {
+func TestToFantasy_DropsPartlessAssistantMessage(t *testing.T) {
 	req := core.LLMRequest{
-		Model:  core.ModelRef{Provider: "anthropic", Model: "claude-3-5-sonnet-20241022"},
-		System: []string{"s1", "s2"},
 		Messages: []core.Message{
-			{Role: core.RoleUser, Parts: []core.Part{{Kind: core.PartText, Text: "one"}}},
-			{Role: core.RoleUser, Parts: []core.Part{{Kind: core.PartText, Text: "two"}}},
-			{Role: core.RoleUser, Parts: []core.Part{{Kind: core.PartText, Text: "three"}}},
+			{Role: core.RoleUser, Parts: []core.Part{{Kind: core.PartText, Text: "hi"}}},
+			{Role: core.RoleAssistant, Parts: nil}, // e.g. a run interrupted before producing anything
 		},
 	}
 
 	call := ToFantasy(req)
-	if len(call.Prompt) != 4 {
-		t.Fatalf("got %d messages, want 4", len(call.Prompt))
+
+	if len(call.Prompt) != 1 {
+		t.Fatalf("got %d messages, want 1 (the empty assistant message dropped): %+v", len(call.Prompt), call.Prompt)
+	}
+	if call.Prompt[0].Role != fantasy.MessageRoleUser {
+		t.Errorf("remaining message: got role %q, want user", call.Prompt[0].Role)
+	}
+}
+
+// TestToFantasy_NeverAppliesAnthropicCacheItself guards against
+// regressing to ID-based gating inside ToFantasy: caching is applied by
+// the adapter (keyed on the factory's Type), not here, even when
+// req.Model.Provider happens to be "anthropic".
+func TestToFantasy_NeverAppliesAnthropicCacheItself(t *testing.T) {
+	req := core.LLMRequest{
+		Model:  core.ModelRef{Provider: "anthropic", Model: "claude-3-5-sonnet-20241022"},
+		System: []string{"s1"},
+		Messages: []core.Message{
+			{Role: core.RoleUser, Parts: []core.Part{{Kind: core.PartText, Text: "hi"}}},
+		},
 	}
 
-	sys := call.Prompt[0]
-	last := sys.Content[len(sys.Content)-1]
-	if cc := anthropic.GetCacheControl(last.Options()); cc == nil || cc.Type != ephemeralCacheType {
-		t.Errorf("last system part cache control: got %+v, want ephemeral", cc)
-	}
-	if first := sys.Content[0]; anthropic.GetCacheControl(first.Options()) != nil {
-		t.Errorf("first system part must not carry cache control")
-	}
+	call := ToFantasy(req)
 
 	for i, msg := range call.Prompt {
-		want := i >= len(call.Prompt)-cacheLastMessages
-		got := anthropic.GetCacheControl(msg.ProviderOptions) != nil
-		if got != want {
-			t.Errorf("message %d cache control: got %v, want %v", i, got, want)
+		if msg.ProviderOptions != nil {
+			t.Errorf("message %d: got ProviderOptions %+v, want nil (ToFantasy must not apply provider-specific options)", i, msg.ProviderOptions)
+		}
+		for j, part := range msg.Content {
+			if part.Options() != nil {
+				t.Errorf("message %d part %d: got Options %+v, want nil", i, j, part.Options())
+			}
 		}
 	}
 }

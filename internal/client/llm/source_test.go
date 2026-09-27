@@ -132,6 +132,71 @@ func TestSource_ConfigKeyBeatsEnv(t *testing.T) {
 	}
 }
 
+func TestSource_ResolvesEndpointPlaceholderFromEnv_Empty(t *testing.T) {
+	ref := core.ModelRef{Provider: "anthropic", Model: "claude-haiku-4-5"}
+	cat := fakeCatalog{
+		providers: map[string]core.ProviderInfo{
+			// Mirrors catwalk's built-in entry: an unresolved "$ENV_VAR"
+			// placeholder, not a real URL.
+			"anthropic": {ID: "anthropic", Type: "anthropic", Endpoint: "$ANTHROPIC_API_ENDPOINT"},
+		},
+		models: map[core.ModelRef]core.ModelInfo{ref: {Ref: ref}},
+	}
+	factory := &fakeFactory{typ: "anthropic"}
+	s := NewSource(cat, viewWith(factory), map[string]core.ProviderConfig{"anthropic": {APIKey: "k"}}, noEnv)
+
+	if _, _, err := s.For(ref); err != nil {
+		t.Fatalf("For: unexpected error: %v", err)
+	}
+	if factory.gotInfo.Endpoint != "" {
+		t.Errorf("factory saw Endpoint %q, want \"\" (unset env var must resolve to empty, not the literal placeholder)", factory.gotInfo.Endpoint)
+	}
+}
+
+func TestSource_ResolvesEndpointPlaceholderFromEnv_Set(t *testing.T) {
+	ref := core.ModelRef{Provider: "anthropic", Model: "claude-haiku-4-5"}
+	cat := fakeCatalog{
+		providers: map[string]core.ProviderInfo{
+			"anthropic": {ID: "anthropic", Type: "anthropic", Endpoint: "$ANTHROPIC_API_ENDPOINT"},
+		},
+		models: map[core.ModelRef]core.ModelInfo{ref: {Ref: ref}},
+	}
+	factory := &fakeFactory{typ: "anthropic"}
+	getenv := func(k string) string {
+		if k == "ANTHROPIC_API_ENDPOINT" {
+			return "https://custom.example.com"
+		}
+		return ""
+	}
+	s := NewSource(cat, viewWith(factory), map[string]core.ProviderConfig{"anthropic": {APIKey: "k"}}, getenv)
+
+	if _, _, err := s.For(ref); err != nil {
+		t.Fatalf("For: unexpected error: %v", err)
+	}
+	if factory.gotInfo.Endpoint != "https://custom.example.com" {
+		t.Errorf("factory saw Endpoint %q, want %q", factory.gotInfo.Endpoint, "https://custom.example.com")
+	}
+}
+
+func TestSource_EndpointWithoutPlaceholderPassesThrough(t *testing.T) {
+	ref := core.ModelRef{Provider: "myproxy", Model: "m"}
+	cat := fakeCatalog{
+		providers: map[string]core.ProviderInfo{
+			"myproxy": {ID: "myproxy", Type: "openai-compat", Endpoint: "https://proxy.example.com/v1"},
+		},
+		models: map[core.ModelRef]core.ModelInfo{ref: {Ref: ref}},
+	}
+	factory := &fakeFactory{typ: "openai-compat"}
+	s := NewSource(cat, viewWith(factory), nil, noEnv)
+
+	if _, _, err := s.For(ref); err != nil {
+		t.Fatalf("For: unexpected error: %v", err)
+	}
+	if factory.gotInfo.Endpoint != "https://proxy.example.com/v1" {
+		t.Errorf("factory saw Endpoint %q, want unchanged %q", factory.gotInfo.Endpoint, "https://proxy.example.com/v1")
+	}
+}
+
 func TestSource_UnsupportedProviderType(t *testing.T) {
 	ref := core.ModelRef{Provider: "myprovider", Model: "m"}
 	cat := fakeCatalog{

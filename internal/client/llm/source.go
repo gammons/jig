@@ -2,6 +2,7 @@ package llm
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/ext"
@@ -44,6 +45,7 @@ func (s *Source) For(ref core.ModelRef) (core.LLM, core.ModelInfo, error) {
 	if !ok {
 		return nil, core.ModelInfo{}, fmt.Errorf("unknown model %q (see: jig models %s)", ref.String(), ref.Provider)
 	}
+	info.Endpoint = s.resolveEndpoint(info.Endpoint)
 
 	cfg := s.providers[ref.Provider]
 	apiKey, err := s.resolveAPIKey(ref.Provider, info, cfg)
@@ -62,6 +64,21 @@ func (s *Source) For(ref core.ModelRef) (core.LLM, core.ModelInfo, error) {
 		return nil, core.ModelInfo{}, err
 	}
 	return client, model, nil
+}
+
+// resolveEndpoint substitutes a catwalk-style "$ENV_VAR" placeholder
+// endpoint (e.g. "$ANTHROPIC_API_ENDPOINT", used by catwalk's built-in
+// anthropic/openai/gemini entries) with that environment variable's value
+// via s.getenv. If the variable is unset, it resolves to "" so the
+// factory falls back to the SDK's own default base URL instead of trying
+// to dial a literal "$ANTHROPIC_API_ENDPOINT" host. An endpoint with no
+// leading "$" (a real URL, or already empty) passes through unchanged.
+func (s *Source) resolveEndpoint(endpoint string) string {
+	name, ok := strings.CutPrefix(endpoint, "$")
+	if !ok {
+		return endpoint
+	}
+	return s.getenv(name)
 }
 
 // resolveAPIKey returns cfg.APIKey if set, else the value of

@@ -8,7 +8,6 @@ import (
 	"errors"
 
 	"charm.land/fantasy"
-	"charm.land/fantasy/providers/anthropic"
 
 	"github.com/gammons/jig/internal/core"
 )
@@ -23,10 +22,13 @@ const compactionPrefix = "Summary of the conversation so far:\n"
 const interruptedResultText = "interrupted"
 
 // ToFantasy converts req into a fantasy.Call: system strings become one
-// system message, each core.Message becomes one or more fantasy.Message,
-// and tools/MaxOutputTokens carry across directly. For an Anthropic model,
-// it also marks the last system part and the last two messages for
-// ephemeral prompt caching.
+// system message, each core.Message becomes zero or more fantasy.Message
+// (an assistant message with no content parts is dropped, since Anthropic
+// and friends reject empty message content), and tools/MaxOutputTokens
+// carry across directly. It does not apply any provider-specific
+// treatment (e.g. Anthropic's prompt caching): that is the adapter's job,
+// since it is keyed on the provider's Type, not on req.Model.Provider (an
+// arbitrary catalog ID).
 func ToFantasy(req core.LLMRequest) fantasy.Call {
 	var messages []fantasy.Message
 	if len(req.System) > 0 {
@@ -34,9 +36,6 @@ func ToFantasy(req core.LLMRequest) fantasy.Call {
 	}
 	for _, m := range req.Messages {
 		messages = append(messages, convertMessage(m)...)
-	}
-	if req.Model.Provider == anthropic.Name {
-		applyAnthropicCache(messages)
 	}
 
 	call := fantasy.Call{
@@ -94,7 +93,9 @@ func convertUserMessage(m core.Message) fantasy.Message {
 // (text, reasoning, and tool-call parts) and, if it contains any tool
 // calls, a following tool-role message carrying one ToolResultPart per
 // call: the call's real result if any, else a synthesized "interrupted"
-// error result.
+// error result. An assistant message with no content parts at all (e.g. a
+// run interrupted before it produced anything) is dropped: Anthropic and
+// friends reject empty message content.
 func convertAssistantMessage(m core.Message) []fantasy.Message {
 	var content []fantasy.MessagePart
 	var callOrder []string
@@ -116,6 +117,10 @@ func convertAssistantMessage(m core.Message) []fantasy.Message {
 		case core.PartToolResult:
 			resultByCall[p.Result.CallID] = p.Result
 		}
+	}
+
+	if len(content) == 0 {
+		return nil
 	}
 
 	msgs := []fantasy.Message{{Role: fantasy.MessageRoleAssistant, Content: content}}

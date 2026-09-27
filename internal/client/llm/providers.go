@@ -29,12 +29,14 @@ func Factories() []ext.ProviderFactory {
 }
 
 // newModel resolves model against p and wraps the result as a core.LLM.
-func newModel(p fantasy.Provider, model string) (core.LLM, error) {
+// prepare, if non-nil, is wired into the returned adapter as its
+// call-mutation hook (see adapter.prepare).
+func newModel(p fantasy.Provider, model string, prepare func(*fantasy.Call)) (core.LLM, error) {
 	lm, err := p.LanguageModel(context.Background(), model)
 	if err != nil {
 		return nil, fmt.Errorf("llm: resolving model %q: %w", model, err)
 	}
-	return &adapter{lm: lm}, nil
+	return &adapter{lm: lm, prepare: prepare}, nil
 }
 
 // baseURL returns cfg's base URL override, falling back to info's catalog
@@ -56,7 +58,10 @@ func (anthropicFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, mod
 	if err != nil {
 		return nil, fmt.Errorf("llm: anthropic: %w", err)
 	}
-	return newModel(p, model)
+	// Anthropic prompt caching is wired here, keyed on this factory's Type
+	// ("anthropic"), not on info.ID: a custom-ID provider that is still
+	// type "anthropic" (e.g. a proxy) gets it too.
+	return newModel(p, model, applyAnthropicCacheToCall)
 }
 
 type openaiFactory struct{}
@@ -72,7 +77,7 @@ func (openaiFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, model 
 	if err != nil {
 		return nil, fmt.Errorf("llm: openai: %w", err)
 	}
-	return newModel(p, model)
+	return newModel(p, model, nil)
 }
 
 type openaiCompatFactory struct{}
@@ -88,7 +93,7 @@ func (openaiCompatFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, 
 	if err != nil {
 		return nil, fmt.Errorf("llm: openai-compat: %w", err)
 	}
-	return newModel(p, model)
+	return newModel(p, model, nil)
 }
 
 // openrouterFactory has no base-URL override: fantasy's openrouter package
@@ -102,7 +107,7 @@ func (openrouterFactory) New(_ core.ProviderInfo, cfg core.ProviderConfig, model
 	if err != nil {
 		return nil, fmt.Errorf("llm: openrouter: %w", err)
 	}
-	return newModel(p, model)
+	return newModel(p, model, nil)
 }
 
 type googleFactory struct{}
@@ -118,5 +123,5 @@ func (googleFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, model 
 	if err != nil {
 		return nil, fmt.Errorf("llm: google: %w", err)
 	}
-	return newModel(p, model)
+	return newModel(p, model, nil)
 }

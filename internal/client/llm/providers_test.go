@@ -1,8 +1,10 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -136,5 +138,123 @@ func TestAnthropicFactory_429IsRetryable(t *testing.T) {
 	// (Task 19) sees exactly one HTTP request per Stream call.
 	if got := requests.Load(); got != 1 {
 		t.Errorf("requests hitting the fixture server: got %d, want 1 (no SDK-internal retries)", got)
+	}
+}
+
+// TestAnthropicFactory_UsesConfigBaseURLWhenEndpointEmpty proves that an
+// anthropicFactory built with an empty ProviderInfo.Endpoint (the state
+// Source now leaves it in for an unresolved catwalk placeholder) still
+// reaches a provider through cfg.BaseURL: the httptest fixture server.
+func TestAnthropicFactory_UsesConfigBaseURLWhenEndpointEmpty(t *testing.T) {
+	srv := serveFixture(t, "testdata/anthropic/text_and_tool.sse")
+	defer srv.Close()
+
+	client, err := anthropicFactory{}.New(
+		core.ProviderInfo{ID: "anthropic", Type: "anthropic", Endpoint: ""},
+		core.ProviderConfig{APIKey: "test-key", BaseURL: srv.URL},
+		"claude-3-5-sonnet-20241022",
+	)
+	if err != nil {
+		t.Fatalf("New: unexpected error: %v", err)
+	}
+
+	req := core.LLMRequest{
+		Model:    core.ModelRef{Provider: "anthropic", Model: "claude-3-5-sonnet-20241022"},
+		Messages: []core.Message{{Role: core.RoleUser, Parts: []core.Part{{Kind: core.PartText, Text: "hi"}}}},
+	}
+
+	var n int
+	for _, err := range client.Stream(context.Background(), req) {
+		if err != nil {
+			t.Fatalf("Stream: unexpected error: %v", err)
+		}
+		n++
+	}
+	if n == 0 {
+		t.Fatal("got no events; the fixture server was never reached")
+	}
+}
+
+// TestAnthropicFactory_WiresCacheControlHookRegardlessOfProviderID proves
+// caching is keyed on the factory's Type ("anthropic"), not on the
+// catalog's provider ID: a proxy registered under a custom ID still gets
+// the cache-control hook wired in.
+func TestAnthropicFactory_WiresCacheControlHookRegardlessOfProviderID(t *testing.T) {
+	client, err := anthropicFactory{}.New(
+		core.ProviderInfo{ID: "my-claude-proxy", Type: "anthropic"},
+		core.ProviderConfig{APIKey: "test-key"},
+		"claude-3-5-sonnet-20241022",
+	)
+	if err != nil {
+		t.Fatalf("New: unexpected error: %v", err)
+	}
+	a, ok := client.(*adapter)
+	if !ok {
+		t.Fatalf("got %T, want *adapter", client)
+	}
+	if a.prepare == nil {
+		t.Error("anthropicFactory must wire the cache-control prepare hook, even for a custom provider ID")
+	}
+}
+
+// TestOpenAIFactory_DoesNotWireCacheControlHook proves the converse: a
+// non-anthropic factory Type never gets Anthropic's cache-control hook.
+func TestOpenAIFactory_DoesNotWireCacheControlHook(t *testing.T) {
+	client, err := openaiFactory{}.New(
+		core.ProviderInfo{ID: "openai", Type: "openai"},
+		core.ProviderConfig{APIKey: "test-key"},
+		"gpt-4o-mini",
+	)
+	if err != nil {
+		t.Fatalf("New: unexpected error: %v", err)
+	}
+	a, ok := client.(*adapter)
+	if !ok {
+		t.Fatalf("got %T, want *adapter", client)
+	}
+	if a.prepare != nil {
+		t.Error("openaiFactory must not wire the cache-control prepare hook")
+	}
+}
+
+// TestAnthropicFactory_AppliesCacheControlOnStream is the end-to-end
+// proof: streaming through a custom-ID, type-"anthropic" provider sends a
+// request body carrying cache_control breakpoints.
+func TestAnthropicFactory_AppliesCacheControlOnStream(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/anthropic/text_and_tool.sse")
+	if err != nil {
+		t.Fatalf("reading fixture: %v", err)
+	}
+
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(fixture)
+	}))
+	defer srv.Close()
+
+	client, err := anthropicFactory{}.New(
+		core.ProviderInfo{ID: "my-claude-proxy", Type: "anthropic"},
+		core.ProviderConfig{APIKey: "test-key", BaseURL: srv.URL},
+		"claude-3-5-sonnet-20241022",
+	)
+	if err != nil {
+		t.Fatalf("New: unexpected error: %v", err)
+	}
+
+	req := core.LLMRequest{
+		Model:  core.ModelRef{Provider: "my-claude-proxy", Model: "claude-3-5-sonnet-20241022"},
+		System: []string{"you are helpful"},
+		Messages: []core.Message{
+			{Role: core.RoleUser, Parts: []core.Part{{Kind: core.PartText, Text: "hi"}}},
+		},
+	}
+	for range client.Stream(context.Background(), req) {
+	}
+
+	if !bytes.Contains(capturedBody, []byte(`"cache_control"`)) {
+		t.Errorf("request body sent to the provider carries no cache_control: %s", capturedBody)
 	}
 }
