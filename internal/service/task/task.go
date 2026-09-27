@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -135,6 +136,7 @@ func (t *taskTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 		Model:     model,
 		WorkDir:   rc.WorkDir,
 		Depth:     rc.Depth + 1,
+		Ancestors: append(slices.Clone(rc.Ancestors), rc.Agent.Permissions),
 	}
 	msg, err := t.runner.Run(ctx, childRC, in.Prompt)
 	if err != nil {

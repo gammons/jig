@@ -71,6 +71,13 @@ func overlayRule(layers ...core.Rule) core.Rule {
 // equally specific matches favors Deny over Ask over Allow. When no
 // pattern matches, r.Default applies, and an empty Default means Ask.
 func Evaluate(r core.Rule, subject string) core.Action {
+	a, _ := evaluate(r, subject)
+	return a
+}
+
+// evaluate is Evaluate that also reports whether the action came from a
+// matching pattern (true) rather than r.Default (false).
+func evaluate(r core.Rule, subject string) (core.Action, bool) {
 	bestSpecificity := -1
 	var bestAction core.Action
 	matched := false
@@ -90,11 +97,11 @@ func Evaluate(r core.Rule, subject string) core.Action {
 
 	if !matched {
 		if r.Default == "" {
-			return core.Ask
+			return core.Ask, false
 		}
-		return r.Default
+		return r.Default, false
 	}
-	return bestAction
+	return bestAction, true
 }
 
 // specificity counts pattern's non-'*' runes: more literal characters

@@ -571,3 +571,36 @@ func TestTask_MissingRequiredFields(t *testing.T) {
 		})
 	}
 }
+
+func TestTask_ChildCarriesAncestorPermissions(t *testing.T) {
+	sub := exploreAgent(core.ModelRef{})
+	runner := &fakeRunner{}
+	tool := New(&fakeSessions{}, &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}}, runner, &recordingPublisher{})
+
+	grand := core.PermissionRules{"bash": {Default: core.Deny}}
+	parent := core.PermissionRules{"bash": {Default: core.Ask}}
+	ancestors := make([]core.PermissionRules, 1, 4)
+	ancestors[0] = grand
+	rc := ext.RunContext{
+		SessionID: "p1",
+		Agent:     core.Agent{Name: "plan", Permissions: parent},
+		Ancestors: ancestors,
+		Depth:     1,
+	}
+	call := mustTaskCall(t, map[string]any{"agent": "explore", "description": "d", "prompt": "p"})
+	if _, err := tool.Run(context.Background(), rc, call); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	got := runner.gotRC.Ancestors
+	if len(got) != 2 {
+		t.Fatalf("child Ancestors len = %d, want 2", len(got))
+	}
+	if got[0]["bash"].Default != core.Deny || got[1]["bash"].Default != core.Ask {
+		t.Errorf("child Ancestors = %+v, want [grandparent, parent]", got)
+	}
+	// The child's slice must not alias the parent's spare capacity.
+	if len(rc.Ancestors) != 1 || &got[0] == &ancestors[0] {
+		t.Error("child Ancestors aliases the parent's slice")
+	}
+}

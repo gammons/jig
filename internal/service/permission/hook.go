@@ -3,6 +3,7 @@ package permission
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/gammons/jig/internal/core"
@@ -10,7 +11,8 @@ import (
 )
 
 // Hook is an ext.ToolHook that enforces permission rules: it evaluates
-// Effective(rc.Agent.Permissions, cfg) for each call, blocks denied calls,
+// Effective(rc.Agent.Permissions, cfg) and Effective(ancestor, cfg) for
+// every rc.Ancestors entry, takes the most restrictive result, blocks denied calls,
 // and consults asker (remembering "always" answers per root session) for
 // calls that ask. Hook is safe for concurrent Before calls.
 type Hook struct {
@@ -34,9 +36,8 @@ func NewHook(cfg core.PermissionRules, asker Asker) *Hook {
 // Before implements ext.ToolHook.
 func (h *Hook) Before(ctx context.Context, rc ext.RunContext, tool ext.Tool, call core.ToolCall) (core.ToolCall, ext.Verdict, error) {
 	subject := subjectOf(tool, rc, call)
-	rule := Effective(rc.Agent.Permissions, h.cfg)[call.Name]
 
-	switch Evaluate(rule, subject) {
+	switch h.decide(rc, call.Name, subject) {
 	case core.Allow:
 		return call, ext.Verdict{}, nil
 	case core.Deny:
@@ -44,6 +45,38 @@ func (h *Hook) Before(ctx context.Context, rc ext.RunContext, tool ext.Tool, cal
 	default: // core.Ask
 		return h.ask(ctx, rc, call, subject)
 	}
+}
+
+// decide evaluates tool/subject against the current agent's rules and
+// every ancestor agent's rules (each merged over cfg), returning the most
+// restrictive action: Deny > Ask > Allow. A subagent can therefore never
+// do what an agent above it could not.
+func (h *Hook) decide(rc ext.RunContext, tool, subject string) core.Action {
+	worst := h.decideOne(rc.Agent.Permissions, tool, subject)
+	for _, anc := range rc.Ancestors {
+		if a := h.decideOne(anc, tool, subject); actionRank(a) > actionRank(worst) {
+			worst = a
+		}
+	}
+	return worst
+}
+
+// decideOne evaluates tool/subject under Effective(agent, cfg). A bash
+// allow that came from a pattern (not the tool's default) is downgraded to
+// Ask when the command contains shell metacharacters, since a pattern such
+// as "git status*" would otherwise also allow "git status; rm -rf x".
+func (h *Hook) decideOne(agent core.PermissionRules, tool, subject string) core.Action {
+	action, fromPattern := evaluate(Effective(agent, h.cfg)[tool], subject)
+	if tool == "bash" && action == core.Allow && fromPattern && hasShellMeta(subject) {
+		return core.Ask
+	}
+	return action
+}
+
+// hasShellMeta reports whether cmd contains a character or sequence that
+// can chain, substitute, or redirect shell commands.
+func hasShellMeta(cmd string) bool {
+	return strings.ContainsAny(cmd, ";&|`><\n") || strings.Contains(cmd, "$(")
 }
 
 // After implements ext.ToolHook by returning res unchanged.

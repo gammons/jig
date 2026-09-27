@@ -312,3 +312,109 @@ func TestHook_After_ReturnsResultUnchanged(t *testing.T) {
 		t.Errorf("After = %+v, want unchanged %+v", got, res)
 	}
 }
+
+func TestHook_AncestorRulesMostRestrictiveWins(t *testing.T) {
+	cfg := core.PermissionRules{"bash": {Default: core.Allow}}
+	tool := fakeTool{name: "bash"}
+	call := core.ToolCall{ID: "1", Name: "bash"}
+
+	t.Run("ancestor deny blocks", func(t *testing.T) {
+		asker := &scriptedAsker{}
+		h := NewHook(cfg, asker)
+		r := rc("child", "root", nil)
+		r.Ancestors = []core.PermissionRules{{"bash": {Default: core.Deny}}}
+		_, v, err := h.Before(context.Background(), r, tool, call)
+		if err != nil {
+			t.Fatalf("Before: %v", err)
+		}
+		if !v.Block {
+			t.Fatal("Verdict.Block = false, want true (ancestor denies bash)")
+		}
+	})
+
+	t.Run("ancestor ask asks even though child allows", func(t *testing.T) {
+		asker := &scriptedAsker{reply: core.PermissionReply{Kind: core.ReplyDeny}}
+		h := NewHook(cfg, asker)
+		r := rc("child", "root", core.PermissionRules{"bash": {Default: core.Allow}})
+		r.Ancestors = []core.PermissionRules{nil, {"bash": {Default: core.Ask}}}
+		_, v, err := h.Before(context.Background(), r, tool, call)
+		if err != nil {
+			t.Fatalf("Before: %v", err)
+		}
+		if len(asker.requests) != 1 {
+			t.Fatalf("asker called %d times, want 1", len(asker.requests))
+		}
+		if !v.Block {
+			t.Error("Verdict.Block = false, want true (user denied)")
+		}
+	})
+
+	t.Run("child deny wins over ancestor allow", func(t *testing.T) {
+		asker := &scriptedAsker{}
+		h := NewHook(cfg, asker)
+		r := rc("child", "root", core.PermissionRules{"bash": {Default: core.Deny}})
+		r.Ancestors = []core.PermissionRules{{"bash": {Default: core.Allow}}}
+		_, v, _ := h.Before(context.Background(), r, tool, call)
+		if !v.Block {
+			t.Fatal("Verdict.Block = false, want true")
+		}
+	})
+
+	t.Run("all allow passes", func(t *testing.T) {
+		asker := &scriptedAsker{}
+		h := NewHook(cfg, asker)
+		r := rc("child", "root", nil)
+		r.Ancestors = []core.PermissionRules{{"bash": {Default: core.Allow}}}
+		_, v, _ := h.Before(context.Background(), r, tool, call)
+		if v.Block || len(asker.requests) != 0 {
+			t.Fatalf("Block=%v asks=%d, want pass without asking", v.Block, len(asker.requests))
+		}
+	})
+}
+
+func TestHook_BashPatternAllowDowngradedOnShellMetachars(t *testing.T) {
+	cfg := core.PermissionRules{"bash": {Default: core.Ask, Patterns: map[string]core.Action{"git status*": core.Allow}}}
+	tool := subjecterTool{fakeTool{name: "bash", subjecter: func(in json.RawMessage) string { return string(in) }}}
+
+	cases := []struct {
+		cmd     string
+		wantAsk bool
+	}{
+		{"git status", false},
+		{"git status --short", false},
+		{"git status; rm -rf x", true},
+		{"git status && rm -rf x", true},
+		{"git status | sh", true},
+		{"git status `rm x`", true},
+		{"git status $(rm x)", true},
+		{"git status > f", true},
+		{"git status < f", true},
+		{"git status\nrm -rf x", true},
+	}
+	for _, c := range cases {
+		asker := &scriptedAsker{reply: core.PermissionReply{Kind: core.ReplyDeny}}
+		h := NewHook(cfg, asker)
+		call := core.ToolCall{ID: "1", Name: "bash", Input: json.RawMessage(c.cmd)}
+		_, v, err := h.Before(context.Background(), rc("s", "s", nil), tool, call)
+		if err != nil {
+			t.Fatalf("%q: Before: %v", c.cmd, err)
+		}
+		asked := len(asker.requests) == 1
+		if asked != c.wantAsk {
+			t.Errorf("%q: asked = %v, want %v", c.cmd, asked, c.wantAsk)
+		}
+		if c.wantAsk && !v.Block {
+			t.Errorf("%q: not blocked after deny reply", c.cmd)
+		}
+	}
+
+	t.Run("tool-default allow is not downgraded", func(t *testing.T) {
+		asker := &scriptedAsker{}
+		h := NewHook(core.PermissionRules{"bash": {Default: core.Allow}}, asker)
+		call := core.ToolCall{ID: "1", Name: "bash", Input: json.RawMessage("ls | wc -l")}
+		_, v, _ := h.Before(context.Background(), rc("s", "s", nil), tool, call)
+		if v.Block || len(asker.requests) != 0 {
+			t.Fatalf("Block=%v asks=%d, want pass", v.Block, len(asker.requests))
+		}
+	})
+}

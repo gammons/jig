@@ -24,6 +24,10 @@ type RunContext struct {
 	Model     core.ModelRef
 	WorkDir   string
 	Depth     int
+	// Ancestors holds the permission rules of every agent above this one
+	// in the subagent chain, root first. A tool call must pass each of
+	// them as well as Agent.Permissions.
+	Ancestors []core.PermissionRules
 }
 
 // Tool is an executable capability the model can call.
@@ -57,6 +61,9 @@ type ToolHook interface {
 	// registry.
 	Before(ctx context.Context, rc RunContext, tool Tool, call core.ToolCall) (core.ToolCall, Verdict, error)
 	// After runs once the tool has produced a result, and may rewrite it.
+	// It runs only when the tool's Run ran, including when Run returned an
+	// error, panicked, or was cancelled. It does not run for calls that a
+	// hook blocked, that name an unknown tool, or whose input was invalid.
 	After(ctx context.Context, rc RunContext, tool Tool, call core.ToolCall, res core.ToolResult) core.ToolResult
 }
 
