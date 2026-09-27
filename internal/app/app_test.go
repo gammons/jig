@@ -257,3 +257,36 @@ func TestLoadEnv_AcceptsModelAliases(t *testing.T) {
 		t.Fatalf("loadEnv: %v", err)
 	}
 }
+
+func TestRun_WarnsOnUnsupportedProviderOptions(t *testing.T) {
+	env := newTestEnv(t)
+	env.writeConfig(t, `default_model = "anthropic/claude-haiku-4-5-20251001"
+
+[providers.anthropic]
+type = "anthropic"
+
+[providers.anthropic.options]
+max_tokens = 8192
+`)
+	_, _, stderr := env.run(t, "run", "--cwd", env.workDir, "hi")
+	want := "warning: providers.anthropic.options is not supported yet and is ignored\n"
+	if !strings.HasPrefix(stderr, want) {
+		t.Errorf("stderr = %q, want it to start with %q", stderr, want)
+	}
+}
+
+func TestWarnProviderOptions_SkipsJigtestAndEmpty(t *testing.T) {
+	var buf bytes.Buffer
+	warnProviderOptions(&buf, map[string]core.ProviderConfig{
+		"zeta":    {Type: "openai", Options: map[string]any{"a": 1}},
+		"alpha":   {Type: "anthropic", Options: map[string]any{"b": 2}},
+		"test":    {Type: "jigtest", Options: map[string]any{"script": "x"}},
+		"noopts":  {Type: "anthropic"},
+		"emptyop": {Type: "anthropic", Options: map[string]any{}},
+	})
+	want := "warning: providers.alpha.options is not supported yet and is ignored\n" +
+		"warning: providers.zeta.options is not supported yet and is ignored\n"
+	if buf.String() != want {
+		t.Errorf("output = %q, want %q", buf.String(), want)
+	}
+}

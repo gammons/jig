@@ -2,8 +2,10 @@ package app
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/data/config"
@@ -82,4 +84,20 @@ func validateModels(cfg core.Config) error {
 		}
 	}
 	return nil
+}
+
+// warnProviderOptions warns, in provider-ID order, about every provider
+// whose options table is set: options are not wired to any client yet.
+// The jigtest provider is exempt, since it reads its script from them.
+func warnProviderOptions(w io.Writer, providers map[string]core.ProviderConfig) {
+	ids := make([]string, 0, len(providers))
+	for id, p := range providers {
+		if len(p.Options) > 0 && p.Type != "jigtest" {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		fmt.Fprintf(w, "warning: providers.%s.options is not supported yet and is ignored\n", id)
+	}
 }

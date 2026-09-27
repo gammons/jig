@@ -27,6 +27,7 @@ func runCmd(ctx context.Context, args []string, std Stdio, getenv func(string) s
 		fmt.Fprintln(std.Err, err)
 		return exitConfig
 	}
+	warnProviderOptions(std.Err, e.cfg().Providers)
 	rt, err := newRuntime(ctx, e, permission.StaticAsker{Allow: opts.yes}, std.Err)
 	if err != nil {
 		fmt.Fprintln(std.Err, "error:", err)

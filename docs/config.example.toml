@@ -50,10 +50,8 @@ models = [
   "claude-opus-4-5-20251101",
 ]
 
-# Provider-specific options passed through to the client. Replaced
-# wholesale by whichever file sets it last, not deep-merged.
-[providers.anthropic.options]
-max_tokens = 8192
+# [providers.<id>.options] is reserved for provider-specific client
+# options but is not used yet: jig ignores it and prints a warning.
 
 # Short names for models, usable anywhere a model ref is accepted
 # (--model, agents.<name>.model, default_model, small_model).
