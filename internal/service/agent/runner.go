@@ -5,7 +5,6 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -16,9 +15,6 @@ import (
 	"github.com/gammons/jig/internal/core/ext"
 	"github.com/gammons/jig/internal/ids"
 )
-
-// ErrBusy is returned by Run when the session already has a running turn.
-var ErrBusy = errors.New("agent: session already has a running turn")
 
 // defaultMaxSteps bounds a run when the agent sets no MaxSteps.
 const defaultMaxSteps = 100
@@ -137,7 +133,7 @@ func (r *Runner) register(ctx context.Context, id core.SessionID) (context.Conte
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, busy := r.running[id]; busy {
-		return nil, nil, ErrBusy
+		return nil, nil, core.ErrBusy
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	r.running[id] = cancel

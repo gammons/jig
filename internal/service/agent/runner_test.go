@@ -423,7 +423,7 @@ func TestRunner_BusyRejected(t *testing.T) {
 	first := f.runAsync(r, "one")
 	waitStarted(t, f.rec)
 
-	if _, err := r.Run(context.Background(), f.rc, "two"); !errors.Is(err, ErrBusy) {
+	if _, err := r.Run(context.Background(), f.rc, "two"); !errors.Is(err, core.ErrBusy) {
 		t.Fatalf("second Run err = %v, want ErrBusy", err)
 	}
 	r.Cancel(f.rc.SessionID)

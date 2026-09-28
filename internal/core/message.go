@@ -31,6 +31,7 @@ const (
 	PartToolCall   PartKind = "tool_call"
 	PartToolResult PartKind = "tool_result"
 	PartCompaction PartKind = "compaction"
+	PartAttachment PartKind = "attachment"
 )
 
 // MessageStatus tracks a Message's lifecycle as it streams in.
@@ -57,14 +58,16 @@ type ToolResult struct {
 	Output   string
 	IsError  bool
 	Metadata map[string]string
+	Media    []Media
 }
 
 // Part is one piece of a Message's content.
 type Part struct {
-	Kind   PartKind
-	Text   string
-	Call   *ToolCall
-	Result *ToolResult
+	Kind       PartKind
+	Text       string
+	Call       *ToolCall
+	Result     *ToolResult
+	Attachment *Attachment
 }
 
 // Usage tracks token counts for a single LLM exchange.

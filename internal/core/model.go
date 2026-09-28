@@ -44,6 +44,7 @@ type ModelInfo struct {
 	CostCacheRead    float64
 	CostCacheWrite   float64
 	CanReason        bool
+	SupportsImages   bool
 }
 
 // perMillionTokens is the unit m's Cost* fields are priced per.

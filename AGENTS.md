@@ -160,6 +160,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 - Every string from a model, a tool, a file, or the store passes
   `ansi.Sanitize` (or `SanitizeLine`) before it is rendered; only jig's own
   styling escapes reach the terminal.
+- `core.Media.Data` is never persisted; only `client/llm` fills it, from
+  blobs, for a single request.
 
 ## Shared code — check here before writing a helper
 

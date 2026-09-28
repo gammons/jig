@@ -306,3 +306,101 @@ func TestMessages_ConcurrentSavesDifferentSessions(t *testing.T) {
 func sessionIDFor(i int) string {
 	return "ses_conc_" + string(rune('a'+i))
 }
+
+// imageRef is a 64-lowercase-hex sha256-shaped blob ref for tests.
+const imageRef = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9"
+
+func TestStore_AttachmentPartRoundTrips(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	seedSession(t, s, "ses_1")
+
+	msg := core.Message{
+		ID:        "msg_1",
+		SessionID: "ses_1",
+		Role:      core.RoleUser,
+		Status:    core.StatusComplete,
+		Parts: []core.Part{
+			{Kind: core.PartAttachment, Attachment: &core.Attachment{
+				Path:    "/w/a.go",
+				Content: "package a",
+			}},
+			{Kind: core.PartAttachment, Attachment: &core.Attachment{
+				Path: "/w/s.png",
+				Media: &core.Media{
+					MIME: "image/png",
+					Ref:  imageRef,
+					Data: []byte{1},
+				},
+			}},
+		},
+		CreatedAt: time.UnixMilli(1_700_000_000_600),
+	}
+	if err := s.SaveMessage(ctx, msg); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+
+	list, err := s.ListMessages(ctx, "ses_1")
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	if len(list) != 1 || len(list[0].Parts) != 2 {
+		t.Fatalf("ListMessages = %+v, want 1 message with 2 parts", list)
+	}
+
+	want := msg
+	want.Parts[1].Attachment.Media.Data = nil // client/llm fills Data; never persisted (R4)
+	if !reflect.DeepEqual(list[0], want) {
+		t.Errorf("round-tripped message = %+v, want %+v", list[0], want)
+	}
+}
+
+func TestStore_ToolResultMediaRoundTrips(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	seedSession(t, s, "ses_1")
+
+	msg := core.Message{
+		ID:        "msg_1",
+		SessionID: "ses_1",
+		Role:      core.RoleAssistant,
+		Status:    core.StatusComplete,
+		Parts: []core.Part{
+			{Kind: core.PartToolResult, Result: &core.ToolResult{
+				CallID: "call_1",
+				Name:   "read",
+				Output: "image WxH (1)",
+				Media:  []core.Media{{MIME: "image/png", Ref: imageRef}},
+			}},
+		},
+		CreatedAt: time.UnixMilli(1_700_000_000_700),
+	}
+	if err := s.SaveMessage(ctx, msg); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+
+	list, err := s.ListMessages(ctx, "ses_1")
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	if len(list) != 1 || len(list[0].Parts) != 1 {
+		t.Fatalf("ListMessages = %+v, want 1 message with 1 part", list)
+	}
+	got := list[0].Parts[0].Result
+	if got == nil || !reflect.DeepEqual(*got, *msg.Parts[0].Result) {
+		t.Errorf("Result = %+v, want %+v", got, msg.Parts[0].Result)
+	}
+}
+
+func TestStore_LegacyToolResultWithoutMedia(t *testing.T) {
+	p, err := decodePart(string(core.PartToolResult), `{"CallID":"call_1","Name":"read","Output":"x"}`)
+	if err != nil {
+		t.Fatalf("decodePart: %v", err)
+	}
+	if p.Result == nil {
+		t.Fatal("Result is nil")
+	}
+	if p.Result.Media != nil {
+		t.Errorf("Media = %+v, want nil", p.Result.Media)
+	}
+}

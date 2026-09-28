@@ -87,6 +87,8 @@ func encodePart(p core.Part) ([]byte, error) {
 		return json.Marshal(p.Call)
 	case core.PartToolResult:
 		return json.Marshal(p.Result)
+	case core.PartAttachment:
+		return json.Marshal(p.Attachment)
 	default:
 		return nil, fmt.Errorf("unknown part kind %q", p.Kind)
 	}
@@ -121,6 +123,12 @@ func decodePart(kind, data string) (core.Part, error) {
 			return core.Part{}, err
 		}
 		return core.Part{Kind: core.PartToolResult, Result: &result}, nil
+	case core.PartAttachment:
+		var att core.Attachment
+		if err := json.Unmarshal([]byte(data), &att); err != nil {
+			return core.Part{}, err
+		}
+		return core.Part{Kind: core.PartAttachment, Attachment: &att}, nil
 	default:
 		return core.Part{}, fmt.Errorf("unknown part kind %q", kind)
 	}
