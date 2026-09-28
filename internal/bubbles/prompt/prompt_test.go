@@ -49,8 +49,24 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl}
 	case "ctrl+u":
 		return tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}
+	case "ctrl+h":
+		return tea.KeyPressMsg{Code: 'h', Mod: tea.ModCtrl}
+	case "ctrl+d":
+		return tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl}
+	case "ctrl+t":
+		return tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl}
 	case "alt+backspace":
 		return tea.KeyPressMsg{Code: tea.KeyBackspace, Mod: tea.ModAlt}
+	case "alt+delete":
+		return tea.KeyPressMsg{Code: tea.KeyDelete, Mod: tea.ModAlt}
+	case "alt+d":
+		return tea.KeyPressMsg{Code: 'd', Mod: tea.ModAlt}
+	case "alt+l":
+		return tea.KeyPressMsg{Code: 'l', Mod: tea.ModAlt}
+	case "alt+u":
+		return tea.KeyPressMsg{Code: 'u', Mod: tea.ModAlt}
+	case "alt+c":
+		return tea.KeyPressMsg{Code: 'c', Mod: tea.ModAlt}
 	}
 	r := []rune(k)[0]
 	return tea.KeyPressMsg{Code: r, Text: k}

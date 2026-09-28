@@ -134,17 +134,18 @@ func stripMarkers(s string) string {
 }
 
 // reconcile is Value's backstop against a damaged chip token: it removes
-// every leftover fragment of a token that a bubbles/textarea editing
-// command this widget doesn't specifically guard (a mouse-driven
-// selection delete, a future keymap addition, ...) tore apart, then
-// expands every token that's still intact. prompt.go's
-// isRiskyDeleteKey/exitChipInterior/handleBackspace/handleDelete
-// intercept the deletion bindings that are cheap to get exactly right
-// (backspace, forward-delete, and bubbles/textarea's own word/line
-// deletion bindings) before they ever reach the textarea, so in
-// practice reconcile is a no-op; it exists so Value's "never a partial
-// token" guarantee doesn't depend on that interception list being
-// exhaustive.
+// every leftover fragment of a token that survived past delete.go's
+// classify/handleDeleteKey guard (a multi-row selection delete, say —
+// that guard only ever acts on the cursor's own row, since chips never
+// span lines, so an edit that damages a chip while also moving off its
+// row, or one delivered by something other than a keyboard entirely —
+// e.g. a mouse-driven selection — is outside its scope), then expands
+// every token that's still intact. In practice reconcile is a no-op,
+// since classify's catch-all default (delete.go's classOther) protects
+// every key capable of mutating the buffer that isn't one this package
+// has classified more precisely, not a list of specifically-risky ones;
+// it exists so Value's "never a partial token" guarantee doesn't depend
+// on that coverage being exhaustive.
 func (c chips) reconcile(s string) string {
 	return c.expand(stripDamagedTokens(c, s))
 }

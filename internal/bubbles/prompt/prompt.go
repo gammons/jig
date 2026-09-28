@@ -223,12 +223,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 // handleKey dispatches a key press: '@' emits MentionMsg without
 // inserting; enter submits (unless blank); shift+enter/alt+enter insert a
 // literal newline; ctrl+e opens the editor; ↑/↓ on the first/last line
-// walk history; backspace, forward-delete, and bubbles/textarea's own
-// word/line deletion bindings remove a whole chip token when the cursor
-// touches one (see handleDeleteKey). Anything else is forwarded to the
-// textarea, first moving the cursor out of a chip it's inside if the key
-// types text (so typing inside a chip appends after it instead of
-// splitting it apart — a plain cursor move, by contrast, is left alone).
+// walk history. Everything else is classified (see classify) and either
+// forwarded to the textarea as usual, guarded against splitting a chip
+// it types into (classInsert), or guarded against partially deleting one
+// (classBack/classForward/classOther, via handleDeleteKey).
 func (m Model) handleKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
 	switch {
 	case k.String() == "@":
@@ -254,17 +252,20 @@ func (m Model) handleKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
 		if m.ta.LineCount() > 0 && m.ta.Line() == m.ta.LineCount()-1 {
 			return m.walkHistory(false)
 		}
-	case k.String() == "backspace":
+	}
+	switch classify(k) {
+	case classBack:
 		return m.handleDeleteKey(k, deleteBack)
-	case k.String() == "delete":
+	case classForward:
 		return m.handleDeleteKey(k, deleteForward)
-	case isRiskyDeleteKey(k):
+	case classOther:
 		return m.handleDeleteKey(k, deleteWhole)
+	case classInsert:
+		m.ta = exitChipInterior(m.ta, m.chips)
+	case classSafe:
+		// Nothing extra to do: safeKeys never mutates the buffer.
 	}
 	m.hist.idx = -1
-	if k.Text != "" {
-		m.ta = exitChipInterior(m.ta, m.chips)
-	}
 	ta, cmd := m.ta.Update(k)
 	m.ta = ta
 	return m, cmd

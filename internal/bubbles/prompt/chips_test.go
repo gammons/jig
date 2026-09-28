@@ -172,6 +172,125 @@ func TestChips_RiskyDeleteBindingsAreAtomic(t *testing.T) {
 	}
 }
 
+// soleToken returns the one live chip token in m.chips, failing the test
+// if there isn't exactly one.
+func soleToken(t *testing.T, m Model) string {
+	t.Helper()
+	if len(m.chips.byToken) != 1 {
+		t.Fatalf("m.chips has %d live tokens, want 1", len(m.chips.byToken))
+	}
+	for tok := range m.chips.byToken {
+		return tok
+	}
+	return ""
+}
+
+// TestChips_CtrlHCtrlDAreAtomic directly covers the gap the review
+// found: ctrl+h (backspace's bubbles/textarea alias) and ctrl+d
+// (forward-delete's alias) were reaching the textarea unguarded, since
+// this package's earlier interception matched only "backspace"/"delete"
+// by name. classify (delete.go) instead matches bubbles/textarea's own
+// DeleteCharacterBackward/DeleteCharacterForward bindings, which cover
+// every alias. Checked at a chip's leading edge, its trailing edge, and
+// its interior.
+func TestChips_CtrlHCtrlDAreAtomic(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("x", 600)
+
+	for _, key := range []string{"ctrl+h", "ctrl+d"} {
+		for _, pos := range []string{"leading", "trailing", "inside"} {
+			t.Run(key+"/"+pos, func(t *testing.T) {
+				m := New(nil)
+				m.Focus()
+				m, _ = m.Update(tea.PasteMsg{Content: long})
+				tokLen := len([]rune(soleToken(t, m)))
+				switch pos {
+				case "leading":
+					m.ta.SetCursorColumn(0)
+				case "trailing":
+					m.ta.SetCursorColumn(tokLen)
+				case "inside":
+					m.ta.SetCursorColumn(tokLen / 2)
+				}
+
+				m, _ = m.Update(keyMsg(key))
+
+				got := m.Value()
+				if strings.Contains(got, "[pasted") {
+					t.Errorf("%s at the %s: Value() = %q, contains a partial token fragment", key, pos, got)
+				}
+				assertNoMarkerRunes(t, got)
+			})
+		}
+	}
+}
+
+// TestChips_EveryMutatingBindingIsAtomic loops over every bubbles/
+// textarea DefaultKeyMap binding that can mutate the buffer (the two
+// single-character deletions, the two word deletions, the two line
+// deletions, the three case-changing bindings, and transpose) at five
+// cursor positions relative to a chip embedded in a longer line —
+// before it, at its leading edge, inside it, at its trailing edge, and
+// after it — asserting Value never contains a partial token fragment or
+// a marker rune for any combination. This is the review's structural
+// ask: it doesn't matter whether a given (binding, position) pair
+// actually damages the chip or leaves it untouched, only that none of
+// the 70 combinations can ever produce a torn one.
+func TestChips_EveryMutatingBindingIsAtomic(t *testing.T) {
+	t.Parallel()
+
+	bindings := []string{
+		"backspace", "ctrl+h", // DeleteCharacterBackward
+		"delete", "ctrl+d", // DeleteCharacterForward
+		"ctrl+w", "alt+backspace", // DeleteWordBackward
+		"alt+d", "alt+delete", // DeleteWordForward
+		"ctrl+k",                  // DeleteAfterCursor
+		"ctrl+u",                  // DeleteBeforeCursor
+		"alt+l", "alt+u", "alt+c", // Lowercase/Uppercase/CapitalizeWordForward
+		"ctrl+t", // TransposeCharacterBackward
+	}
+	positions := []string{"before", "start", "inside", "end", "after"}
+	const pre, post = "PRE", "POST"
+
+	for _, kb := range bindings {
+		for _, pos := range positions {
+			t.Run(kb+"/"+pos, func(t *testing.T) {
+				m := New(nil)
+				m.SetWidth(2000) // wide enough that this line never wraps
+				m.Focus()
+				m = typeText(m, pre)
+				m, _ = m.Update(tea.PasteMsg{Content: strings.Repeat("x", 600)})
+				m = typeText(m, post)
+
+				tokLen := len([]rune(soleToken(t, m)))
+				var col int
+				switch pos {
+				case "before":
+					col = 0
+				case "start":
+					col = len(pre)
+				case "inside":
+					col = len(pre) + tokLen/2
+				case "end":
+					col = len(pre) + tokLen
+				case "after":
+					col = len(pre) + tokLen + len(post)
+				}
+				m.ta.SetCursorColumn(col)
+
+				m, _ = m.Update(keyMsg(kb))
+
+				got := m.Value()
+				if strings.Contains(got, "[pasted") {
+					t.Errorf("%s at %s: Value() = %q, contains a partial token fragment", kb, pos, got)
+				}
+				assertNoMarkerRunes(t, got)
+			})
+		}
+	}
+}
+
 // TestChips_ReconcileStripsDamagedTokenFragments exercises chips.go's
 // reconcile backstop directly (bypassing prompt.go's interception, which
 // in normal use never lets a damaged token reach it — see reconcile's
