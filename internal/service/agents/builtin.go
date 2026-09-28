@@ -6,6 +6,7 @@ package agents
 import (
 	"embed"
 	"fmt"
+	"sort"
 
 	"github.com/gammons/jig/internal/core"
 )
@@ -22,6 +23,22 @@ func mustPrompt(name string) string {
 		panic(fmt.Sprintf("agents: missing embedded prompt %q: %v", name, err))
 	}
 	return string(b)
+}
+
+// Builtin returns a fresh copy of the built-in agent named name, if any.
+func Builtin(name string) (core.Agent, bool) {
+	a, ok := builtins()[name]
+	return a, ok
+}
+
+// BuiltinNames returns the built-in agents' names, sorted.
+func BuiltinNames() []string {
+	names := make([]string, 0, 6)
+	for name := range builtins() {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // builtins returns the built-in agents, keyed by name. It returns a fresh

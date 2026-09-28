@@ -57,7 +57,8 @@ internal/client/llm/jigtest/            scripted provider (build tag jigtest)
 internal/client/shell/                  process execution
 internal/client/search/                 rg + Go fallback glob/grep
 internal/service/agents/                builtins, merge, model resolution, tool filtering
-internal/service/permission/            rules, evaluation, ToolHook, askers
+internal/service/permission/            rules, evaluation, ToolHook, askers, Tighten
+internal/service/trust/                 untrusted project config: Restrict, Effects
 internal/service/tools/                 read/write/edit/bash/glob/grep/todo
 internal/service/prompt/                ContextTransforms
 internal/service/skills/                skills service, list transform, skill tool
@@ -135,6 +136,11 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   child's `Ancestors`. A `bash` allow from a pattern is downgraded to ask
   when the command has shell metacharacters. Session grants apply only
   to `ask`.
+- An untrusted project layer goes through `trust.Restrict` before any
+  merge; `permission.Tighten` never keeps an `allow` pattern, and keeps an
+  `ask` pattern only where the baseline has no `deny`. A top-level project
+  `ask` pattern is also dropped when any global agent denies that tool.
+  Trust effects never print secrets (`api_key`/`options` → `(set)`).
 - Model strings go through `agents.ParseRef`/`Service.ResolveRef`
   (`provider/model` or a `[model_aliases]` name) everywhere: `--model`,
   `default_model`, `small_model`, agent `model` fields, startup
@@ -203,6 +209,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Build a `core.ToolResult` for a tool's `Run` | `core.ToolError(call, msg)` (sets `IsError`) / `core.ToolOK(call, output)` |
 | Resolve a tool's `path` input against `rc.WorkDir` | `resolvePath(workDir, path)` in `service/tools` (also backs `subjectPath` for `ext.Subjecter`) |
 | Permission subject for a search tool's `path` input | `searchSubject(rc, input)` in `service/tools` |
+| Overlay permission rules per tool / keep only tightening entries | `permission.Overlay(lo, hi)` / `permission.Tighten(baseline, add)` |
+| A built-in agent by name | `agents.Builtin(name)` / `agents.BuiltinNames()` |
 | Resolve a model string (ref or alias) | `agents.ParseRef(s, cfg.ModelAliases)` / `(*agents.Service).ResolveRef(s)` |
 | Session events/messages → display blocks | `transcript.New(root)`, `Load`, `Apply` |
 | Golden-frame assertion | `golden.Assert(t, name, got)`; update with `JIG_UPDATE_GOLDEN=1` |
