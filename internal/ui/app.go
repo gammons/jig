@@ -21,13 +21,16 @@ import (
 	"github.com/gammons/jig/internal/ui/transcript"
 )
 
-// Timing (spec §5.2): streaming re-renders at most every 80 ms; a width
-// change re-renders every transcript block, so bursts of resizes are
-// coalesced into one list resize 50 ms after the last.
+// Timing (spec §5.2): streaming re-renders at most every 80 ms, and never
+// sooner than 3× the last streaming render pass took (capped at 1 s), so
+// a huge growing block can't keep the loop busy; a width change
+// re-renders every transcript block, so bursts of resizes are coalesced
+// into one list resize 50 ms after the last.
 const (
-	streamInterval = 80 * time.Millisecond
-	resizeDebounce = 50 * time.Millisecond
-	overlayDim     = 0.4
+	streamInterval    = 80 * time.Millisecond
+	maxStreamInterval = time.Second
+	resizeDebounce    = 50 * time.Millisecond
+	overlayDim        = 0.4
 )
 
 // Options configure an App.
@@ -73,30 +76,27 @@ type (
 )
 
 // viewState is the App's presentation state: the sidebar preference, whether the details split is open, the
-// status hint, the project's prompt history, whether streamTick is
-// running, and the transcript list's applied size (listW/listH) and a
+// status hint, the project's prompt history, the streamTick's state
+// (stream), and the transcript list's applied size (listW/listH) and a
 // pending debounced width (pendingW, keyed by resizeGen). keyPrefix holds
 // a pending NORMAL g-prefix ("g", awaiting its second key); searching is
 // whether the one-line search input owns the status bar's slot;
 // detailsFor is the block ID the open details split shows, so an async
 // detailsMsg for a block the selection has since left can be ignored.
-// pick is the picker's state (pickerView). subStale is set by a child
-// event while the split shows a running subagent; the next streamTick
-// re-reads its messages.
+// pick is the picker's state (pickerView).
 type viewState struct {
 	pick         pickerView
 	sidebarPref  *bool
 	detailsOpen  bool
 	hint         string
 	history      []string
-	ticking      bool
+	stream       streamState
 	resizeGen    int
 	pendingW     int
 	listW, listH int
 	keyPrefix    string
 	searching    bool
 	detailsFor   transcript.BlockID
-	subStale     bool
 }
 
 // App is jig's TUI: a bubbletea model that bridges bus events into
@@ -257,14 +257,18 @@ func (a *App) onEvent(ev event.Event) tea.Cmd {
 }
 
 // onTick renders the dirty streaming blocks and advances the spinners in
-// one Upsert, and reschedules itself while the run lasts.
+// one Upsert, and reschedules itself while the run lasts, after a delay
+// stretched by how long that render pass took (nextInterval).
 func (a *App) onTick() tea.Cmd {
-	a.flush(a.sess.tick())
+	ids := a.sess.tick()
+	start := a.opts.Clock.Now()
+	a.flush(ids)
+	took := a.opts.Clock.Now().Sub(start)
 	refresh := detailsCtl{a}.refresh()
 	if a.sess.run.running {
-		return tea.Batch(refresh, a.after(streamInterval, streamTickMsg{}))
+		return tea.Batch(refresh, a.after(nextInterval(took), streamTickMsg{}))
 	}
-	a.view.ticking = false
+	a.view.stream.ticking = false
 	return refresh
 }
 

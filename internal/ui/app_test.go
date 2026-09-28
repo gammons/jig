@@ -13,6 +13,7 @@ import (
 	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/gammons/jig/internal/bubbles/ansi"
+	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
 	"github.com/gammons/jig/internal/golden"
@@ -105,6 +106,53 @@ func TestApp_SendNewSessionAdoptsRoot(t *testing.T) {
 	ta.event(event.SessionCreated{Base: event.Base{SessionID: "ses_2", RootID: "ses_2"}, Info: core.Session{ID: "ses_2"}})
 	if id := ta.app.sess.info.ID; id != "ses_1" {
 		t.Errorf("root changed to %q", id)
+	}
+}
+
+// stepClock is a fake clock that moves forward by step after every Now
+// call, so the time between two readings (a render pass) is exactly step.
+type stepClock struct {
+	*clock.Fake
+	step time.Duration
+}
+
+func (c *stepClock) Now() time.Time {
+	now := c.Fake.Now()
+	c.Advance(c.step)
+	return now
+}
+
+func TestApp_StreamTickStretchesAfterSlowRender(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	clk := &stepClock{Fake: ta.clk}
+	ta.app.opts.Clock = clk
+	ta.sendAndAdopt("hi")
+
+	nextTick := func(step time.Duration) time.Duration {
+		t.Helper()
+		clk.step = step
+		ta.event(event.TextDelta{Base: rootBase(), MessageID: "m1", Text: " more"})
+		ta.fire()
+		clk.step = 0
+		ticks := deferredOf[streamTickMsg](ta)
+		if len(ticks) != 1 {
+			t.Fatalf("stream ticks scheduled = %d, want 1", len(ticks))
+		}
+		return ticks[0].d
+	}
+	for _, c := range []struct {
+		render, want time.Duration
+	}{
+		{0, streamInterval},
+		{10 * time.Millisecond, streamInterval}, // 3× is still under 80 ms
+		{100 * time.Millisecond, 300 * time.Millisecond},
+		{500 * time.Millisecond, time.Second}, // capped
+		{0, streamInterval},                   // recovers at once
+	} {
+		if got := nextTick(c.render); got != c.want {
+			t.Errorf("after a %v render pass the next tick is in %v, want %v", c.render, got, c.want)
+		}
 	}
 }
 

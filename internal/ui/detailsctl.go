@@ -54,7 +54,7 @@ func (d detailsCtl) shownSubagent() (transcript.Block, bool) {
 // its details are re-read on the next streamTick (at most once per tick).
 func (d detailsCtl) childEvent() {
 	if b, ok := d.shownSubagent(); ok && isLive(b) {
-		d.a.view.subStale = true
+		d.a.view.stream.subStale = true
 	}
 }
 
@@ -62,10 +62,10 @@ func (d detailsCtl) childEvent() {
 // arrived since the last tick.
 func (d detailsCtl) refresh() tea.Cmd {
 	a := d.a
-	if !a.view.subStale {
+	if !a.view.stream.subStale {
 		return nil
 	}
-	a.view.subStale = false
+	a.view.stream.subStale = false
 	b, ok := d.shownSubagent()
 	if !ok {
 		return nil

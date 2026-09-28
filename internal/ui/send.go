@@ -53,8 +53,8 @@ func (s sender) send(text string) tea.Cmd {
 	a.sess.startRun(id, text, cancel)
 	a.w.prompt.Reset()
 	cmds := []tea.Cmd{sendCmd(ctx, a.ports, req), s.remember(text)}
-	if !a.view.ticking {
-		a.view.ticking = true
+	if !a.view.stream.ticking {
+		a.view.stream.ticking = true
 		cmds = append(cmds, a.after(streamInterval, streamTickMsg{}))
 	}
 	return tea.Batch(cmds...)

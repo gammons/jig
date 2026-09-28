@@ -345,7 +345,9 @@ The App applies a width change to the transcript list 50 ms after the
 last one of a burst (`resizeDebounce`, keyed by a generation counter),
 so a drag-resize re-renders every block once, not once per step; a
 height change applies at once (it re-renders nothing). Streaming deltas
-only mark blocks dirty; one `streamTick` every 80 ms upserts them all.
+only mark blocks dirty; one `streamTick` upserts them all, every 80 ms
+or 3× the last tick's render pass (App clock), whichever is longer,
+capped at 1 s (`nextInterval`).
 In the theme picker, a highlight change previews its palette 120 ms
 after the last one (`themeDebounce`, keyed by `themeState.gen`); `esc`
 (restore) and a choice apply at once.
