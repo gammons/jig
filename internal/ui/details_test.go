@@ -94,6 +94,23 @@ func editBlock(path, oldString, newString string) transcript.Block {
 	}
 }
 
+func writeBlock(path, content string) transcript.Block {
+	in, _ := json.Marshal(map[string]string{"path": path, "content": content})
+	return transcript.Block{
+		ID: "t/c1", Kind: transcript.KindTool,
+		Call: &core.ToolCall{ID: "c1", Name: "write", Input: in},
+	}
+}
+
+func readTextBlock(path, output string) transcript.Block {
+	in, _ := json.Marshal(map[string]string{"path": path})
+	return transcript.Block{
+		ID: "t/c1", Kind: transcript.KindTool,
+		Call:   &core.ToolCall{ID: "c1", Name: "read", Input: in},
+		Result: &core.ToolResult{CallID: "c1", Name: "read", Output: output},
+	}
+}
+
 func TestDetails_EditWithContext(t *testing.T) {
 	t.Parallel()
 	r := testRenderer()
@@ -261,5 +278,100 @@ func TestDetails_SanitizesFileContent(t *testing.T) {
 	joined := strings.Join(msg.Content.Lines, "\n")
 	if strings.Contains(joined, "]52;") {
 		t.Errorf("output still contains an OSC 52 payload: %q", joined)
+	}
+}
+
+// TestDetails_HeaderSanitizesHostilePath covers a path (model-controlled:
+// the "path" argument of edit/write/read tool calls) carrying an OSC 52
+// clipboard write and a screen-clear CSI: neither must survive into the
+// details header, whichever kind built it.
+func TestDetails_HeaderSanitizesHostilePath(t *testing.T) {
+	t.Parallel()
+	hostile := "\x1b]52;c;aGk=\x07evil\x1b[2J.go"
+	r := testRenderer()
+
+	tests := []struct {
+		name  string
+		block transcript.Block
+	}{
+		{"edit", editBlock(hostile, "foo", "bar")},
+		{"write", writeBlock(hostile, "package main")},
+		{"read", readTextBlock(hostile, "1: package main")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			content, _ := buildDetails(tt.block, 80, 24, r, Ports{}, nil)
+			if strings.ContainsRune(content.Header, '\x1b') {
+				t.Errorf("Header = %q, want no ESC byte", content.Header)
+			}
+			if strings.Contains(content.Header, "]52;") || strings.Contains(content.Header, "[2J") {
+				t.Errorf("Header = %q, want no raw escape payload", content.Header)
+			}
+		})
+	}
+}
+
+// TestDetails_EditBareDiffWhenNewStringNotUnique covers R23's other
+// branch: when new_string is absent, or appears more than once, in the
+// file Project.ReadFile returns, the details stay the bare old_string→
+// new_string diff already shown immediately, not a 3-line-context diff.
+func TestDetails_EditBareDiffWhenNewStringNotUnique(t *testing.T) {
+	t.Parallel()
+	r := testRenderer()
+
+	tests := []struct {
+		name string
+		file string
+	}{
+		{"absent", "line one\nsomething else\nline three\n"},
+		{"appears twice", "bar\nline two\nbar\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := editBlock("a.go", "foo", "bar")
+			p := Ports{Project: fakeProject{files: map[string][]byte{"a.go": []byte(tt.file)}}}
+
+			content, cmd := buildDetails(b, 80, 24, r, p, nil)
+			msg, ok := cmd().(detailsMsg)
+			if !ok {
+				t.Fatalf("cmd() = %T, want detailsMsg", cmd())
+			}
+			if msg.Content.Header != content.Header {
+				t.Errorf("Header = %q, want the bare diff's header %q", msg.Content.Header, content.Header)
+			}
+			if strings.Join(msg.Content.Lines, "\n") != strings.Join(content.Lines, "\n") {
+				t.Errorf("Lines changed from the bare diff fallback")
+			}
+		})
+	}
+}
+
+// TestDetails_BashExitLineNotDuplicated covers a nonzero exit: bash.go's
+// formatBashResult appends "[exit code N]" to the raw output, which
+// buildBashDetails must strip from the body so its own "exit N" line is
+// the only place the code appears.
+func TestDetails_BashExitLineNotDuplicated(t *testing.T) {
+	t.Parallel()
+	in, _ := json.Marshal(map[string]string{"command": "false"})
+	b := transcript.Block{
+		ID: "t/c1", Kind: transcript.KindTool,
+		Call: &core.ToolCall{ID: "c1", Name: "bash", Input: in},
+		Result: &core.ToolResult{
+			CallID: "c1", Name: "bash", IsError: true,
+			Output: "boom\n[exit code 2]",
+		},
+	}
+	content, cmd := buildDetails(b, 80, 24, testRenderer(), Ports{}, nil)
+	if cmd != nil {
+		t.Fatal("buildDetails: cmd != nil, want a synchronous bash result (no port call)")
+	}
+	joined := strings.Join(content.Lines, "\n")
+	if strings.Contains(joined, "[exit code") {
+		t.Errorf("Lines = %q, want no raw [exit code marker (deduped into the exit line)", joined)
+	}
+	if n := strings.Count(joined, "exit 2"); n != 1 {
+		t.Errorf("Lines contains %q %d times, want exactly 1: %q", "exit 2", n, joined)
 	}
 }

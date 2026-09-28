@@ -30,6 +30,22 @@ type detailsMsg struct {
 // output, capturing the number and the code.
 const readNumberedLinePattern = `^(\d+): (.*)$`
 
+// header joins kind and any further components with " · ", building every
+// details header through this one place so every component — however it
+// was obtained (a model-controlled path, a call's own input, a tool's
+// output) — always passes ansi.SanitizeLine before it reaches
+// details.Content.Header. An empty component is dropped, so a caller can
+// pass through an optional trailing extra unconditionally.
+func header(parts ...string) string {
+	kept := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if s := ansi.SanitizeLine(part); s != "" {
+			kept = append(kept, s)
+		}
+	}
+	return strings.Join(kept, " · ")
+}
+
 // buildDetails returns b's immediate details content, plus a Cmd for
 // anything needing a port (file context for an edit, blob bytes for an
 // image, a subagent's child messages), that resolves to a detailsMsg. A
@@ -110,7 +126,7 @@ func buildEditDetails(b transcript.Block, r *renderer, p Ports) (details.Content
 }
 
 func editHeader(base string, hunks int) string {
-	return fmt.Sprintf("edit · %s · %d hunks", base, hunks)
+	return header("edit", base, fmt.Sprintf("%d hunks", hunks))
 }
 
 // buildWriteDetails shows the written content, syntax-highlighted.
@@ -124,8 +140,8 @@ func buildWriteDetails(b transcript.Block, r *renderer) details.Content {
 	if in.Content != nil {
 		content = ansi.Sanitize(*in.Content)
 	}
-	header := fmt.Sprintf("write · %s · %d lines", filepath.Base(in.Path), lineCount(content))
-	return details.Content{Header: header, Lines: coderender.Highlight(in.Path, content, r.set.Code)}
+	hdr := header("write", filepath.Base(in.Path), fmt.Sprintf("%d lines", lineCount(content)))
+	return details.Content{Header: hdr, Lines: coderender.Highlight(in.Path, content, r.set.Code)}
 }
 
 // buildReadDetails shows a text read's numbered, highlighted lines, or,
@@ -138,13 +154,13 @@ func buildReadDetails(b transcript.Block, width, height int, r *renderer, p Port
 	base := filepath.Base(in.Path)
 
 	if b.Result == nil {
-		return details.Content{Header: "read · " + base}, nil
+		return details.Content{Header: header("read", base)}, nil
 	}
 	if !b.Result.IsError && len(b.Result.Media) > 0 {
 		return buildImageDetails(b.ID, "read", base, b.Result.Media[0].Ref, width, height, p, img)
 	}
 	if b.Result.IsError {
-		return details.Content{Header: "read · " + base, Lines: sanitizedLines(b.Result.Output)}, nil
+		return details.Content{Header: header("read", base), Lines: sanitizedLines(b.Result.Output)}, nil
 	}
 	return buildReadTextDetails(b.Result.Output, in.Path, base, r), nil
 }
@@ -174,7 +190,7 @@ func buildReadTextDetails(output, path, base string, r *renderer) details.Conten
 		}
 		body[i] = r.set.Code.Gutter.Render(fmt.Sprintf("%4s ", nums[i])) + h
 	}
-	return details.Content{Header: fmt.Sprintf("read · %s · %d lines", base, len(rows)), Lines: body}
+	return details.Content{Header: header("read", base, fmt.Sprintf("%d lines", len(rows))), Lines: body}
 }
 
 // spillPrefix is the marker bash.go's formatBashResult prepends when it
@@ -191,7 +207,7 @@ func buildBashDetails(b transcript.Block, width, height int, p Ports, img *imgre
 	}
 	_ = json.Unmarshal(b.Call.Input, &in)
 	cmd := ansi.SanitizeLine(in.Command)
-	header := "bash · " + truncateRunes(cmd, bashCmdRunes)
+	hdr := header("bash", truncateRunes(cmd, bashCmdRunes))
 
 	if b.Result != nil && len(b.Result.Media) > 0 {
 		return buildImageDetails(b.ID, "bash", "screenshot", b.Result.Media[0].Ref, width, height, p, img)
@@ -199,7 +215,7 @@ func buildBashDetails(b transcript.Block, width, height int, p Ports, img *imgre
 
 	lines := []string{"$ " + cmd, ""}
 	if b.Result == nil {
-		return details.Content{Header: header, Lines: lines}, nil
+		return details.Content{Header: hdr, Lines: lines}, nil
 	}
 	out := ansi.Sanitize(b.Result.Output)
 	spill := ""
@@ -209,12 +225,26 @@ func buildBashDetails(b transcript.Block, width, height int, p Ports, img *imgre
 			out = strings.TrimPrefix(after, "\n")
 		}
 	}
+	out = stripBashMarker(out)
 	lines = append(lines, strings.Split(out, "\n")...)
 	lines = append(lines, "exit "+bashExitCode(b.Result))
 	if spill != "" {
 		lines = append(lines, "spill: "+ansi.SanitizeLine(spill))
 	}
-	return details.Content{Header: header, Lines: lines}, nil
+	return details.Content{Header: hdr, Lines: lines}, nil
+}
+
+// stripBashMarker removes a trailing "[exit code N]" or "[timed out after
+// Ns]" marker bash.go's formatBashResult appended to its output (and the
+// blank line it introduces), so the body doesn't duplicate the "exit N"
+// line buildBashDetails appends separately.
+func stripBashMarker(out string) string {
+	for _, pattern := range []string{bashExitPattern, bashTimeoutPattern} {
+		if loc := regexp.MustCompile(pattern).FindStringIndex(out); loc != nil {
+			return strings.TrimSuffix(out[:loc[0]], "\n")
+		}
+	}
+	return out
 }
 
 // bashExitCode reads the exit code bash.go's formatBashResult embedded, or
@@ -236,14 +266,14 @@ func buildSearchDetails(name string, b transcript.Block) details.Content {
 		Pattern string `json:"pattern"`
 	}
 	_ = json.Unmarshal(b.Call.Input, &in)
-	header := fmt.Sprintf("%s · %s", name, ansi.SanitizeLine(in.Pattern))
+	hdr := header(name, in.Pattern)
 	var lines []string
 	if b.Result != nil {
 		if out := ansi.Sanitize(b.Result.Output); out != "" {
 			lines = strings.Split(out, "\n")
 		}
 	}
-	return details.Content{Header: header, Lines: lines}
+	return details.Content{Header: hdr, Lines: lines}
 }
 
 // buildImageDetails shows a placeholder header immediately, then a Cmd
@@ -252,19 +282,19 @@ func buildSearchDetails(name string, b transcript.Block) details.Content {
 // protocol state (e.g. a kitty image id). A port or decode error becomes a
 // sanitized line instead of an image.
 func buildImageDetails(block transcript.BlockID, kind, subject, ref string, width, height int, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
-	header := fmt.Sprintf("%s · %s · image", kind, subject)
-	content := details.Content{Header: header}
+	hdr := header(kind, subject, "image")
+	content := details.Content{Header: hdr}
 
 	cmd := openBlobCmd(p, ref, func(data []byte, _ string, err error) tea.Msg {
 		if err != nil {
-			return detailsMsg{Block: block, Content: errorContent(header, "could not open image", err)}
+			return detailsMsg{Block: block, Content: errorContent(hdr, "could not open image", err)}
 		}
 		decoded, err := imgrender.Decode(data)
 		if err != nil {
-			return detailsMsg{Block: block, Content: errorContent(header, "could not decode image", err)}
+			return detailsMsg{Block: block, Content: errorContent(hdr, "could not decode image", err)}
 		}
 		res := img.Render(ref, decoded, width, height-2)
-		return detailsMsg{Block: block, Content: details.Content{Header: header, Lines: res.Lines}, Image: &res}
+		return detailsMsg{Block: block, Content: details.Content{Header: hdr, Lines: res.Lines}, Image: &res}
 	})
 	return content, cmd
 }
@@ -277,8 +307,8 @@ func buildSubagentDetails(b transcript.Block, p Ports) (details.Content, tea.Cmd
 	if sub == nil {
 		return details.Content{}, nil
 	}
-	header := fmt.Sprintf("subagent · %s · %s", ansi.SanitizeLine(sub.Agent), ansi.SanitizeLine(sub.Description))
-	content := details.Content{Header: header}
+	hdr := header("subagent", sub.Agent, sub.Description)
+	content := details.Content{Header: hdr}
 	if sub.Child == "" {
 		return content, nil
 	}
@@ -286,9 +316,9 @@ func buildSubagentDetails(b transcript.Block, p Ports) (details.Content, tea.Cmd
 	block, child := b.ID, sub.Child
 	cmd := sessionMessagesCmd(p, child, func(msgs []core.Message, err error) tea.Msg {
 		if err != nil {
-			return detailsMsg{Block: block, Content: errorContent(header, "could not load subagent", err)}
+			return detailsMsg{Block: block, Content: errorContent(hdr, "could not load subagent", err)}
 		}
-		return detailsMsg{Block: block, Content: details.Content{Header: header, Lines: subagentLines(msgs)}}
+		return detailsMsg{Block: block, Content: details.Content{Header: hdr, Lines: subagentLines(msgs)}}
 	})
 	return content, cmd
 }
@@ -369,6 +399,6 @@ func sanitizedLines(s string) []string {
 // errorContent renders a port error as a single sanitized line, never the
 // raw error's path or content (the error text itself may echo untrusted
 // input, e.g. a blob ref).
-func errorContent(header, prefix string, err error) details.Content {
-	return details.Content{Header: header, Lines: []string{ansi.SanitizeLine(prefix + ": " + err.Error())}}
+func errorContent(hdr, prefix string, err error) details.Content {
+	return details.Content{Header: hdr, Lines: []string{ansi.SanitizeLine(prefix + ": " + err.Error())}}
 }
