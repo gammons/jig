@@ -25,6 +25,7 @@ import (
 	"github.com/gammons/jig/internal/service/skills"
 	"github.com/gammons/jig/internal/service/task"
 	"github.com/gammons/jig/internal/service/tools"
+	"github.com/gammons/jig/internal/ui/actions"
 )
 
 // registryDeps are the collaborators the built-in extensions need.
@@ -49,7 +50,9 @@ type registryDeps struct {
 // provider, then freezes the registry.
 func buildRegistry(d registryDeps) (ext.View, error) {
 	r := ext.NewRegistry()
-	steps := []func(*ext.Registry, registryDeps) error{addTools, addHooks, addTransforms, addProviders}
+	steps := []func(*ext.Registry, registryDeps) error{
+		addTools, addHooks, addTransforms, addProviders, addCommands, addKeybinds,
+	}
 	for _, step := range steps {
 		if err := step(r, d); err != nil {
 			return ext.View{}, err
@@ -109,6 +112,28 @@ func addTransforms(r *ext.Registry, d registryDeps) error {
 	}
 	for _, t := range all {
 		if err := r.AddTransform(t); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// addCommands registers every ext.Command a built-in exposes as a picker
+// action ("ext.<name>"). Empty for now; a future built-in appends to all.
+func addCommands(r *ext.Registry, _ registryDeps) error {
+	all := []ext.Command{}
+	for _, c := range all {
+		if err := r.AddCommand(c); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// addKeybinds registers jig's default keymap.
+func addKeybinds(r *ext.Registry, _ registryDeps) error {
+	for _, k := range actions.DefaultBindings() {
+		if err := r.AddKeybind(k); err != nil {
 			return err
 		}
 	}

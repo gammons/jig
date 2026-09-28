@@ -288,6 +288,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | SGR on/off strings for a fg/bg pair (e.g. a search highlight) | `ansi.SGR(fg, bg) (on, off)` |
 | A scrolling list of variable-height blocks with a cursor, cache, and search | `blocklist.New(render, opts...)` / `SetItems`, `Upsert`, `SetSearch`, `View` in `internal/bubbles/blocklist` |
 | The ctrl+p picker: fuzzy drill-down list, groups, recents, multi-mark, a text-entry level, a preview callback | `picker.New(load, opts...)` / `Open(root)`, `Close`, `SetRecent`, `SetSize`, `Update`, `View` in `internal/bubbles/picker` |
+| The action catalogue (built-ins + registered `ext.Command`s) / resolve the keymap from default binds + `[keybinds]` config | `actions.NewCatalogue(cmds)` / `.All()`, `.Get(id)`; `actions.Resolve(binds, config, c)` / `Keymap.Lookup`, `.Keys` in `internal/ui/actions` |
 | The growing prompt textarea: history walk, paste-collapse chips, an `$EDITOR` round trip, and a queued border title | `prompt.New(edit, opts...)` / `SetWidth`, `Height`, `SetAgent`, `SetQueued`, `SetHistory`, `Insert`, `Value`, `Reset`, `Focus`, `Blur`, `Update`, `View` in `internal/bubbles/prompt` |
 | Wrap styled text to a width, hard-breaking long words | `ansi.Wrap(s, width)` (also `ansi.Width`/`Truncate`/`Cut`) |
 | Center a modal box over a dimmed background | `overlay.Center(background, width, height, box, dim)` in `internal/bubbles/overlay` |
@@ -318,7 +319,7 @@ search-match results stay, so offsets never need a re-render.
 ## Adding a tool, transform, or hook
 
 Everything a built-in registers goes through `internal/app/registry.go`'s
-`buildRegistry`, in one of four `addX(r *ext.Registry, d registryDeps) error`
+`buildRegistry`, in one of six `addX(r *ext.Registry, d registryDeps) error`
 steps. Add your new extension's constructor to the relevant step's slice;
 `registryDeps` already carries the collaborators (store, bus, agents,
 skills, ...) most extensions need.
@@ -351,3 +352,22 @@ inject prompt sections):
    verdict from an earlier hook short-circuits later ones.
 3. If it needs to remember state across calls, give it its own mutex —
    it may run concurrently with other tool calls in the same run.
+
+## Adding a picker action
+
+jig has no slash commands: every action is reached through the ctrl+p
+picker or a key bound to it. `internal/ui/actions` is the catalogue —
+jig's built-in actions (`actions.ID`, spec order, grouped Session /
+Agent & model / Prompt / Transcript / View / App) plus one entry per
+registered `ext.Command`, shown as `ext.<name>` in the "Extensions"
+group.
+
+1. An `ext.Command` (`Name`, `Description`, `Run`) becomes a picker
+   action automatically: implement it in a `service/...` package and
+   append it to `addCommands`'s `all` slice in
+   `internal/app/registry.go`. It never becomes a slash command.
+2. A key is an `ext.Keybind{Mode, Key, Command}` (`Command` names an
+   `actions.ID`, either a built-in or an `ext.<name>`). Built-in default
+   bindings live in `actions.DefaultBindings()`, registered through
+   `addKeybinds`; config remaps them via `[keybinds]` (`"<mode>.<key>" =
+   "<action id>"`), resolved by `actions.Resolve`.

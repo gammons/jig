@@ -79,7 +79,9 @@ type EventSubscriber interface {
 	Handle(ctx context.Context, e event.Event)
 }
 
-// Command is a user-invocable slash command.
+// Command is a picker action: an entry the ctrl+p picker lists under
+// "ext.<name>". jig has no slash commands; every Command is reached
+// through the picker or a key bound to it via Keybind.
 type Command interface {
 	Name() string
 	Description() string
