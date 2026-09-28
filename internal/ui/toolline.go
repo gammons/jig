@@ -182,6 +182,19 @@ func bashStatus(r *core.ToolResult, dur time.Duration) string {
 	return status
 }
 
+// bashFailed reports whether a bash result reports a failure: an error
+// result, a timeout, or a non-zero exit code.
+func bashFailed(r *core.ToolResult) bool {
+	if r == nil {
+		return false
+	}
+	if r.IsError || regexp.MustCompile(bashTimeoutPattern).MatchString(r.Output) {
+		return true
+	}
+	m := regexp.MustCompile(bashExitPattern).FindStringSubmatch(r.Output)
+	return m != nil && m[1] != "0"
+}
+
 func searchLine(name string, b transcript.Block) (icon, nm, summary string) {
 	var in struct {
 		Pattern string `json:"pattern"`

@@ -128,10 +128,12 @@ func TestRender_Golden(t *testing.T) {
 				Call:   toolCall("c4", "read", `{"path":"src/main.go"}`),
 				Result: toolResult("c4", "read", "1: package main\n2: func main() {}", false),
 			}},
+			// bash reports a non-zero exit as an OK result; it still
+			// renders in the Error style (F7).
 			{Block: transcript.Block{
-				Kind: transcript.KindTool, State: transcript.StateError,
+				Kind: transcript.KindTool, State: transcript.StateOK,
 				Call:   toolCall("c5", "bash", `{"command":"false"}`),
-				Result: toolResult("c5", "bash", "boom\n[exit code 1]", true),
+				Result: toolResult("c5", "bash", "boom\n[exit code 1]", false),
 			}},
 			{Block: transcript.Block{
 				Kind: transcript.KindTool, State: transcript.StateDenied,
@@ -258,6 +260,36 @@ func TestRender_BashErrorAlwaysShowsAnErrorIcon(t *testing.T) {
 				t.Errorf("render = %q, want it to contain %q", out, "✗")
 			}
 		})
+	}
+}
+
+// TestRender_FailedBashIsErrorStyled: bash reports a non-zero exit as an
+// OK tool result ("...\n[exit code N]"); the block must still render in
+// the Error style, exactly like an errored call with the same result.
+func TestRender_FailedBashIsErrorStyled(t *testing.T) {
+	t.Parallel()
+	set := darkSet()
+	r := newRenderer(&set)
+	block := func(state transcript.ToolState, out string, isErr bool) blockData {
+		return blockData{Block: transcript.Block{
+			Kind: transcript.KindTool, State: state,
+			Call:   toolCall("c1", "bash", `{"command":"make test"}`),
+			Result: toolResult("c1", "bash", out, isErr),
+		}}
+	}
+	for _, out := range []string{"FAIL\n[exit code 2]", "\n[timed out after 5s]"} {
+		got := renderOne(t, r, block(transcript.StateOK, out, false), 80)
+		want := renderOne(t, r, block(transcript.StateError, out, true), 80)
+		if got != want {
+			t.Errorf("OK-state bash with %q renders\n %q, want the error rendering\n %q", out, got, want)
+		}
+		if !strings.Contains(got, "✗") {
+			t.Errorf("render = %q, want a ✗", got)
+		}
+	}
+	ok := renderOne(t, r, block(transcript.StateOK, "all good", false), 80)
+	if strings.Contains(ok, "✗") || !strings.Contains(ok, "✓ exit 0") {
+		t.Errorf("a successful bash renders %q, want ✓ exit 0 and no ✗", ok)
 	}
 }
 

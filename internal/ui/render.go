@@ -127,10 +127,12 @@ func (r *renderer) renderTool(b transcript.Block, dur time.Duration, frame int) 
 	}
 	line += summary
 
-	if b.Call.Name == "bash" && b.State == transcript.StateError && hasStatus {
+	if b.Call.Name == "bash" && hasStatus && (b.State == transcript.StateError || bashFailed(b.Result)) {
 		// bashLine already embedded "✗ exit N" or "✗ timed out" (it had
 		// a real result to read); the generic error suffix styleState
-		// would add is redundant. Without hasStatus — no result yet
+		// would add is redundant. A non-zero exit is an OK tool result
+		// (bash reports it in the output), but it still failed, so it
+		// renders as an error too. Without hasStatus — no result yet
 		// (settled by RunFailed/a failed message with no answer), or an
 		// agent-browser call, which never embeds a status itself — the
 		// generic suffix is the only indicator, so it must still apply.
