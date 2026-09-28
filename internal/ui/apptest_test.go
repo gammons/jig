@@ -461,6 +461,13 @@ func (ta *testApp) key(k string) {
 	ta.send(keyPress(k))
 }
 
+// mouse delivers msg to the App, an alias of send that documents intent
+// at the call site.
+func (ta *testApp) mouse(msg tea.Msg) {
+	ta.t.Helper()
+	ta.send(msg)
+}
+
 // typeText types s one rune at a time.
 func (ta *testApp) typeText(s string) {
 	ta.t.Helper()

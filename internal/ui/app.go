@@ -84,7 +84,8 @@ type (
 // detailsFor is the block ID the open details split shows, so an async
 // detailsMsg for a block the selection has since left can be ignored.
 // pick is the picker's state (pickerView). resumeHeld is a session whose
-// resume result arrived mid-send; it is re-read once idle.
+// resume result arrived mid-send; it is re-read once idle. mouse is the
+// current mouse drag state (mouseCtl).
 type viewState struct {
 	pick         pickerView
 	sidebarPref  *bool
@@ -99,6 +100,7 @@ type viewState struct {
 	searching    bool
 	detailsFor   transcript.BlockID
 	resumeHeld   core.SessionID
+	mouse        mouseState
 }
 
 // App is jig's TUI: a bubbletea model that bridges bus events into
@@ -184,6 +186,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.gen == a.view.resizeGen {
 			a.applyListWidth()
 		}
+	case tea.MouseMsg:
+		cmd = mouseCtl{a}.handle(msg)
 	default:
 		cmd = a.onResult(msg)
 	}
@@ -203,6 +207,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a *App) View() tea.View {
 	v := tea.View{
 		AltScreen:       true,
+		MouseMode:       tea.MouseModeCellMotion,
 		WindowTitle:     a.windowTitle(),
 		BackgroundColor: a.theme.set.Background,
 		ForegroundColor: a.theme.set.Foreground,

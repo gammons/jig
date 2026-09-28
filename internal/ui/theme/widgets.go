@@ -35,6 +35,7 @@ type Set struct {
 	Sidebar   sidebar.Styles
 	Confirm   confirm.Styles
 	Render    RenderStyles
+	Selection SelectionStyles
 	// Background and Foreground are the screen's default colors (the
 	// palette's Background and Text): the App sets them as the
 	// terminal's default background/foreground, so every cell no widget
@@ -60,6 +61,7 @@ func Build(p Palette, version int) Set {
 		Sidebar:   sidebarStyles(p),
 		Confirm:   confirmStyles(p),
 		Render:    renderStyles(p),
+		Selection: selectionStyles(p),
 
 		Background: lipgloss.Color(p.Background),
 		Foreground: lipgloss.Color(p.Text),
@@ -182,6 +184,18 @@ func blocklistStyles(p Palette) blocklist.Styles {
 		ScrollBg:   lipgloss.Color(p.Background),
 		Gap:        1,
 	}
+}
+
+// SelectionStyles holds the SGR on/off pair used to highlight a dragged
+// text selection over already-rendered rows (selection.Highlight).
+type SelectionStyles struct{ On, Off string }
+
+// selectionStyles maps p onto SelectionStyles, the same way
+// blocklistStyles builds the search highlight, using the palette's
+// selected-text colors.
+func selectionStyles(p Palette) SelectionStyles {
+	on, off := ansi.SGR(lipgloss.Color(p.SelectionForeground), lipgloss.Color(p.SelectionBackground))
+	return SelectionStyles{On: on, Off: off}
 }
 
 // pickerStyles maps p onto picker.Styles: the title bar, current-item

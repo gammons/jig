@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/bubbles/coderender"
 	"github.com/gammons/jig/internal/bubbles/confirm"
@@ -332,6 +333,27 @@ func TestBuild_ConfirmFromPalette(t *testing.T) {
 	}
 	if !reflect.DeepEqual(set.Confirm, want) {
 		t.Errorf("Confirm = %+v, want %+v", set.Confirm, want)
+	}
+}
+
+func TestBuild_SelectionFromPalette(t *testing.T) {
+	t.Parallel()
+
+	p := Complete(Palette{
+		Name: "test",
+		BaseColors: BaseColors{
+			Primary: "#111111", Accent: "#222222", Warning: "#333333", Error: "#444444",
+			Background: "#555555", Surface: "#666666", SurfaceDark: "#777777",
+			Text: "#888888", TextMuted: "#999999", Border: "#aaaaaa",
+		},
+		SelectionColors: SelectionColors{SelectionForeground: "#cccccc", SelectionBackground: "#bbbbbb"},
+	})
+
+	set := Build(p, 3)
+
+	wantOn, wantOff := ansi.SGR(lipgloss.Color(p.SelectionForeground), lipgloss.Color(p.SelectionBackground))
+	if set.Selection.On != wantOn || set.Selection.Off != wantOff {
+		t.Errorf("Selection = %+v, want On=%q Off=%q", set.Selection, wantOn, wantOff)
 	}
 }
 
