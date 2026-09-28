@@ -64,6 +64,9 @@ func (m *Model) SetSize(w, h int) {
 	m.scroll = clamp(m.scroll, 0, m.maxScroll())
 }
 
+// SetStyles replaces the Styles.
+func (m *Model) SetStyles(st Styles) { m.styles = st }
+
 // SetContent replaces the shown content and resets the scroll to the top.
 func (m *Model) SetContent(c Content) {
 	m.content = c

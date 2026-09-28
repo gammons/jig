@@ -62,5 +62,8 @@ func New(opts ...Option) Model {
 // SetSize sets the size the sidebar's View is fit to.
 func (m *Model) SetSize(w, h int) { m.width, m.height = w, h }
 
+// SetStyles replaces the Styles.
+func (m *Model) SetStyles(st Styles) { m.styles = st }
+
 // SetSections replaces the shown sections.
 func (m *Model) SetSections(s []Section) { m.sections = s }

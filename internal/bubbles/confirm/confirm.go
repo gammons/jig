@@ -59,6 +59,9 @@ func (m *Model) Set(title string, lines []string, choices []Choice) {
 	m.yOffset = 0
 }
 
+// SetStyles replaces the Styles.
+func (m *Model) SetStyles(st Styles) { m.styles = st }
+
 // SetSize sets the outer terminal size the box is centered within.
 func (m *Model) SetSize(termW, termH int) { m.termW, m.termH = termW, termH }
 

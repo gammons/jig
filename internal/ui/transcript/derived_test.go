@@ -207,3 +207,29 @@ func TestLastBrowserURL_IgnoresDescendants(t *testing.T) {
 		t.Errorf("LastBrowserURL = %q, want root.test", got)
 	}
 }
+
+func TestBrowserSession(t *testing.T) {
+	tests := []struct {
+		name, cmd, want string
+		wantOK          bool
+	}{
+		{"no session flag", "agent-browser open a.test", "default", true},
+		{"separate value", "agent-browser --session s1 open a.test", "s1", true},
+		{"joined value", "agent-browser --headed --session=s2 click @e1", "s2", true},
+		{"quoted value", `agent-browser --session "s3" open a.test`, "s3", true},
+		{"last invocation wins", "agent-browser --session a open x && agent-browser --session b snapshot", "b", true},
+		{"last invocation without a flag is default", "agent-browser --session a open x; agent-browser snapshot", "default", true},
+		{"a flag after the subcommand is an argument", "agent-browser open x --session s9", "default", true},
+		{"a path to the binary", "cd /tmp && /usr/bin/agent-browser --session p open x", "p", true},
+		{"not agent-browser", "echo --session s1", "", false},
+		{"no subcommand", "agent-browser --session s1", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := BrowserSession(tt.cmd)
+			if got != tt.want || ok != tt.wantOK {
+				t.Errorf("BrowserSession(%q) = (%q, %v), want (%q, %v)", tt.cmd, got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}

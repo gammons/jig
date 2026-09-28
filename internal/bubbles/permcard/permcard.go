@@ -91,6 +91,12 @@ func (m *Model) Set(req *Request) {
 	m.ver++
 }
 
+// SetStyles replaces the Styles; the view changes, so Version bumps.
+func (m *Model) SetStyles(st Styles) {
+	m.styles = st
+	m.ver++
+}
+
 // Request returns the current request, or nil when the card is empty.
 func (m Model) Request() *Request { return m.req }
 
@@ -156,6 +162,11 @@ func newDenyInput(width int) textinput.Model {
 	ti := textinput.New()
 	ti.Prompt = "  deny: "
 	ti.Placeholder = "reason (optional)"
+	// A blinking cursor ticks on its own real-time timer; a static one
+	// keeps Focus and every key's Cmd synchronous (like prompt's).
+	st := ti.Styles()
+	st.Cursor.Blink = false
+	ti.SetStyles(st)
 	ti.SetWidth(inputWidth(width))
 	return ti
 }

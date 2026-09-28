@@ -123,6 +123,12 @@ func New(edit EditFunc, opts ...Option) Model {
 	return m
 }
 
+// SetStyles replaces the Styles, including the textarea's.
+func (m *Model) SetStyles(st Styles) {
+	m.styles = st
+	m.ta.SetStyles(taStyles(st))
+}
+
 // SetWidth sets the outer width, including the border.
 func (m *Model) SetWidth(w int) {
 	m.width = w

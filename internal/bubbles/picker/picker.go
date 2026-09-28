@@ -124,6 +124,9 @@ func New(load LoadFunc, opts ...Option) Model {
 	return m
 }
 
+// SetStyles replaces the Styles.
+func (m *Model) SetStyles(st Styles) { m.styles = st }
+
 // IsOpen reports whether the picker has an open level.
 func (m Model) IsOpen() bool { return m.open }
 

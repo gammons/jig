@@ -50,5 +50,8 @@ func New(opts ...Option) Model {
 // SetWidth sets the width the bar's single line is fit to.
 func (m *Model) SetWidth(w int) { m.width = w }
 
+// SetStyles replaces the Styles.
+func (m *Model) SetStyles(st Styles) { m.styles = st }
+
 // Set replaces the shown state.
 func (m *Model) Set(s State) { m.state = s }
