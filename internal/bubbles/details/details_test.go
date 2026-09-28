@@ -167,6 +167,71 @@ func splitLines(s string) []string {
 	return out
 }
 
+func TestDetails_HitTest(t *testing.T) {
+	t.Parallel()
+	m := New()
+	m.SetSize(30, 6) // bodyHeight = 4
+	m.SetContent(Content{Header: "file.go", Lines: lines(10)})
+	m.ScrollBy(3) // scroll = 3
+
+	// Rejected rows: header and rule rows.
+	if _, _, ok := m.HitTest(0, 0); ok {
+		t.Errorf("HitTest(0,0) ok = true, want false (header row)")
+	}
+	if _, _, ok := m.HitTest(0, 1); ok {
+		t.Errorf("HitTest(0,1) ok = true, want false (rule row)")
+	}
+
+	// Body cell.
+	if line, col, ok := m.HitTest(4, 2); !ok || line != 3 || col != 4 {
+		t.Errorf("HitTest(4,2) = (%d,%d,%v), want (3,4,true)", line, col, ok)
+	}
+
+	// Past the content: still within the pane's body rows (y < h), and
+	// line 6 exists among the 10 content lines.
+	if line, col, ok := m.HitTest(0, 5); !ok || line != 6 || col != 0 {
+		t.Errorf("HitTest(0,5) = (%d,%d,%v), want (6,0,true)", line, col, ok)
+	}
+
+	// y >= h is outside the pane entirely.
+	if _, _, ok := m.HitTest(0, 6); ok {
+		t.Errorf("HitTest(0,6) ok = true, want false (y >= h)")
+	}
+
+	// With only 5 content lines (scroll still 3, set directly since
+	// clamping through the exported API would mask the bounds check
+	// under test), the same cell is past the end.
+	m2 := m
+	m2.content.Lines = lines(5)
+	if _, _, ok := m2.HitTest(0, 5); ok {
+		t.Errorf("HitTest(0,5) with 5 lines ok = true, want false (past content)")
+	}
+
+	// x >= w is outside the pane.
+	if _, _, ok := m.HitTest(30, 2); ok {
+		t.Errorf("HitTest(30,2) ok = true, want false (x >= w)")
+	}
+}
+
+func TestDetails_Lines(t *testing.T) {
+	t.Parallel()
+	m := New()
+	m.SetSize(20, 5)
+	content := []string{"a\tb\tc", "plain", ""}
+	m.SetContent(Content{Header: "h", Lines: content})
+
+	got := m.Lines()
+	want := []string{"a    b    c", "plain", ""}
+	if len(got) != len(want) {
+		t.Fatalf("Lines() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("Lines()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestGolden_DetailsCode(t *testing.T) {
 	t.Parallel()
 	kw := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5f87")).Bold(true)

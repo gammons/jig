@@ -124,17 +124,43 @@ func (m Model) View() string {
 	lines = append(lines, m.borderLine())
 
 	bh := m.bodyHeight()
+	expanded := m.Lines()
 	for i := 0; i < bh; i++ {
 		idx := m.scroll + i
 		line := ""
-		if idx < len(m.content.Lines) {
-			// A tab has no cell width of its own: expand it before
-			// fitting, or the terminal's tab stops break the layout.
-			line = strings.ReplaceAll(m.content.Lines[idx], "\t", "    ")
+		if idx < len(expanded) {
+			line = expanded[idx]
 		}
 		lines = append(lines, padLine(line, m.w))
 	}
 	return strings.Join(lines[:m.h], "\n")
+}
+
+// Lines returns the content lines with tabs expanded to 4 spaces, exactly
+// as View draws them (before cutting or padding to width).
+func (m Model) Lines() []string {
+	out := make([]string, len(m.content.Lines))
+	for i, l := range m.content.Lines {
+		// A tab has no cell width of its own: expand it before
+		// fitting, or the terminal's tab stops break the layout.
+		out[i] = strings.ReplaceAll(l, "\t", "    ")
+	}
+	return out
+}
+
+// HitTest maps a cell (x, y) inside the pane to a content line and column.
+// ok is false for the header row (y=0), the rule row (y=1), any row at or
+// beyond the pane's height, any column at or beyond the pane's width, and
+// a body row past the end of the content.
+func (m Model) HitTest(x, y int) (line, col int, ok bool) {
+	if x < 0 || x >= m.w || y < 2 || y >= m.h {
+		return 0, 0, false
+	}
+	idx := m.scroll + y - 2
+	if idx >= len(m.content.Lines) {
+		return 0, 0, false
+	}
+	return idx, x, true
 }
 
 func (m Model) headerLine() string {
