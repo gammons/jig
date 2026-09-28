@@ -1230,3 +1230,12 @@ e2e/tui_test.go
   - kitty and sixel payloads never appearing inside `View`.
 - [ ] Use `superpowers:finishing-a-development-branch`. The success criterion (spec §1) is a week of daily use; hand that to Grant.
 
+
+## Execution notes (after Plan 2b shipped)
+
+Deferred follow-ups from the task and final reviews, none blocking daily use:
+- Performance: resizing a 2,000-block session re-renders every block (~1 s, budget 1.5 s); a real fix needs lazy/estimated heights in blocklist. Details build synchronously and aren't cached (~190 ms for a 50 KB file). The sessions picker loads each session's full history to total its cost; live subagent details reload every tick.
+- Robustness: runs are not cancelled on SIGTERM/SIGHUP (App base context from Background); trust dialog accepts typed-ahead `t`; `ctrl+c` does nothing inside the picker; paste in NORMAL is dropped; no "compacting…" feedback.
+- Rendering: search-highlight off-code drops underlying colors on unselected rows; selection tint only re-applied after exact reset strings; stale details colors after a theme change; sixel not re-placed on details scroll/picker open; the theme picker re-applies an unchanged theme on esc/choose.
+- Sizes: `internal/ui/app.go` is at ~495/500 lines and `viewState`/`widgets` at 15 fields; blocklist Model at 19/20 methods; transcript.Projection and sessionState at 20 — the next change there must split.
+- Misc: `@path,` (trailing punctuation) isn't an attachment; "nothing to compact" is matched by error text; AGENT_BROWSER_SESSION env isn't reflected in the sidebar; project files read with unbounded `os.ReadFile` in config/agentfs/contextfs/skillfs.
