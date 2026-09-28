@@ -128,7 +128,9 @@ func (m Model) View() string {
 		idx := m.scroll + i
 		line := ""
 		if idx < len(m.content.Lines) {
-			line = m.content.Lines[idx]
+			// A tab has no cell width of its own: expand it before
+			// fitting, or the terminal's tab stops break the layout.
+			line = strings.ReplaceAll(m.content.Lines[idx], "\t", "    ")
 		}
 		lines = append(lines, padLine(line, m.w))
 	}

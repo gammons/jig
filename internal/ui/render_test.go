@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/golden"
@@ -260,6 +261,27 @@ func TestRender_BashErrorAlwaysShowsAnErrorIcon(t *testing.T) {
 				t.Errorf("render = %q, want it to contain %q", out, "✗")
 			}
 		})
+	}
+}
+
+// TestRender_UserTabsExpandBeforeWrapping: a tab would count as no cells
+// when wrapping and then expand to 4 when the list fits the line, cutting
+// the text off; it must expand first.
+func TestRender_UserTabsExpandBeforeWrapping(t *testing.T) {
+	t.Parallel()
+	set := darkSet()
+	r := newRenderer(&set)
+	out := renderOne(t, r, blockData{Block: transcript.Block{Kind: transcript.KindUser, Text: "a\tb\tc\td\tend"}}, 20)
+	if strings.Contains(out, "\t") {
+		t.Errorf("render kept a tab: %q", out)
+	}
+	for _, l := range strings.Split(out, "\n") {
+		if w := ansi.Width(l); w > 20 {
+			t.Errorf("line %q is %d cells, want <= 20", l, w)
+		}
+	}
+	if !strings.Contains(out, "end") {
+		t.Errorf("render lost the text's end: %q", out)
 	}
 }
 

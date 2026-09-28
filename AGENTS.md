@@ -244,9 +244,13 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   under the App's base context, which is cancelled when it quits.
 - The App calls `transcript.Projection.Load` only while no run is in
   flight (a mid-step `Load` drops unsaved blocks); a send shows its user
-  block through `AddUser` instead.
+  block through `AddUser` instead. A resume result that arrives mid-send
+  is held (`viewState.resumeHeld`) and the session re-read once idle
+  (`sender.idle`).
 - Keys fixed by R21 are handled by the mode handlers before
-  `Keymap.Lookup`, so a `[keybinds]` entry can never override them.
+  `Keymap.Lookup`, so a `[keybinds]` entry can never override them;
+  `actions.Resolve` skips such an entry with a warning
+  (`actions.isFixed` mirrors the handlers).
 - The permission card mirrors one of `Projection.Pending()` (the selected
   block's, else the first); `permCtl.sync` re-points it after every
   Update, so a resolved or cancelled request can never leave a card up.

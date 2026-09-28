@@ -42,7 +42,7 @@ func yankTool(b transcript.Block) string {
 			Command string `json:"command"`
 		}
 		_ = json.Unmarshal(b.Call.Input, &in)
-		return ansi.SanitizeLine(in.Command)
+		return ansi.Sanitize(in.Command) // a multi-line command keeps its lines
 	case "edit":
 		var in editInput
 		_ = json.Unmarshal(b.Call.Input, &in)

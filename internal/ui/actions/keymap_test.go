@@ -2,6 +2,7 @@ package actions
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/gammons/jig/internal/core/ext"
@@ -78,6 +79,44 @@ func TestResolve_Warnings(t *testing.T) {
 	}
 	if _, ok := km.Lookup("normal", "ctrl+q"); ok {
 		t.Error("Lookup(normal, ctrl+q): want not applied")
+	}
+}
+
+func TestResolve_FixedKeysWarnAndSkip(t *testing.T) {
+	c := NewCatalogue(nil)
+	config := map[string]string{
+		"insert.enter":  "app.quit",
+		"insert.ctrl+c": "view.sidebar",
+		"normal.j":      "app.quit",
+		"normal.gp":     "app.quit",
+		"normal.a":      "view.sidebar",
+		"insert.ctrl+e": "view.sidebar", // remappable in INSERT
+		"normal.x":      "view.sidebar",
+	}
+	km, warnings := Resolve(DefaultBindings(), config, c)
+	want := []string{
+		`warning: keybinds."insert.ctrl+c": ctrl+c is fixed in insert mode and cannot be remapped`,
+		`warning: keybinds."insert.enter": enter is fixed in insert mode and cannot be remapped`,
+		`warning: keybinds."normal.a": a is fixed in normal mode and cannot be remapped`,
+		`warning: keybinds."normal.gp": gp is fixed in normal mode and cannot be remapped`,
+		`warning: keybinds."normal.j": j is fixed in normal mode and cannot be remapped`,
+	}
+	if !reflect.DeepEqual(warnings, want) {
+		t.Errorf("warnings =\n%v\nwant\n%v", strings.Join(warnings, "\n"), strings.Join(want, "\n"))
+	}
+	for _, k := range [][2]string{{"insert", "enter"}, {"insert", "ctrl+c"}, {"normal", "j"}, {"normal", "gp"}, {"normal", "a"}} {
+		if id, ok := km.Lookup(k[0], k[1]); ok {
+			t.Errorf("Lookup(%s, %s) = %q, want the config entry skipped", k[0], k[1], id)
+		}
+	}
+	if id, _ := km.Lookup("insert", "ctrl+e"); id != ViewSidebar {
+		t.Errorf("insert.ctrl+e = %q, want remapped to view.sidebar", id)
+	}
+	if id, _ := km.Lookup("normal", "x"); id != ViewSidebar {
+		t.Errorf("normal.x = %q, want view.sidebar", id)
+	}
+	if id, _ := km.Lookup("normal", "ctrl+c"); id != RunCancel {
+		t.Errorf("default normal.ctrl+c = %q, want run.cancel kept", id)
 	}
 }
 

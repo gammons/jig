@@ -138,6 +138,20 @@ func TestApp_CardKeysWaitForArming(t *testing.T) {
 	}
 }
 
+func TestApp_PermissionReplyErrorPrefixedOnce(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("go")
+	ta.startBash("c1", "make")
+	ta.request("p1", "c1", "make")
+	ta.arm()
+	ta.perms.err = errors.New(`permission: unknown request "p1"`)
+	ta.key("a")
+	if got, want := ta.app.view.hint, `permission: unknown request "p1"`; got != want {
+		t.Errorf("hint = %q, want %q", got, want)
+	}
+}
+
 func TestApp_PermissionDoesNotStealFocusWhileTyping(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)

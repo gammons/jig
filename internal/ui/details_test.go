@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/gammons/jig/internal/bubbles/imgrender"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/ui/theme"
@@ -132,6 +134,27 @@ func TestDetails_EditWithContext(t *testing.T) {
 	}
 	if !strings.Contains(msg.Content.Header, "1 hunks") {
 		t.Errorf("Header = %q, want it to contain %q", msg.Content.Header, "1 hunks")
+	}
+}
+
+// TestDetails_EditCmdDoesNotReadLiveTheme: the edit-context Cmd runs on
+// its own goroutine; a theme change on the App's goroutine meanwhile
+// rewrites the Set the renderer points at. The Cmd must use styles
+// captured when it was built (go test -race catches a shared read).
+func TestDetails_EditCmdDoesNotReadLiveTheme(t *testing.T) {
+	t.Parallel()
+	set := theme.Build(theme.Default(), 1)
+	r := newRenderer(&set)
+	b := editBlock("a.go", "foo", "bar")
+	p := Ports{Project: fakeProject{files: map[string][]byte{"a.go": []byte("line one\nbar\nline three\n")}}}
+	_, cmd := buildDetails(context.Background(), b, 80, 24, r, p, nil)
+
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+	nord, _ := theme.Lookup("nord", nil)
+	set = theme.Build(theme.Complete(nord), 2)
+	if _, ok := (<-done).(detailsMsg); !ok {
+		t.Fatal("the edit Cmd did not yield a detailsMsg")
 	}
 }
 

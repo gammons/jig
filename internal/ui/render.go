@@ -79,7 +79,8 @@ func (r *renderer) render(it blocklist.Item, width int, _ blocklist.Styles) []st
 // renderUser renders a User block: "› you  <text>", wrapped in full, with
 // a dim attachments line (R26) when present.
 func (r *renderer) renderUser(b transcript.Block, width int) []string {
-	text := ansi.Sanitize(b.Text)
+	// Expand tabs before wrapping, so the wrap measures what is drawn.
+	text := strings.ReplaceAll(ansi.Sanitize(b.Text), "\t", "    ")
 	wrapped := ansi.Wrap("› you  "+text, max(width, 1))
 	lines := []string{r.set.Render.User.Render(wrapped)}
 	if len(b.Attachments) > 0 {

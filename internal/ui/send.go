@@ -132,7 +132,7 @@ func (s sender) cancelRun() tea.Cmd {
 	s.unqueue()
 	if a.sess.run.awaitEnd {
 		a.sess.run.awaitEnd, a.sess.run.running = false, false
-		return nil
+		return s.idle()
 	}
 	if !a.sess.run.inFlight {
 		return nil
@@ -178,7 +178,7 @@ func (s sender) done(msg sendDoneMsg) tea.Cmd {
 	}
 	if !ran && msg.err != nil {
 		s.undo(run.userID, run.text, msg.err)
-		return nil
+		return s.idle()
 	}
 	if !settled {
 		return nil
@@ -203,16 +203,26 @@ func (s sender) undo(id transcript.BlockID, text string, err error) {
 	}
 }
 
-// afterRun sends the queued prompt, if any.
+// afterRun sends the queued prompt, if any; otherwise the App is idle.
 func (s sender) afterRun() tea.Cmd {
 	a := s.a
-	if !a.sess.queued {
+	if a.sess.queued {
+		s.unqueue()
+		if text := a.w.prompt.Value(); strings.TrimSpace(text) != "" {
+			return s.send(text)
+		}
+	}
+	return s.idle()
+}
+
+// idle runs what waited for no send to be in flight: re-reading a
+// session whose resume arrived mid-send.
+func (s sender) idle() tea.Cmd {
+	a := s.a
+	id := a.view.resumeHeld
+	if id == "" || a.sess.run.busy() {
 		return nil
 	}
-	s.unqueue()
-	text := a.w.prompt.Value()
-	if strings.TrimSpace(text) == "" {
-		return nil
-	}
-	return s.send(text)
+	a.view.resumeHeld = ""
+	return resumeCmd(a.ctx, a.ports, id)
 }

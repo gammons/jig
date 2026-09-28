@@ -526,6 +526,34 @@ func TestApp_CtrlDDuringRunHints(t *testing.T) {
 	}
 }
 
+func TestApp_ResumeArrivingDuringASendIsAppliedWhenIdle(t *testing.T) {
+	t.Parallel()
+	history := []core.Message{
+		{ID: "h1", SessionID: "ses_1", Role: core.RoleUser, Parts: []core.Part{{Kind: core.PartText, Text: "earlier question"}}},
+		{ID: "h2", SessionID: "ses_1", Role: core.RoleAssistant, Parts: []core.Part{{Kind: core.PartText, Text: "earlier answer"}}},
+	}
+	ta := newTestApp(t)
+	ta.sessions.info = core.Session{ID: "ses_1", Agent: "build"}
+	ta.sendAndAdopt("go")
+	// The startup resume lands after the send started.
+	ta.send(resumeMsg{info: ta.sessions.info, msgs: history})
+	if strings.Contains(xansi.Strip(ta.view()), "earlier answer") {
+		t.Fatal("test setup: the resume applied mid-run")
+	}
+	ta.sessions.msgs = append(history,
+		core.Message{ID: "m0", SessionID: "ses_1", Role: core.RoleUser, Parts: []core.Part{{Kind: core.PartText, Text: "go"}}},
+		core.Message{ID: "m1", SessionID: "ses_1", Role: core.RoleAssistant, Parts: []core.Part{{Kind: core.PartText, Text: "done"}}},
+	)
+	ta.event(event.RunFinished{Base: rootBase()})
+	ta.returnSend()
+	view := xansi.Strip(ta.view())
+	for _, want := range []string{"earlier question", "earlier answer", "done"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("once idle the view lacks %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestApp_CtrlDQuitsOnlyOnEmptyPrompt(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)

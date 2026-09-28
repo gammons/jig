@@ -2,10 +2,12 @@ package ui
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/bubbles/picker"
 	"github.com/gammons/jig/internal/bubbles/prompt"
 	"github.com/gammons/jig/internal/core"
@@ -76,6 +78,16 @@ type catalogMsg struct{ providers []core.ProviderStatus }
 type errMsg struct {
 	what string
 	err  error
+}
+
+// hint is "<what>: <error>", sanitized, without repeating a prefix the
+// error already carries (e.g. "permission: unknown request").
+func (m errMsg) hint() string {
+	text := ansi.SanitizeLine(m.err.Error())
+	if strings.HasPrefix(text, m.what+": ") {
+		return text
+	}
+	return m.what + ": " + text
 }
 
 // editorExecMsg carries the command an EditorService prepared, to run

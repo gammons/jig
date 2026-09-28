@@ -217,6 +217,11 @@ func TestNormal_YankTable(t *testing.T) {
 			"echo hi",
 		},
 		{
+			"multi-line bash keeps its newlines, sanitized",
+			transcript.Block{Kind: transcript.KindTool, Call: &core.ToolCall{Name: "bash", Input: []byte(`{"command":"cd src &&\n  make \u001b[31mall\n"}`)}},
+			"cd src &&\n  make all\n",
+		},
+		{
 			"read",
 			transcript.Block{Kind: transcript.KindTool, Call: &core.ToolCall{Name: "read", Input: []byte(`{"path":"a.go"}`)}},
 			"a.go",

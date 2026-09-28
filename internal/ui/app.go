@@ -83,7 +83,8 @@ type (
 // whether the one-line search input owns the status bar's slot;
 // detailsFor is the block ID the open details split shows, so an async
 // detailsMsg for a block the selection has since left can be ignored.
-// pick is the picker's state (pickerView).
+// pick is the picker's state (pickerView). resumeHeld is a session whose
+// resume result arrived mid-send; it is re-read once idle.
 type viewState struct {
 	pick         pickerView
 	sidebarPref  *bool
@@ -97,6 +98,7 @@ type viewState struct {
 	keyPrefix    string
 	searching    bool
 	detailsFor   transcript.BlockID
+	resumeHeld   core.SessionID
 }
 
 // App is jig's TUI: a bubbletea model that bridges bus events into
@@ -335,18 +337,22 @@ func (a *App) onPortResult(msg tea.Msg) {
 			a.view.hint = "session: " + ansi.SanitizeLine(msg.err.Error())
 			return
 		}
-		if !a.sess.run.busy() {
-			if msg.info.ID != a.sess.info.ID {
-				// A session opened from the picker replaces this one.
-				a.sess = freshSession(a.sess, msg.info.ID)
-				a.view.detailsOpen = false
-			}
-			a.sess.load(msg.info, msg.msgs, msg.todos)
-			a.w.setItems(a.sess.allItems())
-			a.w.prompt.SetAgent(ansi.SanitizeLine(a.sess.info.Agent))
+		if a.sess.run.busy() {
+			// A send started first (a Load now would drop its blocks):
+			// re-read the session once idle (sender.idle).
+			a.view.resumeHeld = msg.info.ID
+			return
 		}
+		if msg.info.ID != a.sess.info.ID {
+			// A session opened from the picker replaces this one.
+			a.sess = freshSession(a.sess, msg.info.ID)
+			a.view.detailsOpen = false
+		}
+		a.sess.load(msg.info, msg.msgs, msg.todos)
+		a.w.setItems(a.sess.allItems())
+		a.w.prompt.SetAgent(ansi.SanitizeLine(a.sess.info.Agent))
 	case errMsg:
-		a.view.hint = msg.what + ": " + ansi.SanitizeLine(msg.err.Error())
+		a.view.hint = msg.hint()
 	}
 }
 

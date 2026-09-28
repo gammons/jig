@@ -1,6 +1,7 @@
 package details
 
 import (
+	"strings"
 	"testing"
 
 	"charm.land/lipgloss/v2"
@@ -187,4 +188,15 @@ func TestGolden_DetailsCode(t *testing.T) {
 	m.SetSize(40, 10)
 	m.SetContent(content)
 	golden.Assert(t, "details_code", m.View())
+}
+
+func TestDetails_TabsExpandBeforeFitting(t *testing.T) {
+	t.Parallel()
+	m := New(WithStyles(pinnedStyles()))
+	m.SetSize(20, 3)
+	m.SetContent(Content{Header: "h", Lines: []string{"a\tb\tc"}})
+	body := strings.Split(m.View(), "\n")[2]
+	if want := "a    b    c         "; body != want {
+		t.Errorf("body row = %q, want %q (tabs as 4 spaces, exactly 20 cells)", body, want)
+	}
 }

@@ -106,7 +106,10 @@ func buildEditDetails(ctx context.Context, b transcript.Block, r *renderer, p Po
 	base := filepath.Base(in.Path)
 	oldS, newS := ansi.Sanitize(in.OldString), ansi.Sanitize(in.NewString)
 
-	lines, hunks := coderender.Diff(in.Path, oldS, newS, 0, r.set.Code)
+	// The Cmd below runs off the App's goroutine, where a theme change
+	// may rewrite r.set: it uses the styles as of now.
+	code := r.set.Code
+	lines, hunks := coderender.Diff(in.Path, oldS, newS, 0, code)
 	content := details.Content{Header: editHeader(base, hunks), Lines: lines}
 
 	blockID, path := b.ID, in.Path
@@ -119,7 +122,7 @@ func buildEditDetails(ctx context.Context, b transcript.Block, r *renderer, p Po
 			return detailsMsg{Block: blockID, Content: content}
 		}
 		before := strings.Replace(file, newS, oldS, 1)
-		ctxLines, ctxHunks := coderender.Diff(path, before, file, 3, r.set.Code)
+		ctxLines, ctxHunks := coderender.Diff(path, before, file, 3, code)
 		return detailsMsg{Block: blockID, Content: details.Content{
 			Header: editHeader(base, ctxHunks), Lines: ctxLines,
 		}}

@@ -34,6 +34,28 @@ func isMode(mode string) bool {
 	return mode == "insert" || mode == "normal"
 }
 
+// isFixed reports whether key is one of mode's R21 fixed keys, which its
+// mode handler runs before any Keymap lookup, so a config binding for it
+// could never fire. Keep in sync with insertKeys/normalKeys in ui.
+func isFixed(mode, key string) bool {
+	switch key {
+	case "enter", "esc", "tab", "shift+tab", "ctrl+c", "ctrl+d":
+		return true
+	}
+	if mode == "insert" {
+		switch key {
+		case "shift+enter", "alt+enter", "@", "up", "down":
+			return true
+		}
+		return false
+	}
+	switch key {
+	case "j", "k", "g", "gg", "gp", "G", "ctrl+u", "q", "n", "N", "i", "a", "A", "d", "D", "ctrl+e", "ctrl+y":
+		return true
+	}
+	return false
+}
+
 // isPrintableKey reports whether every rune of key is printable: a
 // config-supplied key name is shown verbatim in the picker (a key's
 // detail), so a control rune (e.g. an escape sequence) must never reach
@@ -85,8 +107,9 @@ func (k Keymap) Keys(mode string, id ID) []string {
 
 // Resolve builds a Keymap from binds (registration order; later wins for
 // the same mode+key), then overlays config entries of the form
-// "<mode>.<key>" = "<action id>". A config entry naming an unknown mode
-// or unknown action is skipped and reported as a warning; config entries
+// "<mode>.<key>" = "<action id>". A config entry naming an unknown mode,
+// a key fixed in that mode (R21), or an unknown action is skipped and
+// reported as a warning; config entries
 // are applied in sorted key order so warnings are deterministic.
 func Resolve(binds []ext.Keybind, config map[string]string, c *Catalogue) (Keymap, []string) {
 	km := newKeymap()
@@ -106,6 +129,10 @@ func Resolve(binds []ext.Keybind, config map[string]string, c *Catalogue) (Keyma
 		mode, key, found := strings.Cut(k, ".")
 		if !found || !isMode(mode) {
 			warnings = append(warnings, fmt.Sprintf("warning: keybinds.%q: unknown mode %q", k, mode))
+			continue
+		}
+		if isFixed(mode, key) {
+			warnings = append(warnings, fmt.Sprintf("warning: keybinds.%q: %s is fixed in %s mode and cannot be remapped", k, key, mode))
 			continue
 		}
 		if _, ok := c.Get(ID(v)); !ok {
