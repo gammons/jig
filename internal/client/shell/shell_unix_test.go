@@ -88,6 +88,31 @@ func TestRun_NewSessionWithoutControllingTerminal(t *testing.T) {
 	}
 }
 
+func TestFirstKill_ESRCHBecomesProcessDone(t *testing.T) {
+	t.Parallel()
+	err := firstKill(42, func(int, syscall.Signal) error { return syscall.ESRCH })
+	if !errors.Is(err, os.ErrProcessDone) {
+		t.Errorf("firstKill = %v, want os.ErrProcessDone", err)
+	}
+}
+
+func TestFirstKill_OtherErrorPassesThrough(t *testing.T) {
+	t.Parallel()
+	want := syscall.EPERM
+	err := firstKill(42, func(int, syscall.Signal) error { return want })
+	if !errors.Is(err, want) {
+		t.Errorf("firstKill = %v, want %v", err, want)
+	}
+}
+
+func TestFirstKill_SuccessReturnsNil(t *testing.T) {
+	t.Parallel()
+	err := firstKill(42, func(int, syscall.Signal) error { return nil })
+	if err != nil {
+		t.Errorf("firstKill = %v, want nil", err)
+	}
+}
+
 // A group member that escaped the first SIGKILL (on darwin, a child bash
 // was forking while killpg ran) is caught by a later one: the group is
 // re-killed on every tick until kill reports it empty.

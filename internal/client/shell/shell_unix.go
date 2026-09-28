@@ -3,6 +3,8 @@
 package shell
 
 import (
+	"errors"
+	"os"
 	"os/exec"
 	"syscall"
 	"time"
@@ -52,7 +54,7 @@ func configureProcessGroup(cmd *exec.Cmd) {
 // What remains is a new group taking the same ID within one interval of
 // the group emptying, which needs the pid space to wrap in 10 ms.
 func KillGroup(pgid int) error {
-	if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil {
+	if err := firstKill(pgid, syscall.Kill); err != nil {
 		return err
 	}
 	go func() {
@@ -61,6 +63,18 @@ func KillGroup(pgid int) error {
 		killUntilEmpty(pgid, syscall.Kill, t.C, reKills)
 	}()
 	return nil
+}
+
+// firstKill SIGKILLs group pgid via kill. A failure that is ESRCH
+// (typically: the group is already gone) is reported as
+// os.ErrProcessDone, which exec.Cmd's Cancel machinery treats specially
+// — it does not turn a clean exit into a spurious cancellation error.
+func firstKill(pgid int, kill func(int, syscall.Signal) error) error {
+	err := kill(-pgid, syscall.SIGKILL)
+	if err != nil && errors.Is(err, syscall.ESRCH) {
+		return os.ErrProcessDone
+	}
+	return err
 }
 
 // killUntilEmpty sends SIGKILL to group pgid on each of up to n ticks,

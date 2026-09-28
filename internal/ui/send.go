@@ -109,12 +109,19 @@ func (s sender) ctrlC() tea.Cmd {
 
 // normalCtrlC is NORMAL's ctrl+c: cancel the run only, never clear or
 // quit. A cancel starts the same cancelGrace as INSERT's, so a quick
-// `i` then ctrl+c can't clear the prompt or quit.
+// `i` then ctrl+c can't clear the prompt or quit; for cancelGrace after
+// that cancel, a further NORMAL ctrl+c also does nothing, the same as
+// INSERT's ladder.
 func (s sender) normalCtrlC() tea.Cmd {
+	a := s.a
+	now := a.opts.Clock.Now()
+	if !a.sess.run.cancelledAt.IsZero() && now.Sub(a.sess.run.cancelledAt) < cancelGrace {
+		return nil
+	}
 	if !s.inRun() {
 		return nil
 	}
-	s.a.sess.run.cancelledAt = s.a.opts.Clock.Now()
+	a.sess.run.cancelledAt = now
 	return s.cancelRun()
 }
 

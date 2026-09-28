@@ -507,6 +507,24 @@ func TestApp_NormalCtrlCOnlyCancels(t *testing.T) {
 	}
 }
 
+// A second NORMAL ctrl+c within cancelGrace of the first does nothing,
+// the same as INSERT's ladder ignores a double tap.
+func TestApp_NormalCtrlCDoubleTapWithinGraceDoesNothing(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("go")
+	ta.key("esc")
+	ta.key("ctrl+c") // cancels the run; the run itself hasn't ended yet
+	if !slices.Equal(ta.chat.cancels, []core.SessionID{"ses_1"}) {
+		t.Fatalf("test setup: cancels = %v, want one Cancel(ses_1)", ta.chat.cancels)
+	}
+	ta.clk.Advance(900 * time.Millisecond)
+	ta.key("ctrl+c") // still within cancelGrace of the first
+	if len(ta.chat.cancels) != 1 {
+		t.Errorf("cancels = %v after a double tap within cancelGrace, want still one", ta.chat.cancels)
+	}
+}
+
 func TestApp_NormalCancelStartsCtrlCGrace(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)

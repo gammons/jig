@@ -135,7 +135,7 @@ func TestBuild_PickerFromPalette(t *testing.T) {
 		Header:   lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 		Text:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
 		Detail:   lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
-		Match:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Warning)),
+		Match:    lipgloss.NewStyle().Bold(true).Underline(true).Foreground(lipgloss.Color(pickMatchColor(p))),
 		Selected: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
 		Disabled: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 		Current:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
@@ -147,24 +147,34 @@ func TestBuild_PickerFromPalette(t *testing.T) {
 }
 
 // TestBuild_PickerMatchReadable guards against a picker match color that
-// vanishes into the picker's background: the picker paints no background
-// of its own (it sits on the pane Background, or Surface where a theme
-// fills it), so matched runes need a foreground distinct from both — and
-// from Text, so they stand out from the rest of the row.
+// vanishes into the picker's background. The App paints no background of
+// its own here: the picker draws no Background style, so its "background"
+// is whatever the terminal shows through — which jig has no way to read
+// back, so this test uses the palette's own Background field as the
+// stand-in for it (the same value every other widget's pane background
+// uses). WCAG's 3:1 (large/bold text) is the bar; ANSI-16-index palettes
+// have no known RGB for that background, so they're checked only for
+// having a foreground set at all.
 func TestBuild_PickerMatchReadable(t *testing.T) {
 	t.Parallel()
 
 	for _, raw := range Builtin() {
 		p := Complete(raw)
+		match := pickMatchColor(p)
 		fg := Build(p, 1).Picker.Match.GetForeground()
 		if fg == nil {
 			t.Errorf("%s: picker Match has no foreground", p.Name)
 			continue
 		}
-		for name, c := range map[string]string{"Background": p.Background, "Surface": p.Surface, "Text": p.Text} {
-			if reflect.DeepEqual(fg, lipgloss.Color(c)) {
-				t.Errorf("%s: picker Match foreground %v equals %s", p.Name, fg, name)
-			}
+		if !reflect.DeepEqual(fg, lipgloss.Color(match)) {
+			t.Errorf("%s: picker Match foreground = %v, want pickMatchColor's %v", p.Name, fg, lipgloss.Color(match))
+		}
+		ratio, ok := Contrast(match, p.Background)
+		if !ok {
+			continue // a bare ANSI-16 index Background: no RGB to measure.
+		}
+		if ratio < 3.0 {
+			t.Errorf("%s: picker Match color %s has %.2f:1 contrast against Background %s, want >= 3:1", p.Name, match, ratio, p.Background)
 		}
 	}
 }
