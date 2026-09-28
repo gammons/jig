@@ -31,7 +31,6 @@ type fakeChat struct {
 	sends   []core.SendRequest
 	ctxs    []context.Context
 	cancels []core.SessionID
-	result  core.SendResult
 	errs    []error // the n-th Send returns errs[n] (nil past the end)
 }
 
@@ -44,8 +43,24 @@ func (f *fakeChat) Send(ctx context.Context, req core.SendRequest) (core.SendRes
 	if n := len(f.sends) - 1; n < len(f.errs) {
 		err = f.errs[n]
 	}
-	return f.result, err
+	// Like chat.Send: a prepare error reports no session; ErrBusy and a
+	// run's own failure (runFailure) report the session they ran in.
+	id := req.SessionID
+	if id == "" {
+		id = "ses_1"
+	}
+	var rf runFailure
+	if err != nil && !errors.Is(err, core.ErrBusy) && !errors.As(err, &rf) {
+		id = ""
+	}
+	return core.SendResult{SessionID: id}, err
 }
+
+// runFailure is a fakeChat error for a run that started and then failed
+// (its RunFailed is published), as opposed to a send rejected up front.
+type runFailure struct{ msg string }
+
+func (e runFailure) Error() string { return e.msg }
 
 func (f *fakeChat) Compact(context.Context, core.SessionID) error { return nil }
 
@@ -343,10 +358,11 @@ func keyPress(k string) tea.KeyPressMsg {
 func rootBase() event.Base { return event.Base{SessionID: "ses_1", RootID: "ses_1"} }
 
 // sendAndAdopt types text, presses enter, and delivers the SessionCreated
-// that makes "ses_1" the root.
+// that makes "ses_1" the root and the run's first MessageStarted ("m1").
 func (ta *testApp) sendAndAdopt(text string) {
 	ta.t.Helper()
 	ta.typeText(text)
 	ta.key("enter")
 	ta.event(event.SessionCreated{Base: rootBase(), Info: core.Session{ID: "ses_1", Agent: "build"}})
+	ta.event(event.MessageStarted{Base: rootBase(), MessageID: "m1"})
 }

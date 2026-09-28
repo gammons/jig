@@ -12,24 +12,62 @@ import (
 	"github.com/gammons/jig/internal/ui/transcript"
 )
 
-// runState is the root's run. A send is in flight (inFlight) from the
-// send until Chat.Send returns — which happens only after the Runner has
-// released the session — and cancel cancels its context. running is what
-// the UI shows: set on send, cleared by the root's RunFinished/RunFailed
-// or when Send returns, whichever comes first. sawEvent records whether
-// any run event (a step, a delta, a tool call, the run's end) arrived: a
-// send that fails before its run starts publishes none. userID and text
-// are the send's user block and prompt text, to undo a send that never
-// ran. frame is the spinner frame, advanced by streamTick.
+// runState is the root's run, gated so a run-end event can only ever
+// belong to the current send. A send is in flight (inFlight) until
+// Chat.Send returns — after the Runner has released the session — and
+// cancel cancels its context. If its run started, the send stays
+// unsettled (awaitEnd) until the run's RunFinished/RunFailed arrives
+// (ended), since the bus may deliver it after Send's return; the next
+// send waits for both. started records the current run's MessageStarted
+// (a RunFinished always follows one; an earlier RunFinished is stale).
+// running is what the UI shows. userID and text are the send's user
+// block and prompt text, to undo a send that never ran. frame is the
+// spinner frame, advanced by streamTick.
 type runState struct {
 	running   bool
 	inFlight  bool
+	started   bool
+	ended     bool
+	awaitEnd  bool
 	startedAt time.Time
-	sawEvent  bool
 	cancel    context.CancelFunc
 	userID    transcript.BlockID
 	text      string
 	frame     int
+}
+
+// busy reports whether a new send must wait (be queued).
+func (r *runState) busy() bool { return r.inFlight || r.awaitEnd }
+
+// end folds the root's RunFinished (finished) or RunFailed into the run.
+// An end that can't be the current send's is ignored. It reports whether
+// the send just settled (Send had already returned), freeing the queue.
+func (r *runState) end(finished bool) bool {
+	switch {
+	case r.awaitEnd:
+	case r.inFlight && !r.ended && (r.started || !finished):
+	default:
+		return false
+	}
+	r.ended, r.running = true, false
+	settled := r.awaitEnd
+	r.awaitEnd = false
+	return settled
+}
+
+// returned records Chat.Send returning; ran says whether its run started.
+// It reports whether the send is settled (no run end still to come).
+func (r *runState) returned(ran bool) bool {
+	if r.cancel != nil {
+		r.cancel()
+	}
+	r.inFlight, r.cancel = false, nil
+	if ran && !r.ended {
+		r.awaitEnd = true
+		return false
+	}
+	r.running = false
+	return true
 }
 
 // toolTimes measures root tool calls (R22) by block: when each started,
@@ -109,10 +147,12 @@ func (s *sessionState) resetBlocks() {
 }
 
 // applyResult is what the App must do after sessionState.apply: re-render
-// upsert now, or rebuild the whole list (reload).
+// upsert now, rebuild the whole list (reload), or send the queue now the
+// previous send has settled (settled).
 type applyResult struct {
-	upsert []transcript.BlockID
-	reload bool
+	upsert  []transcript.BlockID
+	reload  bool
+	settled bool
 }
 
 // apply folds one bus event into the state. Deltas only mark their blocks
@@ -121,7 +161,10 @@ type applyResult struct {
 // order.
 func (s *sessionState) apply(ev event.Event) applyResult {
 	if e, ok := ev.(event.SessionCreated); ok {
-		return s.adopt(e)
+		if e.RootID != e.SessionID || e.Info.ParentID != "" || !s.adopt(withID(e.Info, e.SessionID)) {
+			return applyResult{}
+		}
+		return applyResult{reload: true}
 	}
 	if s.info.ID == "" || ev.Root() != s.info.ID {
 		return applyResult{}
@@ -130,9 +173,6 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 	if ev.Session() != s.info.ID {
 		return applyResult{upsert: s.withDirty(ids)}
 	}
-	if s.run.inFlight && isRunEvent(ev) {
-		s.run.sawEvent = true
-	}
 	switch e := ev.(type) {
 	case event.TextDelta, event.ReasoningDelta:
 		for _, id := range ids {
@@ -140,6 +180,7 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 		}
 		return applyResult{}
 	case event.MessageStarted:
+		s.run.started = s.run.started || s.run.inFlight
 		if e.Model != "" {
 			s.model = e.Model
 		}
@@ -149,8 +190,9 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 		s.usage = e.Usage
 		s.cost += e.CostUSD
 	case event.RunFinished, event.RunFailed:
-		s.run.running = false
-		return applyResult{upsert: s.withDirty(ids)}
+		_, finished := ev.(event.RunFinished)
+		settled := s.run.end(finished)
+		return applyResult{upsert: s.withDirty(ids), settled: settled}
 	case event.SessionUpdated:
 		s.info = withID(e.Info, s.info.ID)
 	case event.TodosUpdated:
@@ -160,16 +202,6 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 		return applyResult{}
 	}
 	return applyResult{upsert: s.withDirty(ids)}
-}
-
-// isRunEvent reports whether ev is evidence that a run actually started.
-func isRunEvent(ev event.Event) bool {
-	switch ev.(type) {
-	case event.MessageStarted, event.TextDelta, event.ReasoningDelta, event.ToolCallStarted,
-		event.ToolCallFinished, event.StepFinished, event.RunFinished, event.RunFailed:
-		return true
-	}
-	return false
 }
 
 // withDirty prepends the dirty blocks (emptying the set) to ids, without
@@ -202,17 +234,17 @@ func (s *sessionState) timeTools(ev event.Event, ids []transcript.BlockID) {
 	}
 }
 
-// adopt makes a new session the root (spec: the first SessionCreated
-// whose RootID is its own SessionID, arriving while a send is in flight
-// with no root yet). The live user blocks move to a projection of the new
-// root; the agent and model chosen before the send are kept unless the
-// session names its own.
-func (s *sessionState) adopt(e event.SessionCreated) applyResult {
-	if s.info.ID != "" || !s.run.running || e.RootID != e.SessionID || e.Info.ParentID != "" {
-		return applyResult{}
+// adopt makes info (a new session, from its SessionCreated or from the
+// Send result, whichever arrives first) the root, if a send is in flight
+// with no root yet, and reports whether it did. The live user blocks
+// move to a projection of the new root; the agent and model chosen before
+// the send are kept unless the session names its own.
+func (s *sessionState) adopt(info core.Session) bool {
+	if s.info.ID != "" || !s.run.inFlight || info.ID == "" {
+		return false
 	}
 	old := s.proj
-	s.proj = transcript.New(e.SessionID)
+	s.proj = transcript.New(info.ID)
 	for _, b := range old.Blocks() {
 		if b.Kind == transcript.KindUser {
 			id := s.proj.AddUser(b.Text, b.Attachments)
@@ -222,7 +254,7 @@ func (s *sessionState) adopt(e event.SessionCreated) applyResult {
 		}
 	}
 	prev := s.info
-	s.info = withID(e.Info, e.SessionID)
+	s.info = info
 	if s.info.Agent == "" {
 		s.info.Agent = prev.Agent
 	}
@@ -230,7 +262,7 @@ func (s *sessionState) adopt(e event.SessionCreated) applyResult {
 		s.info.Model = prev.Model
 	}
 	s.resetBlocks()
-	return applyResult{reload: true}
+	return true
 }
 
 // withID returns info with its ID forced to id.
@@ -248,14 +280,14 @@ func (s *sessionState) startRun(userID transcript.BlockID, text string, cancel c
 	}
 }
 
-// endSend records that Chat.Send returned: the run is over (the Runner
-// has released the session). It returns the dirty blocks to render.
-func (s *sessionState) endSend() []transcript.BlockID {
-	if s.run.cancel != nil {
-		s.run.cancel()
+// endSend records that Chat.Send returned; ran says whether its run
+// started. It reports whether the send is settled, and the dirty blocks
+// to render when it is.
+func (s *sessionState) endSend(ran bool) (bool, []transcript.BlockID) {
+	if !s.run.returned(ran) {
+		return false, nil
 	}
-	s.run.inFlight, s.run.running, s.run.cancel = false, false, nil
-	return s.dirty.take()
+	return true, s.dirty.take()
 }
 
 // dropUser removes the block of a send that never ran and returns every

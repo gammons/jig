@@ -20,12 +20,12 @@ const maxHistory = 100
 // flight, undoing a send that never ran, and the ctrl+c ladder.
 type sender struct{ a *App }
 
-// submit sends text, or, while a send is in flight, queues the prompt:
-// the text stays in it (still editable) and is sent once Chat.Send
-// returns.
+// submit sends text, or, while the previous send is unsettled, queues
+// the prompt: the text stays in it (still editable) and is sent once
+// Chat.Send has returned and the run's end event has arrived.
 func (s sender) submit(text string) tea.Cmd {
 	a := s.a
-	if a.sess.run.inFlight {
+	if a.sess.run.busy() {
 		a.sess.queued = true
 		a.w.prompt.SetQueued(true)
 		return nil
@@ -82,7 +82,7 @@ func lastN(s []string, n int) []string {
 func (s sender) ctrlC() tea.Cmd {
 	a := s.a
 	switch {
-	case a.sess.queued || a.sess.run.inFlight:
+	case a.sess.queued || a.sess.run.busy():
 		return s.cancelRun()
 	case a.w.prompt.Value() != "":
 		a.w.prompt.Reset()
@@ -93,10 +93,16 @@ func (s sender) ctrlC() tea.Cmd {
 
 // cancelRun drops a queued send, then cancels the send in flight: its
 // context (which reaches the run even before the session is known) and,
-// once the root is known, the root's run through Chat.Cancel.
+// once the root is known, the root's run through Chat.Cancel. A send
+// whose Send already returned but whose run end never arrived (a commit
+// failure publishes none) is settled by hand, so the UI can't stay stuck.
 func (s sender) cancelRun() tea.Cmd {
 	a := s.a
 	s.unqueue()
+	if a.sess.run.awaitEnd {
+		a.sess.run.awaitEnd, a.sess.run.running = false, false
+		return nil
+	}
 	if !a.sess.run.inFlight {
 		return nil
 	}
@@ -115,18 +121,28 @@ func (s sender) unqueue() {
 	s.a.w.prompt.SetQueued(false)
 }
 
-// done handles Chat.Send returning, which means the run is over and the
-// Runner has released the session: the run state always ends here. A
-// send that failed before its run published any run event (bad config, a
-// busy session, a cancel before it started) is undone — its user block
-// removed, its text back in the prompt, the queue dropped — and its error
-// becomes the hint. Otherwise a queued prompt is sent now.
+// done handles Chat.Send returning. The result says whether the run
+// started: a send rejected up front reports no session, and ErrBusy
+// means another run held it; nothing was stored or published for either.
+// Such a send is undone — its user block removed, its text back in the
+// prompt, the queue dropped — and its error becomes the hint. A root not
+// yet adopted (SessionCreated still on its way) is adopted from the
+// result. A run that started settles when its end event arrives (maybe
+// already); only then is a queued prompt sent.
 func (s sender) done(msg sendDoneMsg) tea.Cmd {
 	a := s.a
+	if a.sess.adopt(core.Session{ID: msg.res.SessionID}) {
+		a.w.list.SetItems(a.sess.allItems())
+	}
+	ran := msg.res.SessionID != "" && !errors.Is(msg.err, core.ErrBusy)
 	run := a.sess.run
-	a.flush(a.sess.endSend())
-	if msg.err != nil && !run.sawEvent {
+	settled, dirty := a.sess.endSend(ran)
+	a.flush(dirty)
+	if !ran && msg.err != nil {
 		s.undo(run.userID, run.text, msg.err)
+		return nil
+	}
+	if !settled {
 		return nil
 	}
 	return s.afterRun()

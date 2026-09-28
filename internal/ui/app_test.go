@@ -158,6 +158,96 @@ func TestApp_QueueSendsAfterSendReturns(t *testing.T) {
 	}
 }
 
+func TestApp_QueueWaitsForPreviousRunEnd(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("first")
+	ta.typeText("second")
+	ta.key("enter")
+
+	// Send returns before the bus has delivered the run's RunFinished.
+	ta.returnSend()
+	if len(ta.chat.sends) != 1 || !ta.app.sess.queued || !ta.app.sess.run.running {
+		t.Fatalf("sends=%d queued=%v running=%v; want the queued send held until the run's end arrives",
+			len(ta.chat.sends), ta.app.sess.queued, ta.app.sess.run.running)
+	}
+	ta.event(event.RunFinished{Base: rootBase(), MessageID: "m1"})
+	if len(ta.chat.sends) != 2 || !ta.app.sess.run.running {
+		t.Fatalf("sends=%d running=%v after RunFinished; want the queued send running", len(ta.chat.sends), ta.app.sess.run.running)
+	}
+	// A stale run end can't end the new run.
+	ta.event(event.RunFinished{Base: rootBase(), MessageID: "m1"})
+	if !ta.app.sess.run.running {
+		t.Fatal("a stale RunFinished ended the queued send's run")
+	}
+	ta.fire()
+	if len(ta.deferred) == 0 {
+		t.Error("streamTick stopped by a stale RunFinished")
+	}
+}
+
+func TestApp_EnterAfterSendReturnWaitsForRunEnd(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("first")
+	ta.returnSend()
+	ta.typeText("next")
+	ta.key("enter")
+	if len(ta.chat.sends) != 1 || !ta.app.sess.queued {
+		t.Fatalf("sends=%d queued=%v; want enter queued until the run end arrives", len(ta.chat.sends), ta.app.sess.queued)
+	}
+	ta.event(event.RunFailed{Base: rootBase(), Err: "boom"})
+	if len(ta.chat.sends) != 2 || ta.chat.sends[1].Text != "next" {
+		t.Fatalf("sends = %+v, want next sent after the run end", ta.chat.sends)
+	}
+}
+
+func TestApp_RunFailureBeforeEventIsNotUndone(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.chat.errs = []error{runFailure{"provider exploded"}}
+	ta.typeText("hello")
+	ta.key("enter")
+	ta.event(event.SessionCreated{Base: rootBase(), Info: core.Session{ID: "ses_1"}})
+	// Send returns with a run error before its RunFailed is delivered: the
+	// user message was stored, so the block stays and the text is not
+	// restored (a retry would duplicate it).
+	ta.returnSend()
+	if n := ta.app.w.list.Len(); n != 1 || ta.app.w.prompt.Value() != "" {
+		t.Fatalf("list=%d prompt=%q; want the user block kept and no text restored", n, ta.app.w.prompt.Value())
+	}
+	ta.event(event.RunFailed{Base: rootBase(), Err: "provider exploded"})
+	if ta.app.sess.run.running {
+		t.Error("still running after the run's RunFailed")
+	}
+}
+
+func TestApp_AdoptsRootFromSendResult(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.typeText("go")
+	ta.key("enter")
+	ta.returnSend() // before SessionCreated is delivered
+	if id := ta.app.sess.info.ID; id != "ses_1" {
+		t.Fatalf("root = %q, want ses_1 from the Send result", id)
+	}
+	if n := ta.app.w.list.Len(); n != 1 {
+		t.Errorf("list has %d items, want the user block", n)
+	}
+	ta.event(event.SessionCreated{Base: rootBase(), Info: core.Session{ID: "ses_1"}})
+	ta.event(event.MessageStarted{Base: rootBase(), MessageID: "m1"})
+	ta.event(event.TextDelta{Base: rootBase(), MessageID: "m1", Text: "hi"})
+	ta.event(event.RunFinished{Base: rootBase(), MessageID: "m1"})
+	if ta.app.sess.run.running || ta.app.w.list.Len() != 2 {
+		t.Fatalf("running=%v list=%d; want the run applied to the adopted root", ta.app.sess.run.running, ta.app.w.list.Len())
+	}
+	ta.typeText("again")
+	ta.key("enter")
+	if len(ta.chat.sends) != 2 || ta.chat.sends[1].SessionID != "ses_1" {
+		t.Errorf("sends = %+v, want the second send in ses_1", ta.chat.sends)
+	}
+}
+
 func TestApp_QueuedSendBusyKeepsText(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)

@@ -261,7 +261,11 @@ func (a *App) onEvent(ev event.Event) tea.Cmd {
 		a.w.list.SetItems(a.sess.allItems())
 	}
 	a.flush(res.upsert)
-	return waitEvent(a.sub)
+	var cmd tea.Cmd
+	if res.settled {
+		cmd = a.sender().afterRun()
+	}
+	return tea.Batch(waitEvent(a.sub), cmd)
 }
 
 // onTick renders the dirty streaming blocks and advances the spinners in
@@ -330,7 +334,7 @@ func (a *App) onPortResult(msg tea.Msg) {
 			a.view.hint = "session: " + ansi.SanitizeLine(msg.err.Error())
 			return
 		}
-		if !a.sess.run.inFlight {
+		if !a.sess.run.busy() {
 			a.sess.load(msg.info, msg.msgs, msg.todos)
 			a.w.list.SetItems(a.sess.allItems())
 			a.w.prompt.SetAgent(ansi.SanitizeLine(a.sess.info.Agent))
