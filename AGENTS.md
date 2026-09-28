@@ -50,6 +50,7 @@ internal/data/contextfs/                AGENTS.md / instructions files
 internal/data/atomicfile/               temp-file-then-rename atomic writes
 internal/data/blobfs/                   content-addressed blob store
 internal/data/prefsfs/                  core.Prefs JSON persistence
+internal/data/trustfs/                  trust grants + project config hash
 internal/client/catalog/                catwalk catalog
 internal/client/llm/                    fantasy adapter + model Source
 internal/client/llm/jigtest/            scripted provider (build tag jigtest)
