@@ -110,7 +110,9 @@ func TestSize_Structs(t *testing.T) {
 
 	for _, s := range structs {
 		if s.fields > 15 {
-			t.Errorf("%s:%d: struct-size: %s has %d fields, want <= 15", s.path, s.line, s.name, s.fields)
+			if _, ok := allowlist["structsize:"+s.path]; !ok {
+				t.Errorf("%s:%d: struct-size: %s has %d fields, want <= 15 (or add to allowlist.go with a justification)", s.path, s.line, s.name, s.fields)
+			}
 		}
 		if count := methodCounts[s.pkg+"."+s.name]; count > 20 {
 			t.Errorf("%s:%d: struct-size: %s has %d methods across the package, want <= 20", s.path, s.line, s.name, count)

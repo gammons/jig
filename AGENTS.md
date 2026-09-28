@@ -69,6 +69,7 @@ internal/data/atomicfile/               temp-file-then-rename atomic writes
 internal/data/blobfs/                   content-addressed blob store
 internal/data/prefsfs/                  core.Prefs JSON persistence
 internal/data/trustfs/                  trust grants + project config hash
+internal/data/themefs/                  custom theme *.toml discovery (ported from slk)
 internal/client/agentbrowser/           agent-browser detection + skills path exec
 internal/client/catalog/                catwalk catalog
 internal/client/llm/                    fantasy adapter + model Source
@@ -88,6 +89,7 @@ internal/service/chat/                  ChatService facade the UIs call
 internal/service/media/                 image decode/scale/re-encode into blobs
 internal/ui/plain/                      headless renderer (io.Writer)
 internal/ui/transcript/                 (Plan 2) transcript projection, core-only
+internal/ui/theme/                      theme palettes + Complete/Custom (ported from slk)
 internal/bubbles/                       (Plan 2) Bubble Tea widgets and helpers
 internal/bubbles/ansi/                  sanitize untrusted text; ANSI-safe width/wrap/highlight
 internal/bubbles/overlay/               center a box over a dimmed background (ported from slk)
