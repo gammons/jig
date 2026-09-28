@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gammons/jig/internal/core/ext"
+	"github.com/gammons/jig/internal/service/media"
 )
 
 // fakeShell is a scripted Shell for bash tests. It records the ShellSpec
@@ -47,7 +48,7 @@ func TestBash_TruncatesAndSavesFullOutput(t *testing.T) {
 		fullOutput: []byte(full),
 	}
 
-	tool := NewBash(sh, dir, &seqIDs{})
+	tool := NewBash(sh, dir, &seqIDs{}, nil)
 	call := mustCall(t, "bash", map[string]any{"command": "produce-big-output"})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -88,7 +89,7 @@ func TestBash_NonZeroExitNotError(t *testing.T) {
 		result: ShellResult{Output: []byte("boom"), ExitCode: 2, TotalBytes: 4},
 	}
 
-	tool := NewBash(sh, dir, &seqIDs{})
+	tool := NewBash(sh, dir, &seqIDs{}, nil)
 	call := mustCall(t, "bash", map[string]any{"command": "false"})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -115,7 +116,7 @@ func TestBash_TimeoutCappedAndError(t *testing.T) {
 		result: ShellResult{Output: []byte("partial"), TimedOut: true, TotalBytes: 7},
 	}
 
-	tool := NewBash(sh, dir, &seqIDs{})
+	tool := NewBash(sh, dir, &seqIDs{}, nil)
 	call := mustCall(t, "bash", map[string]any{"command": "sleep 1000", "timeout_ms": 700000})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -135,7 +136,7 @@ func TestBash_TimeoutCappedAndError(t *testing.T) {
 func TestBash_DefaultAndInvalidTimeout(t *testing.T) {
 	dir := t.TempDir()
 	sh := &fakeShell{result: ShellResult{Output: []byte("ok")}}
-	tool := NewBash(sh, dir, &seqIDs{})
+	tool := NewBash(sh, dir, &seqIDs{}, nil)
 
 	// timeout_ms omitted -> default 120000ms.
 	call := mustCall(t, "bash", map[string]any{"command": "echo hi"})
@@ -159,7 +160,7 @@ func TestBash_DefaultAndInvalidTimeout(t *testing.T) {
 func TestBash_SubjectIsCommand(t *testing.T) {
 	dir := t.TempDir()
 	sh := &fakeShell{}
-	tool := NewBash(sh, dir, &seqIDs{})
+	tool := NewBash(sh, dir, &seqIDs{}, nil)
 	subjecter, ok := tool.(ext.Subjecter)
 	if !ok {
 		t.Fatal("bash tool does not implement ext.Subjecter")
@@ -178,7 +179,7 @@ func TestBash_SubjectIsCommand(t *testing.T) {
 func TestBash_MissingCommand(t *testing.T) {
 	dir := t.TempDir()
 	sh := &fakeShell{}
-	tool := NewBash(sh, dir, &seqIDs{})
+	tool := NewBash(sh, dir, &seqIDs{}, nil)
 
 	call := mustCall(t, "bash", map[string]any{})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
@@ -193,7 +194,7 @@ func TestBash_MissingCommand(t *testing.T) {
 func TestBash_RefusesCanceledContext(t *testing.T) {
 	dir := t.TempDir()
 	sh := &fakeShell{}
-	tool := NewBash(sh, dir, &seqIDs{})
+	tool := NewBash(sh, dir, &seqIDs{}, nil)
 	call := mustCall(t, "bash", map[string]any{"command": "echo hi"})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -211,7 +212,7 @@ func TestBash_RefusesCanceledContext(t *testing.T) {
 func TestBash_ShellErrorBecomesIsError(t *testing.T) {
 	dir := t.TempDir()
 	sh := &fakeShell{err: errors.New("boom")}
-	tool := NewBash(sh, dir, &seqIDs{})
+	tool := NewBash(sh, dir, &seqIDs{}, nil)
 	call := mustCall(t, "bash", map[string]any{"command": "echo hi"})
 
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
@@ -248,12 +249,43 @@ func TestBash_ShellErrorWithCanceledContextPropagatesErr(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sh := &cancelingShell{cancel: cancel, err: errors.New("boom")}
-	tool := NewBash(sh, dir, &seqIDs{})
+	tool := NewBash(sh, dir, &seqIDs{}, nil)
 	call := mustCall(t, "bash", map[string]any{"command": "echo hi"})
 
 	_, err := tool.Run(ctx, rcFor(dir), call)
 	if err == nil {
 		t.Fatal("got nil error, want ctx.Err() when ctx was canceled during Shell.Run")
+	}
+}
+
+func TestBash_ScreenshotMediaOnSuccessOnly(t *testing.T) {
+	dir := t.TempDir()
+	writePNG(t, filepath.Join(dir, "page.png"), 4, 4)
+	shots := NewScreenshots(media.New(&fakeBlobs{}), OSFS(), t.TempDir())
+	call := mustCall(t, "bash", map[string]any{"command": "agent-browser screenshot page.png"})
+
+	cases := []struct {
+		name  string
+		res   ShellResult
+		shots *Screenshots
+		want  int
+	}{
+		{"success", ShellResult{Output: []byte("Screenshot saved to page.png")}, shots, 1},
+		{"exit 1", ShellResult{Output: []byte("Screenshot saved to page.png"), ExitCode: 1}, shots, 0},
+		{"timed out", ShellResult{Output: []byte("Screenshot saved to page.png"), TimedOut: true}, shots, 0},
+		{"shots nil", ShellResult{Output: []byte("Screenshot saved to page.png")}, nil, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tool := NewBash(&fakeShell{result: tc.res}, t.TempDir(), &seqIDs{}, tc.shots)
+			res, err := tool.Run(context.Background(), rcFor(dir), call)
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if len(res.Media) != tc.want {
+				t.Errorf("len(Media) = %d, want %d", len(res.Media), tc.want)
+			}
+		})
 	}
 }
 
@@ -270,7 +302,7 @@ func TestBash_TruncatedWithSpillErrorMessage(t *testing.T) {
 			SpillErr:   errors.New("disk full"),
 		},
 	}
-	tool := NewBash(sh, dir, &seqIDs{})
+	tool := NewBash(sh, dir, &seqIDs{}, nil)
 	call := mustCall(t, "bash", map[string]any{"command": "echo hi"})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {

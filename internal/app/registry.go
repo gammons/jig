@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os"
 	"os/exec"
 	goruntime "runtime"
 
@@ -60,11 +61,15 @@ func buildRegistry(d registryDeps) (ext.View, error) {
 func addTools(r *ext.Registry, d registryDeps) error {
 	fsys, tr := tools.OSFS(), d.tracker
 	srch := searchAdapter{search.New(exec.LookPath)}
+	var shots *tools.Screenshots
+	if d.env.browser.enabled {
+		shots = tools.NewScreenshots(d.media, fsys, os.TempDir())
+	}
 	all := []ext.Tool{
 		tools.NewRead(fsys, tr, d.media),
 		tools.NewWrite(fsys, tr),
 		tools.NewEdit(fsys, tr),
-		tools.NewBash(shellAdapter{shell.Runner{}}, d.spillDir, d.ids),
+		tools.NewBash(shellAdapter{shell.Runner{}}, d.spillDir, d.ids, shots),
 		tools.NewGlob(srch),
 		tools.NewGrep(srch),
 		tools.NewTodo(d.store, d.bus),

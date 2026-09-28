@@ -59,14 +59,17 @@ type bashTool struct {
 	sh      Shell
 	tempDir string
 	ids     IDSource
+	shots   *Screenshots
 }
 
 // NewBash returns the "bash" tool, backed by sh. Full output over
 // bashTailBytes is spilled to a file in tempDir, which should be private
 // to this process, named jig-bash-<id>.log with an id from ids (never the
-// provider's call ID, which is untrusted).
-func NewBash(sh Shell, tempDir string, ids IDSource) ext.Tool {
-	return &bashTool{sh: sh, tempDir: tempDir, ids: ids}
+// provider's call ID, which is untrusted). A successful
+// `agent-browser screenshot` run gets its image attached through shots;
+// a nil shots attaches nothing.
+func NewBash(sh Shell, tempDir string, ids IDSource, shots *Screenshots) ext.Tool {
+	return &bashTool{sh: sh, tempDir: tempDir, ids: ids, shots: shots}
 }
 
 func (b *bashTool) Name() string { return "bash" }
@@ -129,7 +132,11 @@ func (b *bashTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 		return core.ToolError(call, fmt.Sprintf("bash failed: %v", err)), nil
 	}
 
-	return formatBashResult(call, res, spillPath, timeoutMS), nil
+	out := formatBashResult(call, res, spillPath, timeoutMS)
+	if b.shots != nil && res.ExitCode == 0 && !res.TimedOut && !out.IsError {
+		out.Media = b.shots.Attach(rc, in.Command, string(res.Output))
+	}
+	return out, nil
 }
 
 // clampTimeoutMS applies bash's timeout_ms default and cap: values <= 0

@@ -203,6 +203,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 - Stored `Session.Cwd` is `pathid.Key(workDir)`.
 - The agent-browser preset is the lowest config layer, and only when the
   integration is enabled; an untrusted project cannot enable it.
+- bash attaches a screenshot only from the workdir or `screenshot*` files
+  in the OS temp dir, after resolving symlinks.
 
 ## Shared code — check here before writing a helper
 

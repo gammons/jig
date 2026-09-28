@@ -42,7 +42,7 @@ func (s *spillingShell) Run(_ context.Context, spec ShellSpec) (ShellResult, err
 func TestBash_SpillNameIgnoresCallID(t *testing.T) {
 	dir := t.TempDir()
 	sh := &spillingShell{result: ShellResult{Output: []byte("x"), Truncated: true}}
-	tool := NewBash(sh, dir, &seqIDs{})
+	tool := NewBash(sh, dir, &seqIDs{}, nil)
 	call := core.ToolCall{ID: "../../escape", Name: "bash", Input: []byte(`{"command":"echo"}`)}
 	if _, err := tool.Run(context.Background(), rcFor(dir), call); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -76,7 +76,7 @@ func TestBash_SpillRemovedWhenNotTruncated(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			sh := mk(cancel)
-			_, _ = NewBash(sh, dir, &seqIDs{}).Run(ctx, rcFor(dir), core.ToolCall{ID: "c1", Name: "bash", Input: []byte(`{"command":"echo"}`)})
+			_, _ = NewBash(sh, dir, &seqIDs{}, nil).Run(ctx, rcFor(dir), core.ToolCall{ID: "c1", Name: "bash", Input: []byte(`{"command":"echo"}`)})
 			entries, err := os.ReadDir(dir)
 			if err != nil {
 				t.Fatal(err)
