@@ -61,6 +61,7 @@ internal/service/chat/                  ChatService facade the UIs call
 internal/ui/plain/                      headless renderer (io.Writer)
 internal/ui/transcript/                 (Plan 2) transcript projection, core-only
 internal/bubbles/                       (Plan 2) Bubble Tea widgets and helpers
+internal/bubbles/ansi/                  sanitize untrusted text; ANSI-safe width/wrap/highlight
 internal/golden/                        golden-frame test assertion
 internal/app/                           composition root + CLI
 e2e/                                    end-to-end tests against the built binary
@@ -153,6 +154,9 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 - The catalog refresh uses `$CATWALK_URL`, defaulting to
   `https://catwalk.charm.land`; it runs in the background and is never
   awaited.
+- Every string from a model, a tool, a file, or the store passes
+  `ansi.Sanitize` (or `SanitizeLine`) before it is rendered; only jig's own
+  styling escapes reach the terminal.
 
 ## Shared code — check here before writing a helper
 
@@ -177,6 +181,10 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Permission subject for a search tool's `path` input | `searchSubject(rc, input)` in `service/tools` |
 | Resolve a model string (ref or alias) | `agents.ParseRef(s, cfg.ModelAliases)` / `(*agents.Service).ResolveRef(s)` |
 | Golden-frame assertion | `golden.Assert(t, name, got)`; update with `JIG_UPDATE_GOLDEN=1` |
+| Make untrusted text (model/tool/file/store) safe to render | `ansi.Sanitize(s)` in `internal/bubbles/ansi` (keeps `\n`, `\t`) |
+| Same, for single-line contexts (titles, paths, list rows) | `ansi.SanitizeLine(s)` (`\n`/`\t` → space) |
+| Highlight a search query in styled text without touching escapes | `ansi.Highlight(s, query, on, off)` |
+| Wrap styled text to a width, hard-breaking long words | `ansi.Wrap(s, width)` (also `ansi.Width`/`Truncate`/`Cut`) |
 
 ## Adding a tool, transform, or hook
 
