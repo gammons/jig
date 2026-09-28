@@ -10,16 +10,23 @@ import (
 	"github.com/gammons/jig/internal/core"
 )
 
+// maxRequestImages is how many media, counted from the end of a request,
+// are loaded and sent; older ones get droppedNote instead.
+const maxRequestImages = 20
+
+const droppedNote = "[image omitted: earlier image; re-read or re-take it if needed]"
+
 // BlobReader reads a stored blob by ref. *blobfs.Store satisfies it.
 type BlobReader interface {
 	Open(ref string) ([]byte, error)
 }
 
 // mediaLLM resolves each request's media before handing it to inner: an
-// image-capable model gets Media.Data loaded from blobs; any other model
-// gets a text placeholder in place of its media. The caller's messages are
-// never mutated (they may alias the store's cached values): every message,
-// part, result, and attachment it changes is a copy.
+// image-capable model gets Media.Data loaded from blobs for the newest
+// maxRequestImages media (older ones get droppedNote); any other model
+// gets a text placeholder in place of its media. The caller's messages
+// are never mutated (they may alias the store's cached values): every
+// message, part, result, and attachment it changes is a copy.
 type mediaLLM struct {
 	inner  core.LLM
 	blobs  BlobReader
@@ -38,12 +45,20 @@ func (m *mediaLLM) Stream(ctx context.Context, req core.LLMRequest) iter.Seq2[co
 	return m.inner.Stream(ctx, req)
 }
 
+// resolver resolves one request's media; skip counts down the oldest
+// media still to be dropped rather than loaded.
+type resolver struct {
+	m    *mediaLLM
+	skip int
+}
+
 // resolveMessages returns msgs with every medium resolved, copying only
 // the messages that hold media.
 func (m *mediaLLM) resolveMessages(msgs []core.Message) []core.Message {
+	r := &resolver{m: m, skip: max(0, countMedia(msgs)-maxRequestImages)}
 	var out []core.Message
 	for i, msg := range msgs {
-		parts, changed := m.resolveParts(msg.Parts)
+		parts, changed := r.resolveParts(msg.Parts)
 		if !changed {
 			continue
 		}
@@ -58,17 +73,53 @@ func (m *mediaLLM) resolveMessages(msgs []core.Message) []core.Message {
 	return out
 }
 
+// hasResultMedia and hasAttachmentMedia pick the parts whose media
+// resolveParts resolves.
+func hasResultMedia(p core.Part) bool {
+	return p.Kind == core.PartToolResult && p.Result != nil && !p.Result.IsError && len(p.Result.Media) > 0
+}
+
+func hasAttachmentMedia(p core.Part) bool {
+	return p.Kind == core.PartAttachment && p.Attachment != nil && p.Attachment.Media != nil
+}
+
+// countMedia counts the media resolveParts would resolve across msgs.
+func countMedia(msgs []core.Message) int {
+	n := 0
+	for _, msg := range msgs {
+		for _, p := range msg.Parts {
+			switch {
+			case hasResultMedia(p):
+				n += len(p.Result.Media)
+			case hasAttachmentMedia(p):
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// dropNext reports whether the next medium (in request order) is one of
+// the oldest that exceed maxRequestImages, consuming it if so.
+func (r *resolver) dropNext() bool {
+	if r.skip == 0 {
+		return false
+	}
+	r.skip--
+	return true
+}
+
 // resolveParts returns a copy of parts with media resolved, and whether
 // any part held media; parts itself is returned unchanged when none did.
-func (m *mediaLLM) resolveParts(parts []core.Part) ([]core.Part, bool) {
+func (r *resolver) resolveParts(parts []core.Part) ([]core.Part, bool) {
 	var out []core.Part
 	for i, p := range parts {
 		switch {
-		case p.Kind == core.PartToolResult && p.Result != nil && !p.Result.IsError && len(p.Result.Media) > 0:
-			r := m.resolveResult(*p.Result)
-			p.Result = &r
-		case p.Kind == core.PartAttachment && p.Attachment != nil && p.Attachment.Media != nil:
-			a := m.resolveAttachment(*p.Attachment)
+		case hasResultMedia(p):
+			res := r.resolveResult(*p.Result)
+			p.Result = &res
+		case hasAttachmentMedia(p):
+			a := r.resolveAttachment(*p.Attachment)
 			p.Attachment = &a
 		default:
 			continue
@@ -84,37 +135,47 @@ func (m *mediaLLM) resolveParts(parts []core.Part) ([]core.Part, bool) {
 	return out, true
 }
 
-// resolveResult loads r's media (a failed load drops that medium and
-// notes why in Output), or replaces them with the omitted placeholder.
-// r is a copy; its Media slice is rebuilt, never written in place.
-func (m *mediaLLM) resolveResult(r core.ToolResult) core.ToolResult {
-	if !m.images {
-		r.Media = nil
-		r.Output += "\n" + m.omitted()
-		return r
+// resolveResult loads res's media (a failed load drops that medium and
+// notes why in Output; an old medium past the cap is dropped with
+// droppedNote), or replaces them with the omitted placeholder. res is a
+// copy; its Media slice is rebuilt, never written in place.
+func (r *resolver) resolveResult(res core.ToolResult) core.ToolResult {
+	if !r.m.images {
+		res.Media = nil
+		res.Output += "\n" + r.m.omitted()
+		return res
 	}
-	loaded := make([]core.Media, 0, len(r.Media))
-	for _, med := range r.Media {
-		data, err := m.load(med)
+	loaded := make([]core.Media, 0, len(res.Media))
+	for _, med := range res.Media {
+		if r.dropNext() {
+			res.Output += "\n" + droppedNote
+			continue
+		}
+		data, err := r.m.load(med)
 		if err != nil {
-			r.Output += "\n" + unavailable(err)
+			res.Output += "\n" + unavailable(err)
 			continue
 		}
 		med.Data = data
 		loaded = append(loaded, med)
 	}
-	r.Media = loaded
-	return r
+	res.Media = loaded
+	return res
 }
 
 // resolveAttachment loads a's image, or replaces its Content with the
-// omitted or unavailable placeholder and drops the Media. a is a copy.
-func (m *mediaLLM) resolveAttachment(a core.Attachment) core.Attachment {
-	if !m.images {
-		a.Media, a.Content = nil, m.omitted()
+// omitted, dropped, or unavailable placeholder and drops the Media. a is
+// a copy.
+func (r *resolver) resolveAttachment(a core.Attachment) core.Attachment {
+	if !r.m.images {
+		a.Media, a.Content = nil, r.m.omitted()
 		return a
 	}
-	data, err := m.load(*a.Media)
+	if r.dropNext() {
+		a.Media, a.Content = nil, droppedNote
+		return a
+	}
+	data, err := r.m.load(*a.Media)
 	if err != nil {
 		a.Media, a.Content = nil, unavailable(err)
 		return a

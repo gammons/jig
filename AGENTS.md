@@ -202,6 +202,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   blobs, for a single request.
 - Media bytes are loaded only in `client/llm`'s `For` wrapper, per
   request; unsupported models get the `[image omitted: …]` text instead.
+  Only the newest 20 media of a request (`maxRequestImages`) are loaded;
+  older ones get an `[image omitted: earlier image; …]` note.
 - `GenerateTitle` never overwrites a non-placeholder title.
 - Stored `Session.Cwd` is `pathid.Key(workDir)`.
 - The agent-browser preset is not a config layer: `internal/app` passes

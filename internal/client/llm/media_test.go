@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 	"strings"
 	"testing"
@@ -202,5 +203,64 @@ func TestSource_ForResolvesMediaByModel(t *testing.T) {
 	drain(l, imageRequest("r1"))
 	if got := resultOf(t, inner.got); !strings.HasSuffix(got.Output, "[image omitted: p/blind does not accept images]") {
 		t.Errorf("p/blind: sent Output = %q, want the omitted placeholder", got.Output)
+	}
+}
+
+// countingBlobs is a BlobReader that serves any ref and records each one
+// it was asked for.
+type countingBlobs struct{ opened []string }
+
+func (b *countingBlobs) Open(ref string) ([]byte, error) {
+	b.opened = append(b.opened, ref)
+	return []byte("img-" + ref), nil
+}
+
+// TestMediaLLM_LoadsOnlyNewestImages pins the per-request image cap: of
+// 25 media (tool results and attachments), only the newest
+// maxRequestImages are loaded; older ones get a placeholder and are never
+// read from the blob store.
+func TestMediaLLM_LoadsOnlyNewestImages(t *testing.T) {
+	var msgs []core.Message
+	ref := func(i int) string { return fmt.Sprintf("r%02d", i) }
+	for i := 0; i < 25; i++ {
+		if i%5 == 0 {
+			msgs = append(msgs, core.Message{Role: core.RoleUser, Parts: []core.Part{
+				{Kind: core.PartAttachment, Attachment: &core.Attachment{Path: "/w/a.png", Media: &core.Media{MIME: "image/png", Ref: ref(i)}}},
+			}})
+			continue
+		}
+		msgs = append(msgs, core.Message{Role: core.RoleAssistant, Parts: []core.Part{
+			{Kind: core.PartToolResult, Result: &core.ToolResult{CallID: ref(i), Output: "shot", Media: []core.Media{{MIME: "image/png", Ref: ref(i)}}}},
+		}})
+	}
+	blobs := &countingBlobs{}
+	inner := &recordingLLM{}
+	drain(withMedia(inner, blobs, true, "p/m"), core.LLMRequest{Messages: msgs})
+
+	const dropped = "[image omitted: earlier image; re-read or re-take it if needed]"
+	for i, msg := range inner.got.Messages {
+		p := msg.Parts[0]
+		old := i < 25-maxRequestImages
+		switch {
+		case p.Attachment != nil && old:
+			if p.Attachment.Media != nil || p.Attachment.Content != dropped {
+				t.Errorf("attachment %d = %+v, want dropped with the placeholder", i, p.Attachment)
+			}
+		case p.Attachment != nil:
+			if p.Attachment.Media == nil || p.Attachment.Media.Data == nil {
+				t.Errorf("attachment %d = %+v, want loaded", i, p.Attachment)
+			}
+		case old:
+			if len(p.Result.Media) != 0 || p.Result.Output != "shot\n"+dropped {
+				t.Errorf("result %d = %+v, want dropped with the placeholder", i, p.Result)
+			}
+		default:
+			if len(p.Result.Media) != 1 || p.Result.Media[0].Data == nil || p.Result.Output != "shot" {
+				t.Errorf("result %d = %+v, want loaded", i, p.Result)
+			}
+		}
+	}
+	if len(blobs.opened) != maxRequestImages || blobs.opened[0] != ref(5) {
+		t.Errorf("opened = %v, want exactly the last %d refs", blobs.opened, maxRequestImages)
 	}
 }
