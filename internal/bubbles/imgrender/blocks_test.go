@@ -138,17 +138,11 @@ func TestRender_Off(t *testing.T) {
 	}
 }
 
-func TestRender_KittyAndSixelFallBackToBlocks(t *testing.T) {
+func TestRender_Protocol(t *testing.T) {
 	t.Parallel()
-	want := New(Blocks).Render("k", solid(100, 100), 20, 20)
-	for _, p := range []Protocol{Kitty, Sixel} {
-		r := New(p)
-		if r.Protocol() != p {
+	for _, p := range []Protocol{Off, Blocks, Kitty, Sixel} {
+		if r := New(p); r.Protocol() != p {
 			t.Errorf("Protocol() = %v, want %v", r.Protocol(), p)
-		}
-		got := r.Render("k", solid(100, 100), 20, 20)
-		if strings.Join(got.Lines, "\n") != strings.Join(want.Lines, "\n") {
-			t.Errorf("%v: lines differ from blocks", p)
 		}
 	}
 }

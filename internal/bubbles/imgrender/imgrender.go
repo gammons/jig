@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"sync"
 
 	"github.com/gammons/jig/internal/bubbles/ansi"
 )
@@ -26,11 +27,19 @@ type Result struct {
 }
 
 // Renderer renders images for one protocol at one cell size. Callers key
-// each image so protocols with terminal-side state (kitty) can reuse it.
+// each image so protocols with terminal-side state (kitty) can reuse it:
+// a key keeps its kitty image id, and each (key, cols, rows) is uploaded
+// once. The mutex guards that state.
 type Renderer struct {
 	proto Protocol
 	cellW int
 	cellH int
+	tmux  bool
+
+	mu       sync.Mutex
+	ids      map[string]uint32
+	nextID   uint32
+	uploaded map[uploadKey]bool
 }
 
 // Option configures a Renderer.
@@ -46,9 +55,18 @@ func WithCellSize(w, h int) Option {
 	}
 }
 
+// WithTmux wraps kitty uploads for tmux passthrough (the caller sets it
+// when TMUX is in the environment).
+func WithTmux(on bool) Option {
+	return func(r *Renderer) { r.tmux = on }
+}
+
 // New returns a Renderer for protocol p.
 func New(p Protocol, opts ...Option) *Renderer {
-	r := &Renderer{proto: p, cellW: DefaultCellWidth, cellH: DefaultCellHeight}
+	r := &Renderer{
+		proto: p, cellW: DefaultCellWidth, cellH: DefaultCellHeight,
+		ids: map[string]uint32{}, nextID: 1, uploaded: map[uploadKey]bool{},
+	}
 	for _, o := range opts {
 		o(r)
 	}
@@ -61,8 +79,10 @@ func (r *Renderer) Protocol() Protocol { return r.proto }
 // Render fits img into maxCols×maxRows cells, keeping its aspect ratio
 // and never scaling it past its natural size at the cell size (but always
 // at least 1×1 cell). A non-positive box or an empty image gives an empty
-// Result. key identifies the image across calls. Kitty and Sixel render
-// as Blocks for now.
+// Result. key identifies the image across calls: kitty binds an image id
+// to it and attaches Upload only on the first render of (key, cols,
+// rows); a kitty image is at most 297×297 cells (the diacritic table).
+// Sixel reserves blank cells and returns the payload for Place.
 func (r *Renderer) Render(key string, img image.Image, maxCols, maxRows int) Result {
 	if img == nil || maxCols <= 0 || maxRows <= 0 {
 		return Result{}
@@ -74,6 +94,17 @@ func (r *Renderer) Render(key string, img image.Image, maxCols, maxRows int) Res
 	if r.proto == Off {
 		label := fmt.Sprintf("[image %dx%d]", b.Dx(), b.Dy())
 		return Result{Lines: []string{ansi.Truncate(label, maxCols, "…")}}
+	}
+	switch r.proto {
+	case Kitty:
+		cols, rows := fitCells(b.Dx(), b.Dy(), r.cellW, r.cellH,
+			min(maxCols, diacriticCount), min(maxRows, diacriticCount))
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return r.renderKitty(key, img, cols, rows)
+	case Sixel:
+		cols, rows := fitCells(b.Dx(), b.Dy(), r.cellW, r.cellH, maxCols, maxRows)
+		return r.renderSixel(img, cols, rows)
 	}
 	cols, rows := fitCells(b.Dx(), b.Dy(), r.cellW, r.cellH, maxCols, maxRows)
 	return Result{Lines: halfBlocks(img, cols, rows)}
