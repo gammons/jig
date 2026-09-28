@@ -71,6 +71,7 @@ func (p *Projection) startTool(msg core.MessageID, call core.ToolCall) []BlockID
 		p.list.add(newToolBlock(msg, call, StateRunning))
 		return []BlockID{BlockID(call.ID)}
 	}
+	call = cloneCall(call)
 	b.Call = &call
 	b.Result = nil
 	b.State = StateRunning

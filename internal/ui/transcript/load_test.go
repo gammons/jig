@@ -278,21 +278,105 @@ func TestLoad_ReplacesBlocksAndKeepsVersionsMonotonic(t *testing.T) {
 	}
 }
 
-func TestBlocks_ReturnsCopies(t *testing.T) {
-	c := mkCall("t1", "task", `{"agent":"a","description":"d"}`)
-	p := New(root)
-	p.Load([]core.Message{
-		userMsg("m0", textPart("u"), core.Part{Kind: core.PartAttachment, Attachment: &core.Attachment{Path: "/p"}}),
-		asstMsg("m1", core.StatusComplete, callPart(c)),
-	})
-	bs := p.Blocks()
-	bs[0].Attachments[0] = "/mutated"
-	bs[1].Sub.Agent = "mutated"
-	bs[1].Call.Name = "mutated"
-	if b, _ := p.Block("u/m0"); b.Attachments[0] != "/p" {
-		t.Errorf("attachments aliased: %q", b.Attachments[0])
+func TestProjection_DoesNotAliasCallerInputs(t *testing.T) {
+	mk := func() (*core.ToolCall, *core.ToolResult) {
+		c := mkCall("c1", "read", `{"path":"x"}`)
+		r := mkResult("c1", "read", "out", false)
+		r.Metadata = map[string]string{"k": "v"}
+		r.Media = []core.Media{{MIME: "image/png", Ref: "abc", Data: []byte("img")}}
+		return c, r
 	}
-	if b, _ := p.Block("t1"); b.Sub.Agent != "a" || b.Call.Name != "task" {
-		t.Errorf("sub/call aliased: %+v %+v", b.Sub, b.Call)
+	mutate := func(c *core.ToolCall, r *core.ToolResult) {
+		c.Input[0] = 'X'
+		r.Metadata["k"] = "mutated"
+		r.Media[0].Ref = "mutated"
+		r.Media[0].Data[0] = 'X'
+	}
+	tests := []struct {
+		name  string
+		apply func(p *Projection, c *core.ToolCall, r *core.ToolResult)
+	}{
+		{"Load", func(p *Projection, c *core.ToolCall, r *core.ToolResult) {
+			p.Load([]core.Message{asstMsg("m1", core.StatusComplete, callPart(c), resultPart(r))})
+		}},
+		{"Apply", func(p *Projection, c *core.ToolCall, r *core.ToolResult) {
+			p.Apply(event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: *c})
+			p.Apply(event.ToolCallFinished{Base: rootBase(), MessageID: "m1", Result: *r})
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want := New(root)
+			wc, wr := mk()
+			tt.apply(want, wc, wr)
+			p := New(root)
+			c, r := mk()
+			tt.apply(p, c, r)
+			mutate(c, r)
+			if got := p.Blocks(); !reflect.DeepEqual(got, want.Blocks()) {
+				t.Errorf("projection aliased caller data:\n got  %+v\n want %+v", got, want.Blocks())
+			}
+		})
+	}
+}
+
+func TestBlocks_ReturnsCopies(t *testing.T) {
+	load := func() *Projection {
+		c := mkCall("t1", "task", `{"agent":"a","description":"d"}`)
+		r := mkResult("t1", "task", "out", false)
+		r.Metadata = map[string]string{"k": "v"}
+		r.Media = []core.Media{{MIME: "image/png", Ref: "abc", Data: []byte("img")}}
+		p := New(root)
+		p.Load([]core.Message{
+			userMsg("m0", textPart("u"), core.Part{Kind: core.PartAttachment, Attachment: &core.Attachment{Path: "/p"}}),
+			asstMsg("m1", core.StatusComplete, callPart(c), resultPart(r)),
+		})
+		// Task 8 sets Permission from events; set it directly to cover clone.
+		b, _ := p.list.get("t1")
+		b.Permission = &PendingPermission{RequestID: "p1", Call: core.ToolCall{ID: "t1", Input: []byte(`{"x":1}`)}}
+		return p
+	}
+	getters := []struct {
+		name string
+		get  func(p *Projection, id BlockID) Block
+	}{
+		{"Blocks", func(p *Projection, id BlockID) Block {
+			for _, b := range p.Blocks() {
+				if b.ID == id {
+					return b
+				}
+			}
+			t.Fatalf("no block %q", id)
+			return Block{}
+		}},
+		{"Block", func(p *Projection, id BlockID) Block { b, _ := p.Block(id); return b }},
+	}
+	mutations := []struct {
+		name   string
+		id     BlockID
+		mutate func(b Block)
+	}{
+		{"attachment", "u/m0", func(b Block) { b.Attachments[0] = "/mutated" }},
+		{"sub", "t1", func(b Block) { b.Sub.Agent = "mutated" }},
+		{"call name", "t1", func(b Block) { b.Call.Name = "mutated" }},
+		{"call input", "t1", func(b Block) { b.Call.Input[0] = 'X' }},
+		{"result metadata", "t1", func(b Block) { b.Result.Metadata["k"] = "mutated" }},
+		{"result media ref", "t1", func(b Block) { b.Result.Media[0].Ref = "mutated" }},
+		{"result media data", "t1", func(b Block) { b.Result.Media[0].Data[0] = 'X' }},
+		{"permission call input", "t1", func(b Block) { b.Permission.Call.Input[0] = 'X' }},
+	}
+	for _, g := range getters {
+		for _, m := range mutations {
+			t.Run(g.name+"/"+m.name, func(t *testing.T) {
+				// before comes from an independent projection: a snapshot of p
+				// itself could alias the very state under test.
+				before := load().Blocks()
+				p := load()
+				m.mutate(g.get(p, m.id))
+				if after := p.Blocks(); !reflect.DeepEqual(after, before) {
+					t.Errorf("projection changed:\n before %+v\n after  %+v", before, after)
+				}
+			})
+		}
 	}
 }

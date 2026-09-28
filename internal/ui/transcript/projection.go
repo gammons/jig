@@ -121,6 +121,7 @@ func (l *blockList) snapshot() []Block {
 // call, whose agent, description and (on resume) child come from its input,
 // and a tool block otherwise.
 func newToolBlock(msg core.MessageID, call core.ToolCall, state ToolState) *Block {
+	call = cloneCall(call)
 	b := &Block{ID: BlockID(call.ID), Kind: KindTool, MessageID: msg, Call: &call, State: state}
 	if call.Name == taskTool {
 		b.Kind = KindSubagent
@@ -129,8 +130,9 @@ func newToolBlock(msg core.MessageID, call core.ToolCall, state ToolState) *Bloc
 	return b
 }
 
-// finish records r on b and sets its final state.
+// finish records (a copy of) r on b and sets its final state.
 func (b *Block) finish(r core.ToolResult) {
+	r = cloneResult(r)
 	b.Result = &r
 	b.State = stateOf(r)
 	b.Permission = nil

@@ -4,8 +4,11 @@
 package transcript
 
 import (
+	"bytes"
 	"encoding/json"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/gammons/jig/internal/core"
@@ -118,19 +121,18 @@ const (
 // clone returns a deep copy of b, so callers cannot mutate the projection.
 func (b *Block) clone() Block {
 	c := *b
-	if b.Attachments != nil {
-		c.Attachments = append([]string(nil), b.Attachments...)
-	}
+	c.Attachments = slices.Clone(b.Attachments)
 	if b.Call != nil {
-		call := *b.Call
+		call := cloneCall(*b.Call)
 		c.Call = &call
 	}
 	if b.Result != nil {
-		res := *b.Result
+		res := cloneResult(*b.Result)
 		c.Result = &res
 	}
 	if b.Permission != nil {
 		perm := *b.Permission
+		perm.Call = cloneCall(perm.Call)
 		c.Permission = &perm
 	}
 	if b.Sub != nil {
@@ -138,6 +140,23 @@ func (b *Block) clone() Block {
 		c.Sub = &sub
 	}
 	return c
+}
+
+// cloneCall returns call with its own copy of Input.
+func cloneCall(call core.ToolCall) core.ToolCall {
+	call.Input = bytes.Clone(call.Input)
+	return call
+}
+
+// cloneResult returns r with its own copies of Metadata and Media
+// (including each Media's Data).
+func cloneResult(r core.ToolResult) core.ToolResult {
+	r.Metadata = maps.Clone(r.Metadata)
+	r.Media = slices.Clone(r.Media)
+	for i := range r.Media {
+		r.Media[i].Data = bytes.Clone(r.Media[i].Data)
+	}
+	return r
 }
 
 // stateOf is the final state of a finished tool call. Denials and
