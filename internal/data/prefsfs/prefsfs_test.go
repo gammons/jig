@@ -1,10 +1,12 @@
 package prefsfs
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gammons/jig/internal/core"
@@ -70,6 +72,48 @@ func TestPrefs_CorruptFileIsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), path) {
 		t.Errorf("Open err = %v, want it to name %q", err, path)
+	}
+}
+
+// TestPrefs_ConcurrentSavesAgree drives N goroutines each Saving a distinct
+// Prefs concurrently, then asserts that whichever one "won" is consistent
+// between the in-memory Store and the bytes on disk: Get().Theme must equal
+// the Theme a fresh Open of the same path sees. Run with -race: before
+// Save held s.mu for its whole body, this could observe cur set by one
+// goroutine's Save while the file on disk held another's bytes.
+func TestPrefs_ConcurrentSavesAgree(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "prefs.json")
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	const n = 20
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer wg.Done()
+			p := core.Prefs{Theme: fmt.Sprintf("theme-%d", i)}
+			if err := s.Save(p); err != nil {
+				t.Errorf("Save: %v", err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	got := s.Get()
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open (reopen): %v", err)
+	}
+	onDisk := reopened.Get()
+
+	if got.Theme != onDisk.Theme {
+		t.Errorf("Get().Theme = %q, but the file on disk has Theme = %q", got.Theme, onDisk.Theme)
 	}
 }
 

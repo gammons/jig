@@ -49,8 +49,13 @@ func (s *Store) Get() core.Prefs {
 }
 
 // Save writes p to disk (atomicfile.Write, 0600) and, on success, makes it
-// the Prefs a later Get returns.
+// the Prefs a later Get returns. Save holds s.mu for its whole body, so
+// concurrent Saves are serialized end to end: the bytes on disk and cur
+// always agree on which Save won.
 func (s *Store) Save(p core.Prefs) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	data, err := json.Marshal(p)
 	if err != nil {
 		return fmt.Errorf("prefsfs: encoding prefs: %w", err)
@@ -59,9 +64,7 @@ func (s *Store) Save(p core.Prefs) error {
 		return fmt.Errorf("prefsfs: saving %s: %w", s.path, err)
 	}
 
-	s.mu.Lock()
 	s.cur = clonePrefs(p)
-	s.mu.Unlock()
 	return nil
 }
 
