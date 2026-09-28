@@ -67,3 +67,42 @@ func TestAssert_MismatchWritesActual(t *testing.T) {
 		t.Errorf("expected %s to exist: %v", actualPath, err)
 	}
 }
+
+// TestAssert_MissingFileNeverPasses guards against Assert relying on
+// t.Fatalf's real-testing.TB behavior (halting via runtime.Goexit) to stop
+// execution. With a fake TB whose Fatalf only records instead of halting, a
+// missing golden file must still record a failure via Fatalf and must not
+// fall through to the string-equality comparison, which could otherwise
+// treat the call as a match (when got == "", spuriously equal to the zero
+// value of an unread want []byte) or as a mismatch that writes a bogus
+// ".actual" file and reports a second, misleading failure via Errorf (when
+// got != "").
+func TestAssert_MissingFileNeverPasses(t *testing.T) {
+	for _, got := range []string{"", "some content"} {
+		t.Run(fmt.Sprintf("got=%q", got), func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			// Create the golden dir (but not the golden file itself) so a
+			// fall-through past the read error would successfully write
+			// <name>.ansi.actual instead of failing on a missing
+			// directory, which would mask the bug this test guards
+			// against.
+			if err := os.MkdirAll(filepath.Join("testdata", "golden"), 0o755); err != nil {
+				t.Fatalf("mkdir testdata/golden: %v", err)
+			}
+
+			fake := &fakeTB{}
+			Assert(fake, "nonexistent", got)
+
+			if len(fake.fatals) == 0 {
+				t.Fatal("Assert did not report a failure for a missing golden file")
+			}
+			if len(fake.errors) != 0 {
+				t.Errorf("Assert additionally reported Errorf calls %v for a missing golden file; want only Fatalf, no fall-through", fake.errors)
+			}
+			actualPath := filepath.Join("testdata", "golden", "nonexistent.ansi.actual")
+			if _, err := os.Stat(actualPath); err == nil {
+				t.Errorf("Assert wrote %s for a missing golden file; want no fall-through past the read error", actualPath)
+			}
+		})
+	}
+}

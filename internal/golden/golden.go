@@ -21,9 +21,11 @@ func Assert(t testing.TB, name, got string) {
 	if os.Getenv("JIG_UPDATE_GOLDEN") == "1" {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatalf("golden: mkdir %s: %v", filepath.Dir(path), err)
+			return
 		}
 		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
 			t.Fatalf("golden: write %s: %v", path, err)
+			return
 		}
 		return
 	}
@@ -31,6 +33,7 @@ func Assert(t testing.TB, name, got string) {
 	want, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("golden: read %s: %v (run with JIG_UPDATE_GOLDEN=1 to create it)", path, err)
+		return
 	}
 	if string(want) == got {
 		return
@@ -39,6 +42,7 @@ func Assert(t testing.TB, name, got string) {
 	actualPath := path + ".actual"
 	if err := os.WriteFile(actualPath, []byte(got), 0o644); err != nil {
 		t.Fatalf("golden: write %s: %v", actualPath, err)
+		return
 	}
 
 	wantLine, gotLine := firstDiffLine(string(want), got)
