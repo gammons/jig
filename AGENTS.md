@@ -22,6 +22,7 @@ that knows the concrete types.
 
 The UIs call services only through three ports in `internal/core/ports.go`:
 `core.ChatService` (implemented by `service/chat`; `Send` drives a turn,
+resolving any `SendRequest.Attachments` against its `WorkDir` first,
 `Compact` summarizes history behind the Runner's busy exclusion),
 `core.SessionService` (implemented by `service/session`, covering listing,
 `Rename`, and `Configure`), and `core.PermissionService` (implemented by
@@ -224,6 +225,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Build a `core.ToolResult` for a tool's `Run` | `core.ToolError(call, msg)` (sets `IsError`) / `core.ToolOK(call, output)` |
 | Resolve a tool's `path` input against `rc.WorkDir` | `resolvePath(workDir, path)` in `service/tools` (also backs `subjectPath` for `ext.Subjecter`) |
 | Permission subject for a search tool's `path` input | `searchSubject(rc, input)` in `service/tools` |
+| Is this file binary? | `tools.LooksBinary(b)` |
 | Overlay permission rules per tool / keep only tightening entries | `permission.Overlay(lo, hi)` / `permission.Tighten(baseline, add)` |
 | A built-in agent by name | `agents.Builtin(name)` / `agents.BuiltinNames()` |
 | Resolve a model string (ref or alias) | `agents.ParseRef(s, cfg.ModelAliases)` / `(*agents.Service).ResolveRef(s)` |

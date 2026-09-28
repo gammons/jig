@@ -245,6 +245,29 @@ func textOf(m core.Message) string {
 
 func approxEqual(a, b float64) bool { return math.Abs(a-b) < 1e-12 }
 
+func TestRunner_AttachmentsOnUserMessage(t *testing.T) {
+	llm := llmtest.New(llmtest.Text("ok"))
+	f := newFixture(t, llm)
+	r := NewRunner(f.deps)
+
+	att := core.Attachment{Path: "/w/notes.txt", Content: "hello"}
+	if _, err := r.Run(context.Background(), f.rc, "look", att); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	msgs := f.messages()
+	user := msgs[0]
+	if len(user.Parts) != 2 {
+		t.Fatalf("user parts = %+v, want 2 (text, attachment)", user.Parts)
+	}
+	if user.Parts[0].Kind != core.PartText || user.Parts[0].Text != "look" {
+		t.Errorf("part 0 = %+v", user.Parts[0])
+	}
+	if user.Parts[1].Kind != core.PartAttachment || user.Parts[1].Attachment == nil || *user.Parts[1].Attachment != att {
+		t.Errorf("part 1 = %+v, want attachment %+v", user.Parts[1], att)
+	}
+}
+
 func TestRunner_TextOnlyTurn(t *testing.T) {
 	llm := llmtest.New(llmtest.Text("hi there"))
 	f := newFixture(t, llm)

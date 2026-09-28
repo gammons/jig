@@ -9,6 +9,9 @@ type SendRequest struct {
 	Agent     string
 	Model     string
 	Text      string
+	// Attachments is a list of file paths to attach to Text; a relative
+	// path resolves against the ChatService's WorkDir.
+	Attachments []string
 }
 
 // SendResult is the outcome of a ChatService.Send call.

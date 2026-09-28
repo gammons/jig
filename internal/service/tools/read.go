@@ -184,7 +184,7 @@ func (r *readTool) readFile(call core.ToolCall, rc ext.RunContext, abs string, i
 	if err != nil {
 		return core.ToolError(call, err.Error()), nil
 	}
-	if looksBinary(content) {
+	if LooksBinary(content) {
 		return core.ToolError(call, abs+" appears to be binary"), nil
 	}
 
@@ -197,9 +197,9 @@ func (r *readTool) readFile(call core.ToolCall, rc ext.RunContext, abs string, i
 	return core.ToolOK(call, out), nil
 }
 
-// looksBinary reports whether content's first binarySniffBytes contain a
+// LooksBinary reports whether content's first binarySniffBytes contain a
 // NUL byte.
-func looksBinary(content []byte) bool {
+func LooksBinary(content []byte) bool {
 	n := len(content)
 	if n > binarySniffBytes {
 		n = binarySniffBytes

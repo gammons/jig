@@ -41,6 +41,7 @@ type registryDeps struct {
 	spillDir string
 	blobs    *blobfs.Store
 	media    *media.Pipeline
+	tracker  *tools.Tracker
 }
 
 // buildRegistry registers every built-in tool, hook, transform, and
@@ -57,7 +58,7 @@ func buildRegistry(d registryDeps) (ext.View, error) {
 }
 
 func addTools(r *ext.Registry, d registryDeps) error {
-	fsys, tr := tools.OSFS(), tools.NewTracker()
+	fsys, tr := tools.OSFS(), d.tracker
 	srch := searchAdapter{search.New(exec.LookPath)}
 	all := []ext.Tool{
 		tools.NewRead(fsys, tr, d.media),

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"charm.land/fantasy"
 
@@ -80,16 +81,32 @@ func compactionText(m core.Message) (string, bool) {
 	return m.Parts[0].Text, true
 }
 
-// convertUserMessage joins every text part of m into one fantasy user
-// message.
+// convertUserMessage converts m's text and attachment parts, in order,
+// into a fantasy user message: each text part becomes a TextPart, and each
+// attachment becomes attachmentPart's result.
 func convertUserMessage(m core.Message) fantasy.Message {
-	var text string
+	var content []fantasy.MessagePart
 	for _, p := range m.Parts {
-		if p.Kind == core.PartText {
-			text += p.Text
+		switch {
+		case p.Kind == core.PartText:
+			content = append(content, fantasy.TextPart{Text: p.Text})
+		case p.Kind == core.PartAttachment && p.Attachment != nil:
+			content = append(content, attachmentPart(*p.Attachment))
 		}
 	}
-	return fantasy.NewUserMessage(text)
+	return fantasy.Message{Role: fantasy.MessageRoleUser, Content: content}
+}
+
+// attachmentPart converts a into the fantasy content it becomes: an image
+// whose Data has been loaded becomes a FilePart; a text attachment, or an
+// image whose Data could not be loaded (client/llm's media wrapper has
+// already replaced Content with a placeholder and cleared Media), becomes
+// a TextPart wrapping the content in an <attachment> tag.
+func attachmentPart(a core.Attachment) fantasy.MessagePart {
+	if a.Media != nil && a.Media.Data != nil {
+		return fantasy.FilePart{Filename: filepath.Base(a.Path), Data: a.Media.Data, MediaType: a.Media.MIME}
+	}
+	return fantasy.TextPart{Text: fmt.Sprintf("<attachment path=%q>\n%s\n</attachment>", a.Path, a.Content)}
 }
 
 // convertAssistantMessage splits m's parts into an assistant message

@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -19,7 +20,7 @@ func TestCLI_ParseRunFlags(t *testing.T) {
 		agent: "plan", model: "anthropic/claude", yes: true,
 		session: "ses_1", cwd: "/tmp/proj", prompt: "fix the bug",
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("parseRun = %+v, want %+v", got, want)
 	}
 }
@@ -29,8 +30,19 @@ func TestCLI_ParseRunDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseRun: %v", err)
 	}
-	if got != (runOpts{prompt: "hello"}) {
+	if !reflect.DeepEqual(got, runOpts{prompt: "hello"}) {
 		t.Errorf("parseRun = %+v, want only prompt set", got)
+	}
+}
+
+func TestCLI_ParseRunAttachRepeatable(t *testing.T) {
+	got, err := parseRun([]string{"--attach", "a.png", "--attach", "b.txt", "look"}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("parseRun: %v", err)
+	}
+	want := runOpts{attach: []string{"a.png", "b.txt"}, prompt: "look"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("parseRun = %+v, want %+v", got, want)
 	}
 }
 
@@ -55,7 +67,7 @@ func TestCLI_ParseRunInterspersedFlags(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseRun: %v", err)
 			}
-			if got != tc.want {
+			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("parseRun(%q) = %+v, want %+v", tc.args, got, tc.want)
 			}
 		})

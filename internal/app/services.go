@@ -22,6 +22,7 @@ import (
 	"github.com/gammons/jig/internal/service/permission"
 	"github.com/gammons/jig/internal/service/session"
 	"github.com/gammons/jig/internal/service/skills"
+	"github.com/gammons/jig/internal/service/tools"
 )
 
 // runtime is a fully wired jig: the one event bus, the store backing it,
@@ -75,11 +76,13 @@ func newChat(e env, rt *runtime, cat *catalog.Catalog, asker permission.Asker, e
 	src := llm.NewSource(cat, pv, e.cfg().Providers, e.getenv, blobs)
 	sess := session.New(session.Deps{Store: rt.store, LLMs: src, Agents: ag, Bus: rt.bus, Clock: clk, IDs: idGen})
 	proxy := &agent.Proxy{}
+	tracker := tools.NewTracker()
+	pipeline := media.New(blobs)
 	view, err := buildRegistry(registryDeps{
 		env: e, clk: clk, bus: rt.bus, store: rt.store,
 		skills: skills.New(disc.skills, skillFS{}), sessions: sess, agents: ag,
 		proxy: proxy, asker: asker, ids: idGen, spillDir: rt.spillDir,
-		blobs: blobs, media: media.New(blobs),
+		blobs: blobs, media: pipeline, tracker: tracker,
 	})
 	if err != nil {
 		return nil, err
@@ -89,7 +92,10 @@ func newChat(e env, rt *runtime, cat *catalog.Catalog, asker permission.Asker, e
 		Clock: clk, IDs: idGen, ToolsFor: agents.ToolsFor,
 	})
 	proxy.Set(runner)
-	return chat.New(chat.Deps{Sessions: sess, Agents: ag, LLMs: src, Runner: runner, WorkDir: e.workDir}), nil
+	return chat.New(chat.Deps{
+		Sessions: sess, Agents: ag, LLMs: src, Runner: runner, WorkDir: e.workDir,
+		Files: tools.OSFS(), Reads: tracker, Images: pipeline,
+	}), nil
 }
 
 // providerView is a frozen registry holding only the provider factories.

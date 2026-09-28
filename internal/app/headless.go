@@ -50,10 +50,11 @@ type drained struct{ event.Base }
 func (rt *runtime) headless(ctx context.Context, opts runOpts, std Stdio) int {
 	r := startRendering(rt.bus, std.Out, std.Err)
 	res, err := rt.chat.Send(ctx, core.SendRequest{
-		SessionID: core.SessionID(opts.session),
-		Agent:     opts.agent,
-		Model:     opts.model,
-		Text:      opts.prompt,
+		SessionID:   core.SessionID(opts.session),
+		Agent:       opts.agent,
+		Model:       opts.model,
+		Text:        opts.prompt,
+		Attachments: opts.attach,
 	})
 
 	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)

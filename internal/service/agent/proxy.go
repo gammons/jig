@@ -30,10 +30,10 @@ func (p *Proxy) Set(r *Runner) {
 }
 
 // Run delegates to the bound Runner.
-func (p *Proxy) Run(ctx context.Context, rc ext.RunContext, userText string) (core.Message, error) {
+func (p *Proxy) Run(ctx context.Context, rc ext.RunContext, userText string, atts ...core.Attachment) (core.Message, error) {
 	r := p.r.Load()
 	if r == nil {
 		return core.Message{}, ErrProxyUnset
 	}
-	return r.Run(ctx, rc, userText)
+	return r.Run(ctx, rc, userText, atts...)
 }

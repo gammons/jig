@@ -87,7 +87,7 @@ type fakeRunner struct {
 	called  bool
 }
 
-func (f *fakeRunner) Run(ctx context.Context, rc ext.RunContext, text string) (core.Message, error) {
+func (f *fakeRunner) Run(ctx context.Context, rc ext.RunContext, text string, _ ...core.Attachment) (core.Message, error) {
 	f.called = true
 	f.gotRC, f.gotText = rc, text
 	if f.runFn != nil {

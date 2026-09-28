@@ -35,7 +35,7 @@ type Agents interface {
 
 // Runner drives a session's turn to completion.
 type Runner interface {
-	Run(ctx context.Context, rc ext.RunContext, text string) (core.Message, error)
+	Run(ctx context.Context, rc ext.RunContext, text string, atts ...core.Attachment) (core.Message, error)
 }
 
 // taskInput is the JSON input task accepts.

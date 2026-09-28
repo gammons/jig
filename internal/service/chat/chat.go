@@ -63,7 +63,7 @@ type LLMSource interface {
 
 // Runner drives agent turns.
 type Runner interface {
-	Run(ctx context.Context, rc ext.RunContext, text string) (core.Message, error)
+	Run(ctx context.Context, rc ext.RunContext, text string, atts ...core.Attachment) (core.Message, error)
 	// Exclusive runs fn while holding id's slot in the running map, so it
 	// excludes (and is excluded by) a Run on id.
 	Exclusive(ctx context.Context, id core.SessionID, fn func(context.Context) error) error
@@ -77,6 +77,9 @@ type Deps struct {
 	LLMs     LLMSource
 	Runner   Runner
 	WorkDir  string
+	Files    FileReader
+	Reads    ReadMarker
+	Images   Imager
 }
 
 // Service implements core.ChatService.
@@ -105,6 +108,8 @@ type plan struct {
 	model    core.ModelRef
 	flag     core.ModelRef
 	newTitle bool
+	atts     []core.Attachment
+	reads    []textRead
 }
 
 // Send runs req.Text in req.SessionID (or a new session). Validation
@@ -118,6 +123,7 @@ func (s *Service) Send(ctx context.Context, req core.SendRequest) (core.SendResu
 	if err := s.commit(ctx, &p, req.Text); err != nil {
 		return core.SendResult{SessionID: p.sess.ID}, err
 	}
+	s.markAttachmentsRead(p)
 
 	msg, runErr := s.d.Runner.Run(ctx, ext.RunContext{
 		SessionID: p.sess.ID,
@@ -125,7 +131,7 @@ func (s *Service) Send(ctx context.Context, req core.SendRequest) (core.SendResu
 		Agent:     p.agent,
 		Model:     p.model,
 		WorkDir:   s.d.WorkDir,
-	}, req.Text)
+	}, req.Text, p.atts...)
 	touchErr := s.d.Sessions.Touch(context.WithoutCancel(ctx), p.sess.ID)
 	if runErr == nil {
 		runErr = touchErr
@@ -167,7 +173,21 @@ func (s *Service) prepare(ctx context.Context, req core.SendRequest) (plan, erro
 	if _, _, err := s.d.LLMs.For(p.model); err != nil {
 		return plan{}, &ConfigError{Err: err}
 	}
+
+	atts, reads, err := s.resolveAttachments(req.Attachments)
+	if err != nil {
+		return plan{}, err
+	}
+	p.atts, p.reads = atts, reads
 	return p, nil
+}
+
+// markAttachmentsRead records p's text attachments as read by p.sess.ID,
+// so a later edit or write to one of them needs no prior read tool call.
+func (s *Service) markAttachmentsRead(p plan) {
+	for _, r := range p.reads {
+		s.d.Reads.MarkRead(p.sess.ID, r.path, r.info)
+	}
 }
 
 // resume loads session id for a follow-up Send. A missing session, or one

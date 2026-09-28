@@ -177,6 +177,44 @@ func TestToFantasy_CompactionBecomesSummaryUserMessage(t *testing.T) {
 	}
 }
 
+func TestToFantasy_UserAttachments(t *testing.T) {
+	req := core.LLMRequest{
+		Messages: []core.Message{
+			{Role: core.RoleUser, Parts: []core.Part{
+				{Kind: core.PartText, Text: "look"},
+				{Kind: core.PartAttachment, Attachment: &core.Attachment{Path: "/w/notes.txt", Content: "hello notes"}},
+				{Kind: core.PartAttachment, Attachment: &core.Attachment{
+					Path:  "/w/shot.png",
+					Media: &core.Media{MIME: "image/png", Data: []byte{1, 2, 3}},
+				}},
+			}},
+		},
+	}
+
+	call := ToFantasy(req)
+	if len(call.Prompt) != 1 {
+		t.Fatalf("got %d messages, want 1", len(call.Prompt))
+	}
+	user := call.Prompt[0]
+	if user.Role != fantasy.MessageRoleUser || len(user.Content) != 3 {
+		t.Fatalf("user message = %+v, want role user with 3 parts", user)
+	}
+	if got := textOf(t, user.Content[0]); got != "look" {
+		t.Errorf("text part = %q, want %q", got, "look")
+	}
+	want := "<attachment path=\"/w/notes.txt\">\nhello notes\n</attachment>"
+	if got := textOf(t, user.Content[1]); got != want {
+		t.Errorf("text attachment = %q, want %q", got, want)
+	}
+	fp, ok := user.Content[2].(fantasy.FilePart)
+	if !ok {
+		t.Fatalf("image attachment = %#v, want FilePart", user.Content[2])
+	}
+	if fp.Filename != "shot.png" || fp.MediaType != "image/png" || string(fp.Data) != "\x01\x02\x03" {
+		t.Errorf("file part = %+v", fp)
+	}
+}
+
 func TestToFantasy_DropsPartlessAssistantMessage(t *testing.T) {
 	req := core.LLMRequest{
 		Messages: []core.Message{

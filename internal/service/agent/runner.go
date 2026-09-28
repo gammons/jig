@@ -68,10 +68,11 @@ type run struct {
 	maxSteps int
 }
 
-// Run appends userText to rc.SessionID's history and drives the model until
-// it stops calling tools, max steps is reached, the run fails, or it is
-// cancelled. It returns the last assistant message.
-func (r *Runner) Run(ctx context.Context, rc ext.RunContext, userText string) (core.Message, error) {
+// Run appends userText (and any attachments, in order) to rc.SessionID's
+// history and drives the model until it stops calling tools, max steps is
+// reached, the run fails, or it is cancelled. It returns the last
+// assistant message.
+func (r *Runner) Run(ctx context.Context, rc ext.RunContext, userText string, atts ...core.Attachment) (core.Message, error) {
 	ctx, release, err := r.register(ctx, rc.SessionID)
 	if err != nil {
 		return core.Message{}, err
@@ -79,7 +80,7 @@ func (r *Runner) Run(ctx context.Context, rc ext.RunContext, userText string) (c
 	defer release()
 
 	user := r.newMessage(rc, core.RoleUser)
-	user.Parts = []core.Part{{Kind: core.PartText, Text: userText}}
+	user.Parts = append([]core.Part{{Kind: core.PartText, Text: userText}}, attachmentParts(atts)...)
 	user.Status = core.StatusComplete
 	if err := r.d.Store.SaveMessage(ctx, user); err != nil {
 		return core.Message{}, r.failed(rc.SessionID, rc.RootID, err)
@@ -297,6 +298,16 @@ func addUsage(a, b core.Usage) core.Usage {
 		CacheRead:  a.CacheRead + b.CacheRead,
 		CacheWrite: a.CacheWrite + b.CacheWrite,
 	}
+}
+
+// attachmentParts converts atts into one PartAttachment per attachment, in
+// order.
+func attachmentParts(atts []core.Attachment) []core.Part {
+	parts := make([]core.Part, len(atts))
+	for i := range atts {
+		parts[i] = core.Part{Kind: core.PartAttachment, Attachment: &atts[i]}
+	}
+	return parts
 }
 
 func toolCalls(m core.Message) []core.ToolCall {

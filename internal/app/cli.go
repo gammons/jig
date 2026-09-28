@@ -16,10 +16,11 @@ type runOpts struct {
 	trustProject bool
 	session      string
 	cwd          string
+	attach       []string
 	prompt       string
 }
 
-const runUsage = `usage: jig run [--agent A] [--model M] [--yes] [--trust-project] [--session ID] [--cwd DIR] <prompt...>`
+const runUsage = `usage: jig run [--agent A] [--model M] [--yes] [--trust-project] [--session ID] [--cwd DIR] [--attach PATH]... <prompt...>`
 
 // ErrUsage reports a malformed command line; the usage has already been
 // written.
@@ -38,6 +39,10 @@ func parseRun(args []string, errw io.Writer) (runOpts, error) {
 	fs.BoolVar(&o.trustProject, "trust-project", false, "trust this project's config (and remember it until the config changes)")
 	fs.StringVar(&o.session, "session", "", "session ID to continue")
 	fs.StringVar(&o.cwd, "cwd", "", "working directory (default: current directory)")
+	fs.Func("attach", "attach a file to the prompt (repeatable)", func(v string) error {
+		o.attach = append(o.attach, v)
+		return nil
+	})
 	words, err := parseInterspersed(fs, args)
 	if err != nil {
 		return runOpts{}, ErrUsage

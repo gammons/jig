@@ -62,3 +62,35 @@ func TestE2E_ReadImageReachesModel(t *testing.T) {
 		})
 	}
 }
+
+func TestE2E_ImageAttachment(t *testing.T) {
+	env := newEnv(t)
+	writePNG(t, filepath.Join(env.work, "shot.png"), 20, 10)
+	writeFile(t, filepath.Join(env.work, "notes.txt"), "notes content")
+	one := 1
+	script := writeScript(t, env, "script.json", jigtest.Script{Models: map[string][]jigtest.Turn{
+		"m1": {
+			{ExpectMedia: &one, ExpectPromptContains: []string{`<attachment path=`, "notes content"}, Text: "got it"},
+		},
+	}})
+	writeConfig(t, env, jigtestConfig(script, ""))
+
+	stdout, stderr, code := runPrompt(t, env, "--attach", "shot.png", "--attach", "notes.txt", "look")
+	wantCode(t, code, 0, stdout, stderr)
+	if !strings.Contains(stdout, "got it") {
+		t.Errorf("stdout = %q, want %q\nstderr:\n%s", stdout, "got it", stderr)
+	}
+}
+
+func TestE2E_BinaryAttachmentExits2(t *testing.T) {
+	env := newEnv(t)
+	writeFile(t, filepath.Join(env.work, "blob.dat"), "start\x00end")
+	script := writeScript(t, env, "script.json", jigtest.Script{Models: map[string][]jigtest.Turn{"m1": {}}})
+	writeConfig(t, env, jigtestConfig(script, ""))
+
+	stdout, stderr, code := runPrompt(t, env, "--attach", "blob.dat", "look")
+	wantCode(t, code, 2, stdout, stderr)
+	if !strings.Contains(stderr, "blob.dat") {
+		t.Errorf("stderr = %q, want it to name blob.dat", stderr)
+	}
+}
