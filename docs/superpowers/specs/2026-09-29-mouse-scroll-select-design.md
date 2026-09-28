@@ -83,15 +83,16 @@ type Point struct {
 }
 type Range struct{ Start, End Point; Active bool }
 
-func (r Range) Normalized() (lo, hi Point) // document order
+func (r Range) Normalized(order func(id string) int) (lo, hi Point) // document order
 func (r Range) Empty() bool
 func Before(a, b Point, order func(id string) int) bool
 
 // Highlight applies on/off around the selected cells of row, the rendered
 // line (line) of item id, keeping existing escapes intact.
 func Highlight(row string, id string, line int, r Range, order func(string) int, on, off string) string
-// Text extracts the plain selected text from lines(id) for every id in [lo.ID, hi.ID].
-func Text(r Range, ids []string, lines func(id string) []string) string
+// Text extracts the plain selected text from lines(id) for every id in ids,
+// which runs from lo.ID to hi.ID in order.
+func Text(r Range, ids []string, order func(string) int, lines func(id string) []string) string
 ```
 
 - **Document order:** points are ordered by item order, which `order` returns, then line, then column. The same function serves the transcript (block order) and the details split (one ID).
