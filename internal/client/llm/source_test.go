@@ -235,6 +235,54 @@ func TestSource_NoAPIKeyEnvAllowsThrough(t *testing.T) {
 	}
 }
 
+func TestSource_HasCredentials(t *testing.T) {
+	cat := fakeCatalog{providers: map[string]core.ProviderInfo{
+		"anthropic": {ID: "anthropic", Type: "anthropic", APIKeyEnv: "ANTHROPIC_API_KEY"},
+		"ollama":    {ID: "ollama", Type: "openai-compat"}, // no key required
+	}}
+
+	t.Run("env var set", func(t *testing.T) {
+		getenv := func(k string) string {
+			if k == "ANTHROPIC_API_KEY" {
+				return "env-key"
+			}
+			return ""
+		}
+		s := NewSource(cat, viewWith(), nil, getenv, nil)
+		if !s.HasCredentials("anthropic") {
+			t.Error("HasCredentials(anthropic) = false, want true (env var set)")
+		}
+	})
+
+	t.Run("no key configured", func(t *testing.T) {
+		s := NewSource(cat, viewWith(), nil, noEnv, nil)
+		if s.HasCredentials("anthropic") {
+			t.Error("HasCredentials(anthropic) = true, want false (no key)")
+		}
+	})
+
+	t.Run("config key set", func(t *testing.T) {
+		s := NewSource(cat, viewWith(), map[string]core.ProviderConfig{"anthropic": {APIKey: "cfg-key"}}, noEnv, nil)
+		if !s.HasCredentials("anthropic") {
+			t.Error("HasCredentials(anthropic) = false, want true (config key set)")
+		}
+	})
+
+	t.Run("no key required", func(t *testing.T) {
+		s := NewSource(cat, viewWith(), nil, noEnv, nil)
+		if !s.HasCredentials("ollama") {
+			t.Error("HasCredentials(ollama) = false, want true (no APIKeyEnv)")
+		}
+	})
+
+	t.Run("unknown provider", func(t *testing.T) {
+		s := NewSource(cat, viewWith(), nil, noEnv, nil)
+		if s.HasCredentials("nope") {
+			t.Error("HasCredentials(nope) = true, want false (unknown provider)")
+		}
+	})
+}
+
 // TestLive_Anthropic is a real, non-mocked call to the Anthropic API. It is
 // skipped unless JIG_LIVE_TESTS=1 and ANTHROPIC_API_KEY are both set.
 func TestLive_Anthropic(t *testing.T) {

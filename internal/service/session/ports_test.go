@@ -137,6 +137,43 @@ func TestConfigure_ValidatesAndPublishes(t *testing.T) {
 	}
 }
 
+func TestConfigure_AcceptsAliasStoresCanonical(t *testing.T) {
+	cfg := defaultCfg()
+	cfg.ModelAliases = map[string]string{"fast": "anthropic/haiku"}
+	f := newFixture(t, cfg)
+	sess := f.create("build")
+
+	if err := f.svc.Configure(context.Background(), sess.ID, "", "fast"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.svc.Get(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Model != "anthropic/haiku" {
+		t.Errorf("Model = %q, want canonical %q", got.Model, "anthropic/haiku")
+	}
+}
+
+func TestConfigure_RejectsNonPrimaryAgent(t *testing.T) {
+	f := newFixture(t, defaultCfg())
+	sess := f.create("build")
+
+	if err := f.svc.Configure(context.Background(), sess.ID, "explore", ""); err == nil {
+		t.Error(`Configure with subagent "explore": want error`)
+	}
+	if err := f.svc.Configure(context.Background(), sess.ID, "title", ""); err == nil {
+		t.Error(`Configure with hidden agent "title": want error`)
+	}
+	got, err := f.svc.Get(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Agent != "build" {
+		t.Errorf("Agent = %q, want unchanged %q", got.Agent, "build")
+	}
+}
+
 func TestGenerateTitle_DoesNotClobberRename(t *testing.T) {
 	f := newFixture(t, defaultCfg())
 	firstPrompt := "hello world"

@@ -34,6 +34,19 @@ fresh copy. `chat.Send` and `chat.Compact` failures caused by
 configuration or input (including a missing session) are `*chat.ConfigError`
 (headless exit 2).
 
+The TUI also calls five read-only ports, all implemented in
+`internal/app/ports.go`: `core.CatalogService` (`catalogPort`: every
+catalog provider paired with whether its credentials resolve now, via
+`llm.Source.HasCredentials`), `core.AgentService` (`agents.Service`
+satisfies it directly with `Primary`), `core.ProjectService`
+(`projectPort`: gitignore-aware `Files` with each file's git-modified
+status, and a `ReadFile` confined to the workdir, the runtime's spill
+dir, and the blob store's directory), `core.BlobService` (`blobPort`:
+`Open` returns a blob's bytes and detected MIME type), and
+`core.EditorService` (`editorPort`: `Edit` opens `$VISUAL`/`$EDITOR`/`vi`
+over a temp file in the spill dir via `core.ExecCommand`, the method set
+of `tea.ExecCommand`).
+
 ```
 cmd/jig/main.go                         entry: os.Exit(app.Run(...))
 internal/clock/                         Clock interface, Real, Fake
@@ -116,6 +129,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 ## Invariants
 
 - No I/O in `ui`.
+- `ProjectService.ReadFile` is confined to the workdir, spill dir, and
+  blob dir, after resolving symlinks.
 - Every piece of mutable state has exactly one owner that serializes
   access to it: `session.Service`'s mutex owns session read-modify-writes,
   `ext.Registry` owns extension registration (only until `Freeze`),

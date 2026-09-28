@@ -1,6 +1,9 @@
 package core
 
-import "context"
+import (
+	"context"
+	"io"
+)
 
 // SendRequest asks a ChatService to send a message in a session, creating
 // the session if SessionID is empty.
@@ -63,4 +66,75 @@ type PermissionReply struct {
 // PermissionService is the port the UIs call to answer permission requests.
 type PermissionService interface {
 	Reply(requestID string, r PermissionReply) error
+}
+
+// ProviderStatus pairs a catalog provider with whether its credentials
+// are resolvable right now (an api_key in config, its env var set, or no
+// key required at all).
+type ProviderStatus struct {
+	Info       ProviderInfo
+	Configured bool
+}
+
+// CatalogService is the port the UIs call to list providers (with
+// credential status) for the model picker.
+type CatalogService interface {
+	// Providers returns every catalog provider, sorted by ID.
+	Providers() []ProviderStatus
+}
+
+// AgentService is the port the UIs call to list agents for the agent
+// picker.
+type AgentService interface {
+	// Primary returns every non-hidden agent whose mode is primary or
+	// all, build and plan first, then sorted by name.
+	Primary() []Agent
+}
+
+// ProjectFile is one file under a project's workdir, as returned by
+// ProjectService.Files.
+type ProjectFile struct {
+	// Path is workdir-relative and slash-separated.
+	Path string
+	// Modified reports whether git status sees the file as changed.
+	Modified bool
+}
+
+// ProjectService is the port the UIs call to list and read project files,
+// for the file picker (@ mentions) and tool-call details panes.
+type ProjectService interface {
+	// Files returns every eligible project file, gitignore-aware, at
+	// most 20000.
+	Files(ctx context.Context) ([]ProjectFile, error)
+	// ReadFile returns path's bytes. A relative path resolves against
+	// the workdir; the resolved path (symlinks followed) must fall
+	// inside the workdir, the runtime's private spill dir, or the blob
+	// store's directory, and be at most 10 MiB.
+	ReadFile(ctx context.Context, path string) ([]byte, error)
+}
+
+// BlobService is the port the UIs call to open a stored attachment or
+// screenshot blob.
+type BlobService interface {
+	// Open returns ref's bytes and their detected MIME type (via
+	// http.DetectContentType).
+	Open(ref string) ([]byte, string, error)
+}
+
+// ExecCommand has the method set of tea.ExecCommand, so ui can run a
+// port's returned command through tea.Exec without importing os/exec.
+type ExecCommand interface {
+	Run() error
+	SetStdin(io.Reader)
+	SetStdout(io.Writer)
+	SetStderr(io.Writer)
+}
+
+// EditorService is the port the UIs call to edit text in $VISUAL/$EDITOR.
+type EditorService interface {
+	// Edit writes text to a private temp file and returns the command
+	// to open it in the user's editor, plus a result func that reads
+	// the edited text back (and removes the temp file) after the
+	// command exits.
+	Edit(text string) (ExecCommand, func() (string, error), error)
 }

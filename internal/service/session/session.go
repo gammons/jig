@@ -35,11 +35,15 @@ type Store interface {
 // ErrNotFound is wrapped by Get's error when the session does not exist.
 var ErrNotFound = errors.New("session not found")
 
-// Agents looks up agents and resolves the models they run on.
+// Agents looks up agents, resolves the models they run on, and resolves
+// model strings ("provider/model" or a [model_aliases] name).
 type Agents interface {
 	Get(name string) (core.Agent, bool)
 	ResolveModel(a core.Agent, parent, session core.ModelRef) (core.ModelRef, error)
 	SmallModel(fallback core.ModelRef) core.ModelRef
+	// ResolveRef resolves a model string against the agents service's
+	// config, backing Configure's model validation.
+	ResolveRef(s string) (core.ModelRef, error)
 }
 
 // Deps are the Service's collaborators.
@@ -186,37 +190,55 @@ func (s *Service) Rename(ctx context.Context, id core.SessionID, title string) e
 }
 
 // Configure sets id's agent and/or model, leaving a field unchanged when
-// the corresponding argument is "". agent must name a known agent; model
-// must parse via core.ParseModelRef. With both "" it is a no-op: no store
-// write, no event. Otherwise it publishes event.SessionUpdated after a
-// successful save.
+// the corresponding argument is "". agent must name a known, primary
+// (non-hidden, mode primary or all) agent; model must resolve via
+// Agents.ResolveRef (a "provider/model" ref or a [model_aliases] name),
+// and the resolved canonical "provider/model" string is what gets
+// stored. With both "" it is a no-op: no store write, no event.
+// Otherwise it publishes event.SessionUpdated after a successful save.
 func (s *Service) Configure(ctx context.Context, id core.SessionID, agentName, model string) error {
 	if agentName == "" && model == "" {
 		return nil
 	}
 	if agentName != "" {
-		if _, ok := s.d.Agents.Get(agentName); !ok {
-			return fmt.Errorf("session: agent %q not found", agentName)
-		}
-	}
-	if model != "" {
-		if _, err := core.ParseModelRef(model); err != nil {
+		if err := s.checkPrimaryAgent(agentName); err != nil {
 			return err
 		}
+	}
+	resolvedModel := ""
+	if model != "" {
+		ref, err := s.d.Agents.ResolveRef(model)
+		if err != nil {
+			return err
+		}
+		resolvedModel = ref.String()
 	}
 	var saved core.Session
 	if err := s.modify(ctx, id, func(sess *core.Session) {
 		if agentName != "" {
 			sess.Agent = agentName
 		}
-		if model != "" {
-			sess.Model = model
+		if resolvedModel != "" {
+			sess.Model = resolvedModel
 		}
 		saved = *sess
 	}); err != nil {
 		return err
 	}
 	s.d.Bus.Publish(event.SessionUpdated{Base: event.Base{SessionID: id, RootID: id}, Info: saved})
+	return nil
+}
+
+// checkPrimaryAgent returns an error unless agentName names a known
+// agent whose mode is primary or all, and is not hidden.
+func (s *Service) checkPrimaryAgent(agentName string) error {
+	a, ok := s.d.Agents.Get(agentName)
+	if !ok {
+		return fmt.Errorf("session: agent %q not found", agentName)
+	}
+	if a.Hidden || (a.Mode != core.ModePrimary && a.Mode != core.ModeAll) {
+		return fmt.Errorf("session: agent %q is not a primary agent", agentName)
+	}
 	return nil
 }
 

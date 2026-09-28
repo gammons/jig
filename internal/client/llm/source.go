@@ -91,6 +91,19 @@ func (s *Source) resolveEndpoint(endpoint string) string {
 	return s.getenv(name)
 }
 
+// HasCredentials reports whether providerID's credentials are resolvable
+// right now: a config api_key, its APIKeyEnv set in the environment, or a
+// provider that needs no key at all. It returns false for a provider
+// unknown to the catalog.
+func (s *Source) HasCredentials(providerID string) bool {
+	info, ok := s.cat.Provider(providerID)
+	if !ok {
+		return false
+	}
+	_, err := s.resolveAPIKey(providerID, info, s.providers[providerID])
+	return err == nil
+}
+
 // resolveAPIKey returns cfg.APIKey if set, else the value of
 // info.APIKeyEnv from the environment. It errors only when a key is
 // required (info.APIKeyEnv is non-empty) but neither source has one; a
