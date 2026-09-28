@@ -2,6 +2,7 @@ package media
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"hash/crc32"
@@ -149,11 +150,47 @@ func TestProcess_OpaquePhotoBecomesJPEG(t *testing.T) {
 	}
 }
 
-func TestProcess_TransparentPhotoStaysPNG(t *testing.T) {
+// TestProcess_TransparentPhotoFlattensToJPEG: a non-opaque image whose
+// PNG is over the budget is flattened onto white and sent as JPEG q85
+// when that fits, rather than refused.
+func TestProcess_TransparentPhotoFlattensToJPEG(t *testing.T) {
 	fb := &fakeBlobs{}
 	img := noise(1500, 1500)
+	img.Pix[0], img.Pix[1], img.Pix[2], img.Pix[3] = 0, 0, 0, 0
+	m, info, err := New(fb).Process(encodePNG(t, img))
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if m.MIME != "image/jpeg" || info.Width != 1500 || info.Height != 1500 {
+		t.Fatalf("media = %+v info = %+v, want a 1500x1500 JPEG", m, info)
+	}
+	if n := base64.StdEncoding.EncodedLen(info.Bytes); n > MaxBytes {
+		t.Fatalf("base64 size = %d, want <= %d", n, MaxBytes)
+	}
+	stored := decodeStored(t, fb)
+	if r, g, b, _ := stored.At(0, 0).RGBA(); r>>8 < 0xe0 || g>>8 < 0xe0 || b>>8 < 0xe0 {
+		t.Errorf("transparent pixel = %d,%d,%d, want flattened to (near) white", r>>8, g>>8, b>>8)
+	}
+}
+
+// TestProcess_LimitIsOnBase64Size pins that the budget is measured on the
+// base64 encoding providers see, not on the raw bytes.
+func TestProcess_LimitIsOnBase64Size(t *testing.T) {
+	raw := encodePNG(t, solid(10, 10))
+	fb := &fakeBlobs{}
+	if _, _, err := New(fb).process(raw, len(raw)); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("raw-sized limit: err = %v, want ErrTooLarge", err)
+	}
+	if _, _, err := New(fb).process(raw, base64.StdEncoding.EncodedLen(len(raw))); err != nil {
+		t.Fatalf("base64-sized limit: err = %v, want nil", err)
+	}
+}
+
+func TestProcess_TransparentStillTooLargeAfterFlatten(t *testing.T) {
+	fb := &fakeBlobs{}
+	img := noise(50, 50)
 	img.Pix[3] = 0
-	_, _, err := New(fb).Process(encodePNG(t, img))
+	_, _, err := New(fb).process(encodePNG(t, img), 100)
 	if !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("err = %v, want ErrTooLarge", err)
 	}

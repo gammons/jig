@@ -21,7 +21,7 @@ import (
 const (
 	MaxEdge   = 1568       // longest edge after scaling, in pixels
 	JPEGOver  = 1 << 20    // PNG size above which an opaque image becomes JPEG
-	MaxBytes  = 5 << 20    // largest encoded result accepted
+	MaxBytes  = 5 << 20    // largest base64 size of the encoded result accepted
 	MaxPixels = 50_000_000 // largest decoded w*h accepted
 	MaxInput  = 20 << 20   // largest input accepted
 )
@@ -56,8 +56,10 @@ func New(blobs BlobStore) *Pipeline {
 // Process decodes png/jpeg/gif(first frame)/webp, scales so the long edge is
 // ≤ MaxEdge (x/image/draw CatmullRom), re-encodes as PNG, or as JPEG q85
 // when that PNG exceeds JPEGOver and the image is fully opaque, refuses
-// results > MaxBytes, stores the bytes, and returns the media and the
-// post-scaling size.
+// results whose base64 encoding exceeds MaxBytes (providers measure the
+// limit on base64; a non-opaque image over it is first flattened onto
+// white and retried as JPEG), stores the bytes, and returns the media and
+// the post-scaling size.
 func (p *Pipeline) Process(data []byte) (core.Media, core.ImageInfo, error) {
 	return p.process(data, MaxBytes)
 }
@@ -78,12 +80,9 @@ func (p *Pipeline) process(data []byte, limit int) (core.Media, core.ImageInfo, 
 		return core.Media{}, core.ImageInfo{}, err
 	}
 	img := scale(src)
-	out, mime, err := encode(img)
+	out, mime, err := fit(img, limit)
 	if err != nil {
 		return core.Media{}, core.ImageInfo{}, err
-	}
-	if len(out) > limit {
-		return core.Media{}, core.ImageInfo{}, fmt.Errorf("%w: encoded image is %d bytes (max %d)", ErrTooLarge, len(out), limit)
 	}
 	ref, err := p.blobs.Put(out)
 	if err != nil {
