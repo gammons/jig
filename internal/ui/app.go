@@ -390,7 +390,7 @@ func (a *App) sync() {
 	permCtl{a}.sync()
 	a.w.status.Set(a.statusState())
 	if a.lay.SideVisible {
-		a.w.side.SetSections(a.sess.sections(a.opts.WorkDir, a.opts.Aliases))
+		a.w.side.SetSections(sidebarSections(a))
 	}
 }
 
@@ -401,6 +401,9 @@ func (a *App) statusState() statusbar.State {
 	st.Untrusted = a.opts.Untrusted
 	st.Hint = a.view.hint
 	st.Pending = len(a.sess.proj.Pending())
+	if st.Hint == "" && st.Pending > 0 && (a.mode != modeNormal || !permCtl{a}.onCard()) {
+		st.Hint = permissionHint
+	}
 	return st
 }
 

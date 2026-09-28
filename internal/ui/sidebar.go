@@ -15,15 +15,42 @@ import (
 // newSessionTitle is the sidebar's title for a session not yet created.
 const newSessionTitle = "new session"
 
-// sections builds the sidebar from the session state: Session (title,
-// context gauge, cost, agent · model), Todos, Files, Subagents, and
-// Browser. Every row's text is sanitized.
-func (s *sessionState) sections(workDir string, aliases map[string]string) []sidebar.Section {
-	blocks := s.proj.Blocks()
-	return []sidebar.Section{
-		s.sessionSection(aliases), todoSection(s.todos), fileSection(workDir, s.proj.ChangedFiles()),
-		subagentSection(blocks), browserSection(s.proj.LastBrowserURL(), blocks),
+// sidebarSections builds the sidebar from the App's state: Session
+// (title, context gauge, cost, agent · model) and Todos, which are cheap
+// and rebuilt every time, then Files, Subagents, and Browser, which scan
+// the projection and are rebuilt only when it changed (sideCache). Every
+// row's text is sanitized.
+func sidebarSections(a *App) []sidebar.Section {
+	head := []sidebar.Section{a.sess.sessionSection(a.opts.Aliases), todoSection(a.sess.todos)}
+	return append(head, a.w.sideProj.get(a.sess.proj, a.w.gen, a.opts.WorkDir)...)
+}
+
+// sideCache holds the sidebar sections derived from the projection,
+// keyed by the projection and the widgets' generation (bumped by every
+// list upsert or reset, the only ways a projection change reaches the
+// screen). builds counts rebuilds, for tests.
+type sideCache struct {
+	proj   *transcript.Projection
+	gen    int
+	secs   []sidebar.Section
+	builds int
+}
+
+// get returns the Files, Subagents, and Browser sections for proj at
+// generation gen, rebuilding them only when either changed.
+func (c *sideCache) get(proj *transcript.Projection, gen int, workDir string) []sidebar.Section {
+	if c.secs != nil && c.proj == proj && c.gen == gen {
+		return c.secs
 	}
+	blocks := proj.Blocks()
+	c.secs = []sidebar.Section{
+		fileSection(workDir, proj.ChangedFiles()),
+		subagentSection(blocks),
+		browserSection(proj.LastBrowserURL(), blocks),
+	}
+	c.proj, c.gen = proj, gen
+	c.builds++
+	return c.secs
 }
 
 func (s *sessionState) sessionSection(aliases map[string]string) sidebar.Section {

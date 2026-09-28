@@ -202,3 +202,20 @@ func TestKitty_TransparentStillUploads(t *testing.T) {
 		t.Errorf("got %+v", res)
 	}
 }
+
+func TestKitty_ForgetUploadsAgain(t *testing.T) {
+	t.Parallel()
+	r := New(Kitty)
+	if res := r.Render("k", solid(16, 32), 2, 2); res.Upload == "" {
+		t.Fatal("first render has no upload")
+	}
+	if res := r.Render("k", solid(16, 32), 2, 2); res.Upload != "" {
+		t.Fatal("second render at the same size uploaded again")
+	}
+	r.Forget("k")
+	res := r.Render("k", solid(16, 32), 2, 2)
+	if res.Upload == "" {
+		t.Fatal("a render after Forget has no upload")
+	}
+	r.Forget("unknown") // harmless
+}

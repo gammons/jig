@@ -223,7 +223,7 @@ func (p pickerCtl) newSession() tea.Cmd {
 	}
 	a.sess = freshSession(a.sess, "")
 	a.view.detailsOpen = false
-	a.w.list.SetItems(nil)
+	a.w.setItems(nil)
 	return nil
 }
 

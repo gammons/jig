@@ -32,6 +32,10 @@ type widgets struct {
 	render  *renderer
 	upserts int
 	cardAt  cardKey
+	// gen counts list upserts and resets: every projection change that
+	// reaches the screen goes through one, so sideProj keys on it.
+	gen      int
+	sideProj sideCache
 }
 
 // cardKey records where the permission card is rendered: the block that
@@ -49,11 +53,13 @@ func (w *widgets) upsert(items []blocklist.Item) {
 		return
 	}
 	w.upserts++
+	w.gen++
 	w.list.Upsert(w.withCard(items)...)
 }
 
 // setItems replaces every item in the transcript list.
 func (w *widgets) setItems(items []blocklist.Item) {
+	w.gen++
 	w.list.SetItems(w.withCard(items))
 }
 

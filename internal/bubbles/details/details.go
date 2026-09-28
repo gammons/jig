@@ -73,6 +73,13 @@ func (m *Model) SetContent(c Content) {
 	m.scroll = 0
 }
 
+// ReplaceContent replaces the shown content keeping the scroll offset,
+// clamped to the new content (a live refresh of the same block).
+func (m *Model) ReplaceContent(c Content) {
+	m.content = c
+	m.scroll = clamp(m.scroll, 0, m.maxScroll())
+}
+
 // ScrollBy moves the scroll by n lines (negative scrolls up), clamped to
 // [0, len(Lines)-bodyHeight].
 func (m *Model) ScrollBy(n int) {

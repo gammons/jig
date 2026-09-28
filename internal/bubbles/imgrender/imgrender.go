@@ -76,6 +76,17 @@ func New(p Protocol, opts ...Option) *Renderer {
 // Protocol reports the protocol r renders with.
 func (r *Renderer) Protocol() Protocol { return r.proto }
 
+// Forget drops what r remembers about key's last kitty upload, so the
+// next Render of key attaches an upload whatever its size. Call it when
+// the terminal may no longer hold key's image at the size r last produced
+// an upload for (e.g. the caller dropped the only Result carrying it).
+// The key's image id is kept.
+func (r *Renderer) Forget(key string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.uploaded, key)
+}
+
 // Render fits img into maxCols×maxRows cells, keeping its aspect ratio
 // and never scaling it past its natural size at the cell size (but always
 // at least 1×1 cell). A non-positive box or an empty image gives an empty

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/gammons/jig/internal/core"
@@ -125,4 +126,40 @@ func TestApp_GoldenSidebar(t *testing.T) {
 	info, msgs, todos := sidebarSession()
 	ta := newTestApp(t, withSize(150, 40), withResume(info, msgs, todos))
 	golden.Assert(t, "app_sidebar", ta.view())
+}
+
+func TestSidebar_RebuiltOnlyOnChange(t *testing.T) {
+	t.Parallel()
+	info, msgs, todos := sidebarSession()
+	ta := newTestApp(t, withSize(150, 40), withResume(info, msgs, todos))
+	ta.key("esc")
+	n := ta.app.w.sideProj.builds
+	ta.key("k")
+	ta.key("k")
+	ta.send(tea.WindowSizeMsg{Width: 160, Height: 40})
+	ta.fire()
+	ta.key("j")
+	if got := ta.app.w.sideProj.builds; got != n {
+		t.Fatalf("projection sections rebuilt %d times on navigation/resize, want 0", got-n)
+	}
+	// A todos change needs no projection rebuild but still shows.
+	ta.event(event.TodosUpdated{Base: rootBase(), Todos: []core.Todo{{Content: "new todo", Status: "pending"}}})
+	if !strings.Contains(xansi.Strip(ta.app.w.side.View()), "new todo") {
+		t.Error("todos change not shown")
+	}
+	// A new tool block changes the projection: one rebuild.
+	ta.key("i")
+	ta.typeText("x")
+	ta.key("enter")
+	ta.event(event.MessageStarted{Base: rootBase(), MessageID: "m1"})
+	n = ta.app.w.sideProj.builds
+	call := core.ToolCall{ID: "w9", Name: "write", Input: []byte(`{"path":"z.go","content":"x"}`)}
+	ta.event(event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: call})
+	ta.event(event.ToolCallFinished{Base: rootBase(), MessageID: "m1", Result: core.ToolResult{CallID: "w9", Name: "write", Output: "ok"}})
+	if got := ta.app.w.sideProj.builds; got <= n {
+		t.Fatal("a projection change did not rebuild the sidebar sections")
+	}
+	if !strings.Contains(xansi.Strip(ta.app.w.side.View()), "A z.go") {
+		t.Error("the new file is not listed")
+	}
 }

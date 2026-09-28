@@ -280,8 +280,8 @@ func buildSearchDetails(name string, b transcript.Block) details.Content {
 
 // buildImageDetails shows a placeholder header immediately, then a Cmd
 // opens ref through p.Blobs, decodes it, and renders it with img's
-// renderer at width×(height-2), keyed by ref so re-renders of the same
-// image reuse its protocol state (e.g. a kitty image id). A Result already
+// renderer at width×(height-2) (imageState.renderFor), keyed by ref so
+// re-renders of the same image reuse its protocol state (a kitty image id). A Result already
 // cached for ref at that box is shown at once and its Cmd opens nothing.
 // A port or decode error becomes a sanitized line instead of an image.
 func buildImageDetails(ctx context.Context, block transcript.BlockID, kind, subject, ref string, width, height int, p Ports, img *imageState) (details.Content, tea.Cmd) {
@@ -292,7 +292,7 @@ func buildImageDetails(ctx context.Context, block transcript.BlockID, kind, subj
 		return content, func() tea.Msg { return detailsMsg{Block: block, Content: content, Image: &res, key: key} }
 	}
 	content := details.Content{Header: hdr}
-	r := img.r
+	render := img.renderFor(key)
 
 	cmd := openBlobCmd(ctx, p, ref, func(data []byte, _ string, err error) tea.Msg {
 		if err != nil {
@@ -302,7 +302,7 @@ func buildImageDetails(ctx context.Context, block transcript.BlockID, kind, subj
 		if err != nil {
 			return detailsMsg{Block: block, Content: errorContent(hdr, "could not decode image", err)}
 		}
-		res := r.Render(ref, decoded, key.cols, key.rows)
+		res := render(decoded)
 		return detailsMsg{Block: block, Content: details.Content{Header: hdr, Lines: res.Lines}, Image: &res, key: key}
 	})
 	return content, cmd
@@ -369,7 +369,8 @@ func subagentLines(msgs []core.Message) []string {
 		lines = append(lines, ansi.SanitizeLine(oneLiner(*blocks[id])))
 	}
 	if final != "" {
-		lines = append(lines, "", ansi.Sanitize(final))
+		lines = append(lines, "")
+		lines = append(lines, strings.Split(ansi.Sanitize(final), "\n")...)
 	}
 	return lines
 }

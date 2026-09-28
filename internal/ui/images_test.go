@@ -108,42 +108,73 @@ func TestImages_KittyUploadSentOnce(t *testing.T) {
 	}
 }
 
+// isRaw reports whether cmd yields a tea.RawMsg.
+func isRaw(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	_, ok := cmd().(tea.RawMsg)
+	return ok
+}
+
+// showKitty shows k the way the App does: from the cache when usable,
+// else rendered (as the details Cmd would) and stored. It reports whether
+// the show sent an upload.
+func showKitty(s *imageState, k imgKey, img image.Image) bool {
+	if _, ok := s.cached(k); !ok {
+		s.store(k, s.renderFor(k)(img))
+	}
+	return isRaw(s.show(k))
+}
+
 func TestImages_KittyReuploadAfterReplacement(t *testing.T) {
 	t.Parallel()
-	// A 64×64 px image is 8×4 cells at its natural size; smaller boxes
-	// shrink it, so the two keys below fit at different sizes.
+	// A 64×64 px image is 8×4 cells at its natural size; the smaller box
+	// shrinks it, so S and T fit at different sizes.
 	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
 	s := newImageState(imgrender.Kitty, false)
-	big, small := imgKey{ref: "r", cols: 8, rows: 4}, imgKey{ref: "r", cols: 2, rows: 1}
-	raws := func(cmd tea.Cmd) int {
-		if cmd == nil {
-			return 0
+	sKey, tKey := imgKey{ref: "r", cols: 8, rows: 4}, imgKey{ref: "r", cols: 2, rows: 1}
+
+	if !showKitty(s, sKey, img) {
+		t.Fatal("S: first show sent no upload")
+	}
+	if showKitty(s, sKey, img) {
+		t.Fatal("S again: re-sent an upload the terminal holds")
+	}
+	if !showKitty(s, tKey, img) {
+		t.Fatal("T: a new size sent no upload")
+	}
+	if !showKitty(s, sKey, img) {
+		t.Fatal("S after T: the cached upload was not re-sent")
+	}
+	// Evict every entry (S and T included) with other images.
+	for i := range maxCachedImages {
+		k := imgKey{ref: fmt.Sprintf("other%d", i), cols: 2, rows: 1}
+		s.store(k, s.renderFor(k)(img))
+	}
+	if _, ok := s.cached(tKey); ok {
+		t.Fatal("test setup: T still cached")
+	}
+	if !showKitty(s, tKey, img) {
+		t.Fatal("T after eviction: no upload, though the terminal holds S")
+	}
+}
+
+func TestImages_CacheIsLRU(t *testing.T) {
+	t.Parallel()
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	s := newImageState(imgrender.Blocks, false)
+	keep := imgKey{ref: "keep", cols: 1, rows: 1}
+	s.store(keep, s.renderFor(keep)(img))
+	for i := range maxCachedImages {
+		if _, ok := s.cached(keep); !ok {
+			t.Fatalf("the recently used entry was evicted after %d stores", i)
 		}
-		if _, ok := cmd().(tea.RawMsg); ok {
-			return 1
-		}
-		return 0
+		k := imgKey{ref: fmt.Sprintf("o%d", i), cols: 1, rows: 1}
+		s.store(k, s.renderFor(k)(img))
 	}
-	s.store(big, s.r.Render(big.ref, img, big.cols, big.rows))
-	if n := raws(s.upload(big)); n != 1 {
-		t.Fatalf("first show uploads = %d, want 1", n)
-	}
-	if n := raws(s.upload(big)); n != 0 {
-		t.Fatalf("second show uploads = %d, want 0", n)
-	}
-	s.store(small, s.r.Render(small.ref, img, small.cols, small.rows))
-	if n := raws(s.upload(small)); n != 1 {
-		t.Fatalf("a new size uploads = %d, want 1 (it replaces the terminal image)", n)
-	}
-	if n := raws(s.upload(big)); n != 1 {
-		t.Fatalf("returning to the first size uploads = %d, want 1 (from the cached Result)", n)
-	}
-	// A render the renderer returns without an upload (it already
-	// produced one for this key and size) borrows the cached bytes.
-	again := s.r.Render(big.ref, img, big.cols, big.rows)
-	s.store(imgKey{ref: "r", cols: 9, rows: 4}, again)
-	if res, _ := s.cached(imgKey{ref: "r", cols: 9, rows: 4}); res.Upload == "" {
-		t.Fatal("a Result stored without an upload did not borrow the cached one")
+	if _, ok := s.cached(imgKey{ref: "o0", cols: 1, rows: 1}); ok {
+		t.Error("the least recently used entry was not evicted")
 	}
 }
 
@@ -256,7 +287,7 @@ func TestTheme_PushBumpsAllVersions(t *testing.T) {
 	}
 	sb := sidebar.New(sidebar.WithStyles(set.Sidebar))
 	sb.SetSize(ta.app.lay.Side.W, ta.app.lay.Side.H)
-	sb.SetSections(ta.app.sess.sections(testWorkDir, nil))
+	sb.SetSections(sidebarSections(ta.app))
 	if got := ta.app.w.side.View(); got != sb.View() {
 		t.Errorf("sidebar not restyled")
 	}

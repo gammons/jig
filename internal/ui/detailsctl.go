@@ -25,7 +25,10 @@ func (d detailsCtl) result(msg detailsMsg) tea.Cmd {
 	if msg.Block != a.view.detailsFor {
 		return nil
 	}
-	a.w.details.SetContent(msg.Content)
+	// The split was opened (SetContent, scroll at the top) before this
+	// content arrived; a later build for the same block (edit context,
+	// the image, a live subagent refresh) keeps the user's scroll.
+	a.w.details.ReplaceContent(msg.Content)
 	a.img.shown = nil
 	if msg.Image == nil || !a.view.detailsOpen {
 		return nil

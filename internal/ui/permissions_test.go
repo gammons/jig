@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -301,5 +302,58 @@ func TestApp_SubagentDetailsRefreshPerTick(t *testing.T) {
 	}
 	if !strings.Contains(xansi.Strip(ta.view()), "child says hi") {
 		t.Error("the details pane does not show the child's messages")
+	}
+}
+
+func TestApp_PermissionHintStaysWhileTyping(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("clean up")
+	ta.startBash("c1", "rm -rf build")
+	ta.typeText("half")
+	ta.request("p1", "c1", "rm -rf build")
+	ta.typeText(" typed more")
+	if got := ta.app.statusState().Hint; got != pendingHint {
+		t.Fatalf("hint after more typing = %q, want %q", got, pendingHint)
+	}
+	// On the card itself the hint is not needed; once resolved it is gone.
+	ta.key("esc")
+	ta.key("g")
+	ta.key("p")
+	if got := ta.app.statusState().Hint; got == pendingHint {
+		t.Error("the hint is shown while the card's block is selected")
+	}
+	ta.event(event.PermissionResolved{Base: rootBase(), RequestID: "p1"})
+	ta.key("k")
+	if got := ta.app.statusState().Hint; got == pendingHint {
+		t.Error("the hint outlived the last pending request")
+	}
+}
+
+func TestApp_SubagentDetailsRefreshKeepsScroll(t *testing.T) {
+	t.Parallel()
+	var long []string
+	for i := range 60 {
+		long = append(long, fmt.Sprintf("row%02d", i))
+	}
+	child := []core.Message{{ID: "k1", SessionID: "ses_c", Role: core.RoleAssistant, Parts: []core.Part{{Kind: core.PartText, Text: strings.Join(long, "\n")}}}}
+	ta := newTestApp(t, withSessions(nil, map[core.SessionID][]core.Message{"ses_c": child}))
+	ta.sendAndAdopt("find it")
+	ta.startSubagent()
+	ta.key("esc")
+	ta.key("enter")
+	for range 5 {
+		ta.key("ctrl+e")
+	}
+	firstRow := func() string {
+		return strings.TrimSpace(xansi.Strip(strings.Split(ta.app.w.details.View(), "\n")[2]))
+	}
+	if got := firstRow(); got != "row04" {
+		t.Fatalf("after 5× ctrl+e the first body row = %q, want row04 (a blank line precedes the text)", got)
+	}
+	ta.event(event.TextDelta{Base: childBase(), MessageID: "k2", Text: "more"})
+	ta.fire()
+	if got := firstRow(); got != "row04" {
+		t.Fatalf("after a refresh the first body row = %q, want the scroll kept (row04)", got)
 	}
 }

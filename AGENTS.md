@@ -316,7 +316,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Map a theme `Palette` into every widget's `Styles` | `theme.Build(p, version) theme.Set` |
 | Push the App's current theme `Set` to every widget (and bump item versions) | `pushTheme(a)` in `internal/ui/themestate.go` |
 | The agent-browser `--session` a bash command runs in (else `default`) | `transcript.BrowserSession(command)` |
-| Cache rendered images per (blob ref, cell box); send a kitty upload only when the terminal lacks that size | `imageState` (`store`, `cached`, `show`) and `placeSixel(a)` in `internal/ui/images.go` |
+| Cache rendered images per (blob ref, cell box), LRU of 32; send a kitty upload only when the terminal lacks that size | `imageState` (`renderFor`, `store`, `cached`, `show`) and `placeSixel(a)` in `internal/ui/images.go`; `imgrender.(*Renderer).Forget(key)` makes the next render upload again |
 
 ## Performance budgets
 
