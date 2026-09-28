@@ -153,9 +153,16 @@ func (p permCtl) guard(req *permcard.Request, blk transcript.BlockID) tea.Cmd {
 	if !fresh && !arrived {
 		return nil
 	}
+	return p.disarm()
+}
+
+// disarm disarms the card and returns the tick that arms it cardArmDelay
+// later (App clock); a later disarm supersedes it.
+func (p permCtl) disarm() tea.Cmd {
+	a := p.a
 	a.w.card.SetArmed(false)
-	g.gen++
-	return a.after(cardArmDelay, cardArmMsg{gen: g.gen})
+	a.w.arm.gen++
+	return a.after(cardArmDelay, cardArmMsg{gen: a.w.arm.gen})
 }
 
 // armed arms the card when msg is the latest disarm's tick.
@@ -169,6 +176,9 @@ func (p permCtl) armed(msg cardArmMsg) {
 // pending: with an empty prompt the App enters NORMAL and selects the
 // card's block (a descendant's request shows on its owning Subagent
 // block); while the user is typing (or picking) it stays put and hints.
+// Switching the mode disarms the card, even one already armed on the
+// selected block for an older request: a key typed for the prompt must
+// not answer it.
 func (p permCtl) requested(e event.PermissionRequested) tea.Cmd {
 	a := p.a
 	if !slices.ContainsFunc(a.sess.proj.Pending(), func(pp transcript.PendingPermission) bool { return pp.RequestID == e.RequestID }) {
@@ -178,7 +188,11 @@ func (p permCtl) requested(e event.PermissionRequested) tea.Cmd {
 		a.view.hint = permissionHint
 		return nil
 	}
+	switched := a.mode != modeNormal
 	cmd := a.setMode(modeNormal)
+	if switched {
+		cmd = tea.Batch(cmd, p.disarm())
+	}
 	if it, ok := a.w.list.Selected(); ok && p.shownOn(transcript.BlockID(it.ID)) != nil {
 		return cmd
 	}

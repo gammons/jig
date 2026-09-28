@@ -39,7 +39,7 @@ func (h normalKeys) handle(k tea.KeyPressMsg) tea.Cmd {
 	}
 	switch key {
 	case "ctrl+c": // spec §6.3: cancel the run only; never clear or quit
-		return a.sender().cancelRun()
+		return a.sender().normalCtrlC()
 	case "g":
 		a.view.keyPrefix = "g"
 		return nil

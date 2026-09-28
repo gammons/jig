@@ -507,6 +507,35 @@ func TestApp_NormalCtrlCOnlyCancels(t *testing.T) {
 	}
 }
 
+func TestApp_NormalCancelStartsCtrlCGrace(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("go")
+	ta.key("esc")
+	ta.key("ctrl+c") // NORMAL: cancels the run
+	ta.event(event.RunFailed{Base: rootBase(), Err: "cancelled"})
+	ta.returnSend()
+	if ta.app.sess.run.busy() {
+		t.Fatal("test setup: still busy after the run ended")
+	}
+	ta.key("i")
+	ta.clk.Advance(900 * time.Millisecond)
+	ta.key("ctrl+c") // within 1 s of the NORMAL cancel, idle, empty prompt
+	if ta.quit {
+		t.Fatal("an INSERT ctrl+c within 1 s of a NORMAL cancel quit")
+	}
+	ta.typeText("draft")
+	ta.key("ctrl+c")
+	if ta.app.w.prompt.Value() != "draft" {
+		t.Error("an INSERT ctrl+c within 1 s of a NORMAL cancel cleared the prompt")
+	}
+	ta.clk.Advance(200 * time.Millisecond)
+	ta.key("ctrl+c")
+	if ta.app.w.prompt.Value() != "" {
+		t.Error("ctrl+c 1.1 s after the NORMAL cancel did not clear the prompt")
+	}
+}
+
 func TestApp_CtrlDDuringRunHints(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)

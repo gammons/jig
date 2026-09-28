@@ -107,6 +107,17 @@ func (s sender) ctrlC() tea.Cmd {
 	return a.quit()
 }
 
+// normalCtrlC is NORMAL's ctrl+c: cancel the run only, never clear or
+// quit. A cancel starts the same cancelGrace as INSERT's, so a quick
+// `i` then ctrl+c can't clear the prompt or quit.
+func (s sender) normalCtrlC() tea.Cmd {
+	if !s.inRun() {
+		return nil
+	}
+	s.a.sess.run.cancelledAt = s.a.opts.Clock.Now()
+	return s.cancelRun()
+}
+
 // inRun reports whether a send is in flight, unsettled, or queued.
 func (s sender) inRun() bool {
 	return s.a.sess.queued || s.a.sess.run.busy()

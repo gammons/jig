@@ -138,6 +138,40 @@ func TestApp_CardKeysWaitForArming(t *testing.T) {
 	}
 }
 
+// A new request that switches INSERT → NORMAL onto a block already
+// showing an older, armed request must disarm the card: the key the user
+// was typing can't answer the old request.
+func TestApp_RequestFocusDisarmsArmedCard(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("go")
+	ta.startBash("c1", "make")
+	ta.startBash("c2", "ls")
+	ta.request("p1", "c1", "make")
+	ta.arm()
+	ta.key("i")
+	if ta.app.mode != modeInsert || ta.app.w.prompt.Value() != "" {
+		t.Fatalf("setup: mode %v prompt %q, want INSERT and empty", ta.app.mode, ta.app.w.prompt.Value())
+	}
+	ta.request("p2", "c2", "ls")
+	if ta.app.mode != modeNormal || ta.selectedID() != "t/c1" {
+		t.Fatalf("mode %v selected %q, want NORMAL on t/c1", ta.app.mode, ta.selectedID())
+	}
+	ta.key("a")
+	if len(ta.perms.replies) != 0 {
+		t.Fatalf("a right after the focus switch replied: %+v", ta.perms.replies)
+	}
+	if ta.app.mode != modeNormal {
+		t.Fatalf("mode = %v after a on the disarmed card, want NORMAL", ta.app.mode)
+	}
+	ta.arm()
+	ta.key("a")
+	want := permReply{ID: "p1", Reply: core.PermissionReply{Kind: core.ReplyOnce}}
+	if len(ta.perms.replies) != 1 || ta.perms.replies[0] != want {
+		t.Errorf("replies = %+v, want [%+v]", ta.perms.replies, want)
+	}
+}
+
 func TestApp_PermissionReplyErrorPrefixedOnce(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
