@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	xansi "github.com/charmbracelet/x/ansi"
 
@@ -63,12 +64,77 @@ func TestApp_PermissionFocusesWhenPromptEmpty(t *testing.T) {
 	if st := ta.app.statusState(); st.Pending != 1 {
 		t.Errorf("status Pending = %d, want 1", st.Pending)
 	}
+	ta.arm()
 	view := xansi.Strip(ta.view())
 	if !strings.Contains(view, "bash wants to run:  rm -rf build") {
 		t.Errorf("view has no card line:\n%s", view)
 	}
 	if !strings.Contains(view, "a allow · A always (this exact command) · d deny · D deny with message") {
 		t.Errorf("view has no card hint line:\n%s", view)
+	}
+}
+
+// arm delivers the pending card-arming ticks (only those).
+func (ta *testApp) arm() {
+	ta.t.Helper()
+	var rest, arms []deferredMsg
+	for _, d := range ta.deferred {
+		if _, ok := d.msg.(cardArmMsg); ok {
+			arms = append(arms, d)
+			continue
+		}
+		rest = append(rest, d)
+	}
+	ta.deferred = rest
+	for _, d := range arms {
+		ta.send(d.msg)
+	}
+}
+
+func TestApp_CardKeysWaitForArming(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("go")
+	ta.startBash("c1", "make")
+	ta.startBash("c2", "ls")
+	ta.request("p1", "c1", "make") // empty prompt: focus jumps to the card
+
+	ticks := deferredOf[cardArmMsg](ta)
+	if len(ticks) == 0 || ticks[len(ticks)-1].d != cardArmDelay {
+		t.Fatalf("arm ticks = %+v, want the last at %v", ticks, cardArmDelay)
+	}
+	if cardArmDelay != 400*time.Millisecond {
+		t.Errorf("cardArmDelay = %v, want 400ms", cardArmDelay)
+	}
+	view := xansi.Strip(ta.view())
+	if strings.Contains(view, "a allow") {
+		t.Errorf("the key legend shows before the card is armed:\n%s", view)
+	}
+	ta.key("a")
+	ta.key("d")
+	if len(ta.perms.replies) != 0 || ta.app.mode != modeNormal {
+		t.Fatalf("keys before arming: replies %+v, mode %v; want none, NORMAL", ta.perms.replies, ta.app.mode)
+	}
+
+	ta.arm()
+	if !strings.Contains(xansi.Strip(ta.view()), "a allow · A always (this exact command) · d deny · D deny with message") {
+		t.Errorf("the armed card lacks its key legend:\n%s", xansi.Strip(ta.view()))
+	}
+	// Moving off the card and back onto it disarms it again.
+	ta.key("j")
+	ta.key("k")
+	if got := ta.selectedID(); got != "t/c1" {
+		t.Fatalf("selected = %q, want t/c1", got)
+	}
+	ta.key("a")
+	if len(ta.perms.replies) != 0 {
+		t.Fatalf("a right after reselecting the card replied: %+v", ta.perms.replies)
+	}
+	ta.arm()
+	ta.key("a")
+	want := []permReply{{ID: "p1", Reply: core.PermissionReply{Kind: core.ReplyOnce}}}
+	if len(ta.perms.replies) != 1 || ta.perms.replies[0] != want[0] {
+		t.Errorf("replies = %+v, want %+v", ta.perms.replies, want)
 	}
 }
 
@@ -102,6 +168,7 @@ func TestApp_CardKeysReply(t *testing.T) {
 	ta.startBash("c2", "make install")
 	ta.startBash("c3", "make clean")
 	ta.request("p1", "c1", "make")
+	ta.arm()
 
 	ta.key("a")
 	if ta.app.mode != modeNormal {
@@ -116,10 +183,12 @@ func TestApp_CardKeysReply(t *testing.T) {
 	}
 
 	ta.request("p2", "c2", "make install")
+	ta.arm()
 	ta.key("A")
 	ta.event(event.PermissionResolved{Base: rootBase(), RequestID: "p2"})
 
 	ta.request("p3", "c3", "make clean")
+	ta.arm()
 	ta.key("D")
 	if !ta.app.w.card.Typing() {
 		t.Fatal("D did not open the deny-message input")
@@ -165,6 +234,7 @@ func TestApp_CardDenyEscClosesInput(t *testing.T) {
 	ta.sendAndAdopt("go")
 	ta.startBash("c1", "make")
 	ta.request("p1", "c1", "make")
+	ta.arm()
 	ta.key("D")
 	ta.typeText("jk")
 	ta.key("esc")
@@ -214,6 +284,7 @@ func TestApp_SubagentPermissionSelectsOwner(t *testing.T) {
 	if !strings.Contains(xansi.Strip(ta.view()), "explore (subagent) wants to run bash: cat /etc/hosts") {
 		t.Errorf("view has no subagent card:\n%s", xansi.Strip(ta.view()))
 	}
+	ta.arm()
 	golden.Assert(t, "app_subagent_permission", ta.view())
 }
 
@@ -263,6 +334,7 @@ func TestApp_GoldenPermissionCard(t *testing.T) {
 	ta.sendAndAdopt("clean up the build")
 	ta.startBash("c1", "rm -rf build")
 	ta.request("p1", "c1", "rm -rf build")
+	ta.arm()
 	golden.Assert(t, "app_permission_card", ta.view())
 }
 

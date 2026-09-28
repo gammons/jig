@@ -18,7 +18,7 @@ import (
 // widgets holds every widget the App owns. upserts counts list Upsert
 // calls (streaming coalescing is asserted on it). cardAt is the block the
 // permission card renders under and the card version and width its item
-// was last built with.
+// was last built with; arm is the card's arming state (permCtl.guard).
 type widgets struct {
 	list    blocklist.Model
 	prompt  prompt.Model
@@ -32,6 +32,7 @@ type widgets struct {
 	render  *renderer
 	upserts int
 	cardAt  cardKey
+	arm     cardArm
 	// gen counts list upserts and resets: every projection change that
 	// reaches the screen goes through one, so sideProj keys on it.
 	gen      int

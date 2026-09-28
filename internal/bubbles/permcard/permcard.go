@@ -47,16 +47,20 @@ func WithStyles(st Styles) Option { return func(m *Model) { m.styles = st } }
 func WithKeyMap(km KeyMap) Option { return func(m *Model) { m.keys = km } }
 
 // Model is the permission card. Use the Model most recently returned by
-// Update; it is not safe for concurrent use.
+// Update; it is not safe for concurrent use. A disarmed card ignores its
+// keys and shows a placeholder for the key legend; the caller disarms it
+// when the card first gets focus and arms it after a delay, so a key
+// meant for something else can't answer the request by accident.
 type Model struct {
-	reply  ReplyFunc
-	styles Styles
-	keys   KeyMap
-	width  int
-	req    *Request
-	typing bool
-	input  textinput.Model
-	ver    int
+	reply    ReplyFunc
+	styles   Styles
+	keys     KeyMap
+	width    int
+	req      *Request
+	typing   bool
+	disarmed bool
+	input    textinput.Model
+	ver      int
 }
 
 // New builds an empty card that sends replies through reply.
@@ -97,6 +101,19 @@ func (m *Model) SetStyles(st Styles) {
 	m.ver++
 }
 
+// SetArmed arms (true, the default) or disarms the card's keys; the view
+// changes, so Version bumps when the state does.
+func (m *Model) SetArmed(armed bool) {
+	if m.disarmed == !armed {
+		return
+	}
+	m.disarmed = !armed
+	m.ver++
+}
+
+// Armed reports whether the card's keys are live.
+func (m Model) Armed() bool { return !m.disarmed }
+
 // Request returns the current request, or nil when the card is empty.
 func (m Model) Request() *Request { return m.req }
 
@@ -121,6 +138,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) updateIdle(k tea.KeyPressMsg) (Model, tea.Cmd) {
+	if m.disarmed {
+		return m, nil
+	}
 	id := m.req.ID
 	switch {
 	case key.Matches(k, m.keys.DenyMsg):

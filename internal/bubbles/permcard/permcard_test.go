@@ -287,3 +287,52 @@ func TestGolden_CardTyping(t *testing.T) {
 	m = typeText(m, "not needed")
 	golden.Assert(t, "card_typing", m.View())
 }
+
+func TestPermcard_DisarmedIgnoresKeys(t *testing.T) {
+	t.Parallel()
+	f := &fakeReply{}
+	m := New(f.fn(), WithStyles(pinnedStyles()))
+	m.SetWidth(80)
+	m.Set(&Request{ID: "req-1", Tool: "bash", Subject: "ls"})
+	v := m.Version()
+	m.SetArmed(false)
+	if m.Version() <= v || m.Armed() {
+		t.Fatalf("SetArmed(false): version %d (was %d), armed %v", m.Version(), v, m.Armed())
+	}
+	for _, k := range []string{"a", "A", "d", "D"} {
+		var cmd tea.Cmd
+		m, cmd = m.Update(keyMsg(k))
+		if cmd != nil || m.Typing() {
+			t.Errorf("disarmed card acted on %q (cmd %v, typing %v)", k, cmd != nil, m.Typing())
+		}
+	}
+	if len(f.calls) != 0 {
+		t.Fatalf("disarmed card replied: %+v", f.calls)
+	}
+	if strings.Contains(xansi.Strip(m.View()), "allow") {
+		t.Errorf("disarmed card shows its key hints:\n%s", xansi.Strip(m.View()))
+	}
+
+	v = m.Version()
+	m.SetArmed(true)
+	m.SetArmed(true)
+	if m.Version() != v+1 {
+		t.Errorf("version after arming = %d, want %d (one bump)", m.Version(), v+1)
+	}
+	if !strings.Contains(xansi.Strip(m.View()), "a allow · A always (this exact command) · d deny · D deny with message") {
+		t.Errorf("armed card lacks the exact hint line:\n%s", xansi.Strip(m.View()))
+	}
+	if _, cmd := m.Update(keyMsg("a")); cmd == nil {
+		t.Error("armed card ignored a")
+	}
+}
+
+func TestGolden_CardDisarmed(t *testing.T) {
+	t.Parallel()
+	f := &fakeReply{}
+	m := New(f.fn(), WithStyles(pinnedStyles()))
+	m.SetWidth(60)
+	m.Set(&Request{ID: "req-1", Tool: "bash", Subject: "git push origin main"})
+	m.SetArmed(false)
+	golden.Assert(t, "card_disarmed", m.View())
+}

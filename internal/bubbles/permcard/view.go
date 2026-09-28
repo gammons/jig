@@ -9,6 +9,9 @@ import (
 // hintLine is the card's second line, spec §7.4, verbatim.
 const hintLine = "  a allow · A always (this exact command) · d deny · D deny with message"
 
+// disarmedLine stands in for hintLine while the card's keys are disarmed.
+const disarmedLine = "  …"
+
 // Styles holds the card's look.
 type Styles struct {
 	Text lipgloss.Style // line 1: "⚠ ... wants to run: ..."
@@ -31,6 +34,9 @@ func (m Model) View() string {
 	l1 := m.styles.Text.Render(cardLine1(*m.req, m.width))
 	if m.typing {
 		return l1 + "\n" + m.input.View()
+	}
+	if m.disarmed {
+		return l1 + "\n" + m.styles.Hint.Render(disarmedLine)
 	}
 	return l1 + "\n" + m.styles.Hint.Render(hintLine)
 }

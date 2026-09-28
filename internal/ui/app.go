@@ -185,8 +185,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd = a.onResult(msg)
 	}
 	prev := a.lay
-	layout := a.relayout()
-	a.sync()
+	layout := tea.Batch(a.relayout(), a.sync())
 	if a.lay != prev {
 		// The details pane moved or resized: draw a shown sixel again.
 		layout = tea.Batch(layout, placeSixel(a))
@@ -247,8 +246,7 @@ func (a *App) onEvent(ev event.Event) tea.Cmd {
 		return tea.Batch(cmds...)
 	}
 	if e, ok := ev.(event.PermissionRequested); ok {
-		permCtl{a}.sync()
-		cmds = append(cmds, permCtl{a}.requested(e))
+		cmds = append(cmds, permCtl{a}.sync(), permCtl{a}.requested(e))
 	}
 	if ev.Session() != a.sess.info.ID {
 		detailsCtl{a}.childEvent()
@@ -303,6 +301,8 @@ func (a *App) onResult(msg tea.Msg) tea.Cmd {
 		return a.sender().done(msg)
 	case detailsMsg:
 		return detailsCtl{a}.result(msg)
+	case cardArmMsg:
+		permCtl{a}.armed(msg)
 	case tea.TerminalVersionMsg:
 		if p := imgrender.Detect(a.opts.Images, msg.Name); p != a.img.r.Protocol() {
 			a.img = newImageState(p, a.opts.Tmux)
@@ -389,14 +389,15 @@ func (a *App) applyListWidth() {
 	a.view.pendingW = a.view.listW
 }
 
-// sync points the permission card at its request and rebuilds the status
-// bar and the sidebar from the state.
-func (a *App) sync() {
-	permCtl{a}.sync()
+// sync points the permission card at its request (returning its arming
+// tick, if any) and rebuilds the status bar and the sidebar from the state.
+func (a *App) sync() tea.Cmd {
+	cmd := permCtl{a}.sync()
 	a.w.status.Set(a.statusState())
 	if a.lay.SideVisible {
 		a.w.side.SetSections(sidebarSections(a))
 	}
+	return cmd
 }
 
 // statusState is the full status bar state.

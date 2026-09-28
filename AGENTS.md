@@ -420,7 +420,10 @@ Each has one key handler that runs its fixed R21 keys first, then
   `enter` toggles the details split (`ctrl+e`/`ctrl+y` scroll it),
   `q`/`esc` close the split or clear the search, `gp` jumps to the next
   pending permission, and `a A d D` answer the card on the selected
-  block; `i` (or `a` off a card) → INSERT.
+  block; `i` (or `a` off a card) → INSERT. The card is disarmed for
+  400 ms (`cardArmDelay`, an App-clock tick) after a new request or the
+  selection moving onto it: its keys do nothing and its legend shows
+  `…` until it arms (`permCtl.guard`).
 - PICKER (`mode_picker.go`, `pickerCtl`): the ctrl+p picker overlay owns
   every key until it closes (`esc`) or yields a `picker.ChosenMsg`.
 

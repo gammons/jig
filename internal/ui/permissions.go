@@ -2,6 +2,7 @@ package ui
 
 import (
 	"slices"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -15,6 +16,23 @@ import (
 // permissionHint is the status hint shown when a request arrives while
 // the user is typing (spec §6.5, verbatim).
 const permissionHint = "⚠ permission pending · esc gp"
+
+// cardArmDelay is how long the card's keys stay disarmed after a new
+// request or after the selection moves onto the card, so a key meant for
+// the prompt or the list can't answer it by accident.
+const cardArmDelay = 400 * time.Millisecond
+
+// cardArmMsg arms the card, if gen is still the latest disarm.
+type cardArmMsg struct{ gen int }
+
+// cardArm is the arming state: the latest disarm (gen), and the request
+// and selected block the last sync saw, to notice a new request or the
+// selection arriving on the card.
+type cardArm struct {
+	gen int
+	req string
+	sel transcript.BlockID
+}
 
 // permCtl runs the permission card from the App: which pending request
 // it shows and under which block, the focus rule, the card's keys, and
@@ -75,10 +93,12 @@ func (p permCtl) shownOn(id transcript.BlockID) *transcript.PendingPermission {
 	return b.Permission
 }
 
-// sync points the card at its target and re-renders the blocks whose
-// card changed: the one it left and the one it is on (a new request, a
-// keystroke in the deny input, a restyle, or a new list width).
-func (p permCtl) sync() {
+// sync points the card at its target, disarms it on a new request or when
+// the selection arrives on it (returning the arming tick), and re-renders
+// the blocks whose card changed: the one it left and the one it is on (a
+// new request, a keystroke in the deny input, arming, a restyle, or a new
+// list width).
+func (p permCtl) sync() tea.Cmd {
 	a := p.a
 	var req *permcard.Request
 	var blk transcript.BlockID
@@ -92,12 +112,13 @@ func (p permCtl) sync() {
 		blk = pp.Block
 	}
 	a.w.card.Set(req)
+	cmd := p.guard(req, blk)
 	if a.view.listW != a.w.cardAt.width {
 		a.w.card.SetWidth(a.view.listW)
 	}
 	next := cardKey{block: blk, ver: a.w.card.Version(), width: a.view.listW}
 	if next == a.w.cardAt {
-		return
+		return cmd
 	}
 	old := a.w.cardAt.block
 	a.w.cardAt = next
@@ -109,6 +130,39 @@ func (p permCtl) sync() {
 		ids = append(ids, blk)
 	}
 	a.flush(ids)
+	return cmd
+}
+
+// guard disarms the card showing req under blk when req is new or the
+// selection has just moved onto blk, and returns the tick that arms it
+// cardArmDelay later (App clock); a later disarm supersedes it.
+func (p permCtl) guard(req *permcard.Request, blk transcript.BlockID) tea.Cmd {
+	a := p.a
+	var sel transcript.BlockID
+	if it, ok := a.w.list.Selected(); ok {
+		sel = transcript.BlockID(it.ID)
+	}
+	id := ""
+	if req != nil {
+		id = req.ID
+	}
+	g := &a.w.arm
+	arrived := blk != "" && sel == blk && g.sel != sel
+	fresh := id != "" && id != g.req
+	g.req, g.sel = id, sel
+	if !fresh && !arrived {
+		return nil
+	}
+	a.w.card.SetArmed(false)
+	g.gen++
+	return a.after(cardArmDelay, cardArmMsg{gen: g.gen})
+}
+
+// armed arms the card when msg is the latest disarm's tick.
+func (p permCtl) armed(msg cardArmMsg) {
+	if msg.gen == p.a.w.arm.gen {
+		p.a.w.card.SetArmed(true)
+	}
 }
 
 // requested applies the focus rule (spec §6.5) to request e, now
