@@ -33,10 +33,11 @@ type TokenAction struct{ Agent, Tool, Pattern, Token string }
 // untrusted project may apply (spec §8.3 + R7), and the effects dropped
 // (nil when nothing was). Global and GlobalMD pass through unchanged.
 //
-//   - Providers (including ImageModels), Instructions, SkillPaths, and
-//     AgentBrowser are dropped whole; they could redirect credentials,
-//     inject prompt files, or turn on a permission preset.
-//   - DefaultModel, SmallModel, ModelAliases, Theme, and Keybinds are kept.
+//   - Providers (including ImageModels), Instructions, SkillPaths,
+//     AgentBrowser, and Keybinds are dropped whole; they could redirect
+//     credentials, inject prompt files, turn on a permission preset, or
+//     remap the keys that answer permission cards, cancel a run, or quit.
+//   - DefaultModel, SmallModel, ModelAliases, and Theme are kept.
 //   - Top-level permissions go through permission.Tighten against
 //     Effective(nil, Global.Permissions). Because the top-level rules sit
 //     under every agent's own rules at runtime, an ask pattern is also
@@ -74,7 +75,6 @@ func restrictScalars(p core.Config) (kept, dropped core.Config) {
 		DefaultModel: p.DefaultModel,
 		SmallModel:   p.SmallModel,
 		ModelAliases: cloneStringMap(p.ModelAliases),
-		Keybinds:     cloneStringMap(p.Keybinds),
 		Theme:        p.Theme,
 	}
 	dropped = core.Config{
@@ -82,6 +82,7 @@ func restrictScalars(p core.Config) (kept, dropped core.Config) {
 		Instructions: p.Instructions,
 		SkillPaths:   p.SkillPaths,
 		AgentBrowser: p.AgentBrowser,
+		Keybinds:     p.Keybinds,
 	}
 	return kept, dropped
 }

@@ -53,7 +53,6 @@ func TestRestrict_KeepsAliasesAndModels(t *testing.T) {
 		SmallModel:   "a/small",
 		ModelAliases: map[string]string{"fast": "a/small"},
 		Theme:        "dark",
-		Keybinds:     map[string]string{"quit": "ctrl+q"},
 		Permissions:  core.PermissionRules{"bash": {Default: core.Deny}},
 	}
 	got, dropped := Restrict(Layers{Project: project})
@@ -62,6 +61,21 @@ func TestRestrict_KeepsAliasesAndModels(t *testing.T) {
 	}
 	if dropped != nil {
 		t.Errorf("dropped = %v, want nil", effectStrings(dropped))
+	}
+}
+
+// An untrusted project's [keybinds] could remap keys the user relies on
+// (the permission card's, run.cancel, app.quit), so Restrict drops them
+// all and lists them as dropped.
+func TestRestrict_DropsKeybinds(t *testing.T) {
+	project := core.Config{Keybinds: map[string]string{"normal.x": "app.quit", "insert.ctrl+g": "run.cancel"}}
+	got, dropped := Restrict(Layers{Project: project})
+	if got.Project.Keybinds != nil {
+		t.Errorf("Keybinds = %v, want nil", got.Project.Keybinds)
+	}
+	want := []string{`keybinds."insert.ctrl+g" → run.cancel`, `keybinds.normal.x → app.quit`}
+	if g := effectStrings(dropped); !reflect.DeepEqual(g, want) {
+		t.Errorf("dropped = %q, want %q", g, want)
 	}
 }
 
@@ -259,7 +273,6 @@ func TestRestrict_DoesNotMutateOrAliasInputs(t *testing.T) {
 	}
 	got.Project.Permissions["zzz"] = core.Rule{}
 	got.Project.ModelAliases["fast"] = "evil/x"
-	got.Project.Keybinds["quit"] = "q"
 	for name, a := range got.Project.Agents {
 		for i := range a.Tools {
 			a.Tools[i] = "bash"
