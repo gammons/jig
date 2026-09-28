@@ -69,6 +69,32 @@ func TestOverlay_PadsShortRowsToWidth(t *testing.T) {
 	}
 }
 
+// TestOverlay_NegativeInputsDoNotPanic guards against negative
+// width/total/yOffset/visibleHeight reaching the sizing arithmetic. The
+// visibleHeight <= 0 || width < 1 guard and the total <= visibleHeight
+// no-overflow check already short-circuit every one of these before any
+// slicing happens, so this documents (and locks in) that no combination
+// of negative inputs panics.
+func TestOverlay_NegativeInputsDoNotPanic(t *testing.T) {
+	tests := []struct {
+		name                                 string
+		width, total, yOffset, visibleHeight int
+	}{
+		{"negative width", -5, 10, 0, 3},
+		{"negative total", 5, -10, 0, 3},
+		{"negative yOffset", 5, 10, -3, 3},
+		{"negative visibleHeight", 5, 10, 0, -3},
+		{"all negative", -5, -10, -3, -3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := []string{"a", "b", "c"}
+			out := Overlay(append([]string(nil), in...), tt.width, tt.total, tt.yOffset, tt.visibleHeight, bg, track, thumb)
+			t.Logf("Overlay(%d, %d, %d, %d) = %q", tt.width, tt.total, tt.yOffset, tt.visibleHeight, out)
+		})
+	}
+}
+
 func TestVisible(t *testing.T) {
 	if Visible(5, 5) {
 		t.Error("Visible(5,5) should be false")

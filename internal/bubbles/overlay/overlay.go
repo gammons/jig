@@ -31,6 +31,16 @@ const kittyPlaceholderPrefix = string(ansi.PlaceholderRune)
 // uploaded and the next non-overlay frame re-emits the placeholder cells,
 // re-creating the placement without any image-state plumbing.
 func Center(background string, width, height int, box string, dim float64) string {
+	// A negative width/height would panic inside lipgloss.NewCanvas
+	// (makeslice with a negative length). Clamp to 0, matching the
+	// already-graceful degradation at width/height == 0.
+	if width < 0 {
+		width = 0
+	}
+	if height < 0 {
+		height = 0
+	}
+
 	// Step 1: Render background to canvas and dim all cells.
 	//
 	// Wide characters (emoji, CJK) need two pieces of care:

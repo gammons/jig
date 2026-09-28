@@ -118,6 +118,27 @@ func TestCenter_BoxLargerThanBackgroundIsClipped(t *testing.T) {
 	}
 }
 
+// TestCenter_NegativeSizesDoNotPanic guards against a negative width or
+// height reaching lipgloss.NewCanvas, which panics (makeslice: len out of
+// range) on a negative length. Negative sizes should clamp to 0, the same
+// as the already-graceful width == 0 / height == 0 case.
+func TestCenter_NegativeSizesDoNotPanic(t *testing.T) {
+	tests := []struct {
+		name          string
+		width, height int
+	}{
+		{"negative width", -3, 2},
+		{"negative height", 6, -2},
+		{"both zero", 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := Center("bg", tt.width, tt.height, "X", 0.5)
+			t.Logf("Center(%d, %d) = %q", tt.width, tt.height, out)
+		})
+	}
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
