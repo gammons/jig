@@ -66,6 +66,7 @@ internal/service/agent/                 Runner (agent loop)
 internal/service/task/                  task tool (subagents)
 internal/service/session/               sessions, history, compaction, titles
 internal/service/chat/                  ChatService facade the UIs call
+internal/service/media/                 image decode/scale/re-encode into blobs
 internal/ui/plain/                      headless renderer (io.Writer)
 internal/ui/transcript/                 (Plan 2) transcript projection, core-only
 internal/bubbles/                       (Plan 2) Bubble Tea widgets and helpers
@@ -217,6 +218,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Resolve XDG base directories | `paths.Resolve(getenv)` (`ConfigDir`/`DataDir`/`CacheDir`/`StateDir`) |
 | Write a file atomically (temp file, fsync, rename) | `atomicfile.Write(path, data, perm)` |
 | Content-addressed blob storage (SHA-256 refs) | `blobfs.New(dir)` / `(*Store).Put`, `.Open` |
+| Turn image bytes into a bounded, stored `core.Media` (+ `core.ImageInfo`) | `media.New(blobs).Process(data)`; `media.IsImagePath(p)` |
 | Build a `core.ToolResult` for a tool's `Run` | `core.ToolError(call, msg)` (sets `IsError`) / `core.ToolOK(call, output)` |
 | Resolve a tool's `path` input against `rc.WorkDir` | `resolvePath(workDir, path)` in `service/tools` (also backs `subjectPath` for `ext.Subjecter`) |
 | Permission subject for a search tool's `path` input | `searchSubject(rc, input)` in `service/tools` |
