@@ -28,8 +28,9 @@ func TestLayers_UIImportsOnlyCoreAndUI(t *testing.T) {
 			case strings.HasPrefix(imp.Path, "internal/"):
 				if !underDir(imp.Path, "internal/core") &&
 					!underDir(imp.Path, "internal/ui") &&
-					!underDir(imp.Path, "internal/clock") {
-					t.Errorf("%s:%d: ui-layer: internal/ui may only import internal/core, internal/ui, and internal/clock, got %q", f.Path, imp.Line, imp.Path)
+					!underDir(imp.Path, "internal/clock") &&
+					!underDir(imp.Path, "internal/bubbles") {
+					t.Errorf("%s:%d: ui-layer: internal/ui may only import internal/core, internal/ui, internal/clock, and internal/bubbles, got %q", f.Path, imp.Line, imp.Path)
 				}
 			case isStdlib(imp.Path):
 				switch imp.Path {

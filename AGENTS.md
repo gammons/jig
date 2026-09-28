@@ -59,20 +59,33 @@ internal/service/task/                  task tool (subagents)
 internal/service/session/               sessions, history, compaction, titles
 internal/service/chat/                  ChatService facade the UIs call
 internal/ui/plain/                      headless renderer (io.Writer)
+internal/ui/transcript/                 (Plan 2) transcript projection, core-only
+internal/bubbles/                       (Plan 2) Bubble Tea widgets and helpers
+internal/golden/                        golden-frame test assertion
 internal/app/                           composition root + CLI
 e2e/                                    end-to-end tests against the built binary
 ```
 
-Dependency rules (spec §3.2), enforced by `internal/archtest`:
+Dependency rules (spec §3.2, §3.3), enforced by `internal/archtest`:
 
-- `ui/...` imports only `core/...` and `ui/...`. It does no I/O of its own:
-  no `os/exec`, `net/http`, `database/sql`, file writes, `client/...`, or
-  `data/...`.
+- `ui/...` imports only `core/...`, `ui/...`, and `bubbles/...`. It does no
+  I/O of its own: no `os/exec`, `net/http`, `database/sql`, file writes,
+  `client/...`, or `data/...`. Its third-party imports are `charm.land/...`
+  only. `internal/ui/transcript` is further restricted to stdlib and
+  `internal/core/...` only (no `ui` or `bubbles`).
 - `service/...` imports `core/...` and declares small interfaces for the
   client and data capabilities it uses. It never imports concrete
   `client/...` or `data/...` types.
 - `client/...` and `data/...` never import `service/...` or `ui/...`.
 - Only `internal/app` imports concrete implementations from every layer.
+- `bubbles/...` imports stdlib and, among its own subpackages, only
+  `internal/bubbles/ansi`, `internal/bubbles/overlay`,
+  `internal/bubbles/scrollbar`, and `internal/bubbles/wintree` (never its
+  own package). Its third-party imports are `charm.land/...`,
+  `github.com/charmbracelet/x/ansi`, `github.com/alecthomas/chroma/v2`,
+  `golang.org/x/image/...`, `github.com/sahilm/fuzzy`, and
+  `github.com/aymanbagabas/go-udiff`. No struct field in `bubbles/...` has
+  type `func(tea.Msg)`, and every `View` method takes zero parameters.
 
 ## Architecture tests
 
@@ -163,6 +176,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Resolve a tool's `path` input against `rc.WorkDir` | `resolvePath(workDir, path)` in `service/tools` (also backs `subjectPath` for `ext.Subjecter`) |
 | Permission subject for a search tool's `path` input | `searchSubject(rc, input)` in `service/tools` |
 | Resolve a model string (ref or alias) | `agents.ParseRef(s, cfg.ModelAliases)` / `(*agents.Service).ResolveRef(s)` |
+| Golden-frame assertion | `golden.Assert(t, name, got)`; update with `JIG_UPDATE_GOLDEN=1` |
 
 ## Adding a tool, transform, or hook
 
