@@ -32,7 +32,7 @@ type fakeChat struct {
 	ctxs    []context.Context
 	cancels []core.SessionID
 	result  core.SendResult
-	err     error
+	errs    []error // the n-th Send returns errs[n] (nil past the end)
 }
 
 func (f *fakeChat) Send(ctx context.Context, req core.SendRequest) (core.SendResult, error) {
@@ -40,7 +40,11 @@ func (f *fakeChat) Send(ctx context.Context, req core.SendRequest) (core.SendRes
 	defer f.mu.Unlock()
 	f.sends = append(f.sends, req)
 	f.ctxs = append(f.ctxs, ctx)
-	return f.result, f.err
+	var err error
+	if n := len(f.sends) - 1; n < len(f.errs) {
+		err = f.errs[n]
+	}
+	return f.result, err
 }
 
 func (f *fakeChat) Compact(context.Context, core.SessionID) error { return nil }
@@ -186,8 +190,10 @@ func testCatalog() fakeCatalog {
 
 // testApp drives an App synchronously: every Cmd an Update returns runs
 // at once and its message is fed back in, except ticks (collected in
-// deferred, delivered by fire) and the bus wait (tests deliver events
-// with event directly).
+// deferred, delivered by fire), Chat.Send's return (collected in
+// returns, delivered by returnSend: a real Send returns only after its
+// run ended), and the bus wait (tests deliver events with event
+// directly).
 type testApp struct {
 	t        testing.TB
 	app      *App
@@ -196,6 +202,7 @@ type testApp struct {
 	prefs    *fakePrefs
 	clk      *clock.Fake
 	deferred []deferredMsg
+	returns  []sendDoneMsg
 	quit     bool
 }
 
@@ -259,6 +266,8 @@ func (ta *testApp) run(cmd tea.Cmd) {
 		}
 	case deferredMsg:
 		ta.deferred = append(ta.deferred, msg)
+	case sendDoneMsg:
+		ta.returns = append(ta.returns, msg)
 	case tea.QuitMsg:
 		ta.quit = true
 	default:
@@ -274,6 +283,17 @@ func (ta *testApp) fire() {
 	for _, d := range pending {
 		ta.send(d.msg)
 	}
+}
+
+// returnSend delivers the oldest pending Chat.Send return.
+func (ta *testApp) returnSend() {
+	ta.t.Helper()
+	if len(ta.returns) == 0 {
+		ta.t.Fatal("returnSend: no Send in flight")
+	}
+	msg := ta.returns[0]
+	ta.returns = ta.returns[1:]
+	ta.send(msg)
 }
 
 // event delivers ev as the bus bridge would.

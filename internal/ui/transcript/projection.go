@@ -3,6 +3,7 @@ package transcript
 import (
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/gammons/jig/internal/core"
 )
@@ -22,6 +23,9 @@ type Projection struct {
 	derived derived
 }
 
+// pendingUserPrefix starts the ID of every block AddUser appends.
+const pendingUserPrefix = "u/pending/"
+
 // New returns an empty projection of root's transcript.
 func New(root core.SessionID) *Projection {
 	p := &Projection{root: root, tree: newLineage()}
@@ -33,10 +37,20 @@ func New(root core.SessionID) *Projection {
 // no event announces, and returns its ID, "u/pending/<k>". k counts from 0
 // and is never reused. The next Load replaces it with the stored message.
 func (p *Projection) AddUser(text string, attachments []string) BlockID {
-	id := BlockID("u/pending/" + strconv.Itoa(p.users))
+	id := BlockID(pendingUserPrefix + strconv.Itoa(p.users))
 	p.users++
 	p.list.add(&Block{ID: id, Kind: KindUser, Text: text, Attachments: slices.Clone(attachments)})
 	return id
+}
+
+// DropUser removes a block AddUser appended ("u/pending/<k>"), for a send
+// that failed before its run started, and reports whether it did. Stored
+// user blocks are never removed.
+func (p *Projection) DropUser(id BlockID) bool {
+	if !strings.HasPrefix(string(id), pendingUserPrefix) {
+		return false
+	}
+	return p.list.remove(id)
 }
 
 // Blocks returns a copy of every block, in display order.
@@ -108,6 +122,20 @@ func (l *blockList) add(b *Block) *Block {
 	l.index[b.ID] = len(l.blocks)
 	l.blocks = append(l.blocks, b)
 	return b
+}
+
+// remove deletes id's block, reporting whether it existed.
+func (l *blockList) remove(id BlockID) bool {
+	i, ok := l.index[id]
+	if !ok {
+		return false
+	}
+	l.blocks = slices.Delete(l.blocks, i, i+1)
+	delete(l.index, id)
+	for j := i; j < len(l.blocks); j++ {
+		l.index[l.blocks[j].ID] = j
+	}
+	return true
 }
 
 func (l *blockList) get(id BlockID) (*Block, bool) {

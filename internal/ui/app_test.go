@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -115,7 +117,7 @@ func TestApp_IdleSessionCreatedNotAdopted(t *testing.T) {
 	}
 }
 
-func TestApp_QueueSendsAfterRun(t *testing.T) {
+func TestApp_QueueSendsAfterSendReturns(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
 	ta.sendAndAdopt("first")
@@ -132,21 +134,118 @@ func TestApp_QueueSendsAfterRun(t *testing.T) {
 		t.Error("prompt border lacks ⏳ queued")
 	}
 
-	// Another session's run ending doesn't release the queue.
-	ta.event(event.RunFinished{Base: event.Base{SessionID: "ses_9", RootID: "ses_9"}})
+	// RunFinished is published before the Runner releases the session, so
+	// the queue waits for Send itself to return.
+	ta.event(event.RunFinished{Base: rootBase(), MessageID: "m1"})
+	if len(ta.chat.sends) != 1 || ta.app.sess.run.running {
+		t.Fatalf("sends = %d running = %v after RunFinished; want 1, idle, still queued", len(ta.chat.sends), ta.app.sess.run.running)
+	}
+	ta.typeText("!")
+	ta.key("enter") // Send hasn't returned: still queues
 	if len(ta.chat.sends) != 1 {
-		t.Fatal("queue sent on another session's RunFinished")
+		t.Fatal("sent while the previous Send was still in flight")
 	}
 
-	ta.event(event.RunFinished{Base: rootBase(), MessageID: "m1"})
+	ta.returnSend()
 	if len(ta.chat.sends) != 2 {
-		t.Fatalf("sends = %d after RunFinished, want 2", len(ta.chat.sends))
+		t.Fatalf("sends = %d after Send returned, want 2", len(ta.chat.sends))
 	}
-	if got := ta.chat.sends[1]; got.SessionID != "ses_1" || got.Text != "second" || got.Agent != "" {
-		t.Errorf("queued send = %+v, want ses_1/second (no agent on an existing session)", got)
+	if got := ta.chat.sends[1]; got.SessionID != "ses_1" || got.Text != "second!" || got.Agent != "" {
+		t.Errorf("queued send = %+v, want ses_1/second! (no agent on an existing session)", got)
 	}
 	if ta.app.sess.queued || ta.app.w.prompt.Value() != "" || !ta.app.sess.run.running {
 		t.Errorf("after the queued send: queued=%v prompt=%q running=%v", ta.app.sess.queued, ta.app.w.prompt.Value(), ta.app.sess.run.running)
+	}
+}
+
+func TestApp_QueuedSendBusyKeepsText(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.chat.errs = []error{nil, core.ErrBusy}
+	ta.sendAndAdopt("first")
+	ta.typeText("second")
+	ta.key("enter")
+	ta.event(event.RunFinished{Base: rootBase(), MessageID: "m1"})
+	ta.returnSend() // sends the queue, which fails with ErrBusy
+	if len(ta.chat.sends) != 2 {
+		t.Fatalf("sends = %d, want the queued send", len(ta.chat.sends))
+	}
+	ta.returnSend()
+	if v := ta.app.w.prompt.Value(); v != "second" {
+		t.Errorf("prompt = %q after ErrBusy, want the text back", v)
+	}
+	if ta.app.sess.run.running || ta.app.sess.queued {
+		t.Errorf("running=%v queued=%v, want idle", ta.app.sess.run.running, ta.app.sess.queued)
+	}
+	if n := ta.app.w.list.Len(); n != 1 {
+		t.Errorf("list has %d items, want only the first user block (no ghost)", n)
+	}
+	if h := ta.app.statusState().Hint; !strings.Contains(h, "busy") {
+		t.Errorf("hint = %q, want the busy error", h)
+	}
+}
+
+func TestApp_SendErrorAlwaysEndsRun(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withResume(core.Session{ID: "ses_1", Agent: "build"}, nil, nil))
+	ta.chat.errs = []error{errors.New("boom")}
+	ta.typeText("x")
+	ta.key("enter")
+	// A session update (a title, a Configure) is not a run event.
+	ta.event(event.SessionUpdated{Base: rootBase(), Info: core.Session{ID: "ses_1", Title: "t", Agent: "build"}})
+	ta.returnSend()
+	if ta.app.sess.run.running {
+		t.Fatal("still running after Send failed")
+	}
+	ta.fire()
+	if len(ta.deferred) != 0 {
+		t.Errorf("streamTick still scheduled: %+v", ta.deferred)
+	}
+	ta.key("ctrl+c") // clear the restored text
+	ta.typeText("y")
+	ta.key("enter")
+	if len(ta.chat.sends) != 2 || ta.app.sess.queued {
+		t.Errorf("sends = %d queued = %v, want the next submit sent", len(ta.chat.sends), ta.app.sess.queued)
+	}
+}
+
+func TestApp_FailedSendLeavesNoGhost(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.chat.errs = []error{errors.New("unknown model")}
+	ta.typeText("hello")
+	ta.key("enter")
+	ta.returnSend()
+	if n := ta.app.w.list.Len(); n != 0 {
+		t.Errorf("list has %d items after a send that never ran, want 0", n)
+	}
+	if v := ta.app.w.prompt.Value(); v != "hello" {
+		t.Errorf("prompt = %q, want the text back to retry", v)
+	}
+	ta.key("enter")
+	ta.event(event.SessionCreated{Base: rootBase(), Info: core.Session{ID: "ses_1"}})
+	blocks := ta.app.sess.proj.Blocks()
+	if len(blocks) != 1 || blocks[0].Text != "hello" || ta.app.w.list.Len() != 1 {
+		t.Errorf("adopted session has %d blocks (list %d), want just the retried one", len(blocks), ta.app.w.list.Len())
+	}
+}
+
+func TestApp_CtrlCBeforeAdoptionCancelsSend(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.typeText("go")
+	ta.key("enter")
+	ta.key("ctrl+c")
+	if ta.chat.ctxs[0].Err() == nil {
+		t.Fatal("ctrl+c before SessionCreated did not cancel the in-flight Send")
+	}
+	if ta.quit {
+		t.Fatal("ctrl+c quit while a send was in flight")
+	}
+	ta.send(sendDoneMsg{err: context.Canceled})
+	ta.returns = nil
+	if ta.app.sess.run.running {
+		t.Error("still running after the cancelled Send returned")
 	}
 }
 
@@ -197,6 +296,7 @@ func TestApp_CtrlCLadder(t *testing.T) {
 			t.Fatalf("queued=%v cancels=%v; want the queue cleared and Cancel in one press", ta.app.sess.queued, ta.chat.cancels)
 		}
 		ta.event(event.RunFailed{Base: rootBase(), Err: "cancelled"})
+		ta.returnSend()
 		if len(ta.chat.sends) != 1 {
 			t.Errorf("sends = %d after RunFailed, want nothing more sent", len(ta.chat.sends))
 		}

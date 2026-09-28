@@ -328,3 +328,32 @@ func TestAddUser_AppendsPendingUserBlock(t *testing.T) {
 		t.Errorf("after Load: ID = %q, want u/pending/2", id)
 	}
 }
+
+func TestDropUser_RemovesOnlyPendingUserBlocks(t *testing.T) {
+	p := New(root)
+	p.Load([]core.Message{{ID: "u1", SessionID: root, Role: core.RoleUser, Parts: []core.Part{{Kind: core.PartText, Text: "stored"}}}})
+	a := p.AddUser("a", nil)
+	b := p.AddUser("b", nil)
+	if p.DropUser("u/u1") {
+		t.Error("DropUser removed a stored user block")
+	}
+	if !p.DropUser(a) {
+		t.Fatal("DropUser(pending) = false")
+	}
+	if p.DropUser(a) {
+		t.Error("DropUser twice = true")
+	}
+	var ids []BlockID
+	for _, bl := range p.Blocks() {
+		ids = append(ids, bl.ID)
+	}
+	if len(ids) != 2 || ids[0] != "u/u1" || ids[1] != b {
+		t.Fatalf("blocks = %v, want [u/u1 %s]", ids, b)
+	}
+	if got, ok := p.Block(b); !ok || got.Text != "b" {
+		t.Errorf("Block(%s) = %+v, %v after the drop", b, got, ok)
+	}
+	if id := p.AddUser("c", nil); id != "u/pending/2" {
+		t.Errorf("next AddUser = %s, want u/pending/2 (ordinals never reused)", id)
+	}
+}

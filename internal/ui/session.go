@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"slices"
 	"time"
 
@@ -11,14 +12,23 @@ import (
 	"github.com/gammons/jig/internal/ui/transcript"
 )
 
-// runState is the root's run: in flight from the send until the root's
-// RunFinished/RunFailed, since startedAt. sawEvent records whether any
-// event of it reached the App (a send that fails before its run starts
-// publishes none). frame is the spinner frame, advanced by streamTick.
+// runState is the root's run. A send is in flight (inFlight) from the
+// send until Chat.Send returns — which happens only after the Runner has
+// released the session — and cancel cancels its context. running is what
+// the UI shows: set on send, cleared by the root's RunFinished/RunFailed
+// or when Send returns, whichever comes first. sawEvent records whether
+// any run event (a step, a delta, a tool call, the run's end) arrived: a
+// send that fails before its run starts publishes none. userID and text
+// are the send's user block and prompt text, to undo a send that never
+// ran. frame is the spinner frame, advanced by streamTick.
 type runState struct {
 	running   bool
+	inFlight  bool
 	startedAt time.Time
 	sawEvent  bool
+	cancel    context.CancelFunc
+	userID    transcript.BlockID
+	text      string
 	frame     int
 }
 
@@ -99,12 +109,10 @@ func (s *sessionState) resetBlocks() {
 }
 
 // applyResult is what the App must do after sessionState.apply: re-render
-// upsert now, or rebuild the whole list (reload); runEnded reports that
-// the root's run just ended.
+// upsert now, or rebuild the whole list (reload).
 type applyResult struct {
-	upsert   []transcript.BlockID
-	reload   bool
-	runEnded bool
+	upsert []transcript.BlockID
+	reload bool
 }
 
 // apply folds one bus event into the state. Deltas only mark their blocks
@@ -122,7 +130,9 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 	if ev.Session() != s.info.ID {
 		return applyResult{upsert: s.withDirty(ids)}
 	}
-	s.run.sawEvent = s.run.sawEvent || s.run.running
+	if s.run.inFlight && isRunEvent(ev) {
+		s.run.sawEvent = true
+	}
 	switch e := ev.(type) {
 	case event.TextDelta, event.ReasoningDelta:
 		for _, id := range ids {
@@ -139,9 +149,8 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 		s.usage = e.Usage
 		s.cost += e.CostUSD
 	case event.RunFinished, event.RunFailed:
-		ended := s.run.running
 		s.run.running = false
-		return applyResult{upsert: s.withDirty(ids), runEnded: ended}
+		return applyResult{upsert: s.withDirty(ids)}
 	case event.SessionUpdated:
 		s.info = withID(e.Info, s.info.ID)
 	case event.TodosUpdated:
@@ -151,6 +160,16 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 		return applyResult{}
 	}
 	return applyResult{upsert: s.withDirty(ids)}
+}
+
+// isRunEvent reports whether ev is evidence that a run actually started.
+func isRunEvent(ev event.Event) bool {
+	switch ev.(type) {
+	case event.MessageStarted, event.TextDelta, event.ReasoningDelta, event.ToolCallStarted,
+		event.ToolCallFinished, event.StepFinished, event.RunFinished, event.RunFailed:
+		return true
+	}
+	return false
 }
 
 // withDirty prepends the dirty blocks (emptying the set) to ids, without
@@ -196,7 +215,10 @@ func (s *sessionState) adopt(e event.SessionCreated) applyResult {
 	s.proj = transcript.New(e.SessionID)
 	for _, b := range old.Blocks() {
 		if b.Kind == transcript.KindUser {
-			s.proj.AddUser(b.Text, b.Attachments)
+			id := s.proj.AddUser(b.Text, b.Attachments)
+			if b.ID == s.run.userID {
+				s.run.userID = id
+			}
 		}
 	}
 	prev := s.info
@@ -207,7 +229,6 @@ func (s *sessionState) adopt(e event.SessionCreated) applyResult {
 	if s.info.Model == "" {
 		s.info.Model = prev.Model
 	}
-	s.run.sawEvent = true
 	s.resetBlocks()
 	return applyResult{reload: true}
 }
@@ -218,11 +239,40 @@ func withID(info core.Session, id core.SessionID) core.Session {
 	return info
 }
 
-// startRun marks a send in flight.
-func (s *sessionState) startRun() {
-	s.run.running = true
-	s.run.startedAt = s.clk.Now()
-	s.run.sawEvent = false
+// startRun marks a send of text (shown as block userID) in flight under
+// a context cancel cancels.
+func (s *sessionState) startRun(userID transcript.BlockID, text string, cancel context.CancelFunc) {
+	s.run = runState{
+		running: true, inFlight: true, startedAt: s.clk.Now(),
+		cancel: cancel, userID: userID, text: text, frame: s.run.frame,
+	}
+}
+
+// endSend records that Chat.Send returned: the run is over (the Runner
+// has released the session). It returns the dirty blocks to render.
+func (s *sessionState) endSend() []transcript.BlockID {
+	if s.run.cancel != nil {
+		s.run.cancel()
+	}
+	s.run.inFlight, s.run.running, s.run.cancel = false, false, nil
+	return s.dirty.take()
+}
+
+// dropUser removes the block of a send that never ran and returns every
+// remaining block's item at its current version (nothing re-renders).
+func (s *sessionState) dropUser(id transcript.BlockID) []blocklist.Item {
+	s.proj.DropUser(id)
+	delete(s.versions, id)
+	blocks := s.proj.Blocks()
+	out := make([]blocklist.Item, len(blocks))
+	for i, b := range blocks {
+		out[i] = blocklist.Item{
+			ID:      string(b.ID),
+			Version: s.versions[b.ID],
+			Data:    blockData{Block: b, Duration: s.tools.durs[b.ID], Frame: s.run.frame},
+		}
+	}
+	return out
 }
 
 // load replaces the projection's blocks with msgs, the root's stored

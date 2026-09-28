@@ -7,6 +7,7 @@ import (
 
 	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/bubbles/sidebar"
+	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/ui/transcript"
 )
 
@@ -17,7 +18,7 @@ const newSessionTitle = "new session"
 // context gauge, cost, agent · model), Todos, and Files. Every row's text
 // is sanitized.
 func (s *sessionState) sections(workDir string, aliases map[string]string) []sidebar.Section {
-	return []sidebar.Section{s.sessionSection(aliases), s.todoSection(), s.fileSection(workDir)}
+	return []sidebar.Section{s.sessionSection(aliases), todoSection(s.todos), fileSection(workDir, s.proj.ChangedFiles())}
 }
 
 func (s *sessionState) sessionSection(aliases map[string]string) sidebar.Section {
@@ -37,9 +38,10 @@ func (s *sessionState) sessionSection(aliases map[string]string) sidebar.Section
 	return sidebar.Section{Title: "Session", Rows: rows}
 }
 
-func (s *sessionState) todoSection() sidebar.Section {
-	rows := make([]sidebar.Row, 0, len(s.todos))
-	for _, t := range s.todos {
+// todoSection lists todos: ✓ done, ● in progress, ○ pending.
+func todoSection(todos []core.Todo) sidebar.Section {
+	rows := make([]sidebar.Row, 0, len(todos))
+	for _, t := range todos {
 		row := sidebar.Row{Icon: "○", Text: ansi.SanitizeLine(t.Content), Tone: sidebar.Muted}
 		switch t.Status {
 		case "completed":
@@ -52,8 +54,9 @@ func (s *sessionState) todoSection() sidebar.Section {
 	return sidebar.Section{Title: "Todos", Rows: rows}
 }
 
-func (s *sessionState) fileSection(workDir string) sidebar.Section {
-	changes := normalizeChanges(workDir, s.proj.ChangedFiles())
+// fileSection lists changed files, A(dded) or M(odified).
+func fileSection(workDir string, changed []transcript.FileChange) sidebar.Section {
+	changes := normalizeChanges(workDir, changed)
 	rows := make([]sidebar.Row, 0, len(changes))
 	for _, c := range changes {
 		icon, tone := "M", sidebar.Warning

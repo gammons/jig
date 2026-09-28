@@ -16,15 +16,16 @@ import (
 // maxHistory is how many prompts are kept per project (spec §7.3).
 const maxHistory = 100
 
-// sender is the App's send path: sending, queueing while a run is in
-// flight, and the ctrl+c ladder.
+// sender is the App's send path: sending, queueing while a send is in
+// flight, undoing a send that never ran, and the ctrl+c ladder.
 type sender struct{ a *App }
 
-// submit sends text, or, while a run is in flight, queues the prompt: the
-// text stays in it (still editable) and is sent when the run ends.
+// submit sends text, or, while a send is in flight, queues the prompt:
+// the text stays in it (still editable) and is sent once Chat.Send
+// returns.
 func (s sender) submit(text string) tea.Cmd {
 	a := s.a
-	if a.sess.run.running {
+	if a.sess.run.inFlight {
 		a.sess.queued = true
 		a.w.prompt.SetQueued(true)
 		return nil
@@ -32,19 +33,23 @@ func (s sender) submit(text string) tea.Cmd {
 	return s.send(text)
 }
 
-// send starts a run: the user block appears at once, the prompt resets,
-// the text joins the project's history, and streamTick starts. A new
-// session is created with the chosen agent and model.
+// send starts a run under its own cancellable context (so ctrl+c can
+// cancel it even before the new session is known): the user block
+// appears at once, the prompt resets, the text joins the project's
+// history, and streamTick starts. A new session is created with the
+// chosen agent and model.
 func (s sender) send(text string) tea.Cmd {
 	a := s.a
 	req := core.SendRequest{SessionID: a.sess.info.ID, Text: text}
 	if req.SessionID == "" {
 		req.Agent, req.Model = a.sess.info.Agent, a.sess.info.Model
 	}
-	a.flush([]transcript.BlockID{a.sess.proj.AddUser(text, nil)})
-	a.sess.startRun()
+	id := a.sess.proj.AddUser(text, nil)
+	a.flush(a.sess.withDirty([]transcript.BlockID{id}))
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.sess.startRun(id, text, cancel)
 	a.w.prompt.Reset()
-	cmds := []tea.Cmd{sendCmd(a.ctx, a.ports, req), s.remember(text)}
+	cmds := []tea.Cmd{sendCmd(ctx, a.ports, req), s.remember(text)}
 	if !a.view.ticking {
 		a.view.ticking = true
 		cmds = append(cmds, a.after(streamInterval, streamTickMsg{}))
@@ -77,7 +82,7 @@ func lastN(s []string, n int) []string {
 func (s sender) ctrlC() tea.Cmd {
 	a := s.a
 	switch {
-	case a.sess.queued || a.sess.run.running:
+	case a.sess.queued || a.sess.run.inFlight:
 		return s.cancelRun()
 	case a.w.prompt.Value() != "":
 		a.w.prompt.Reset()
@@ -86,11 +91,19 @@ func (s sender) ctrlC() tea.Cmd {
 	return a.quit()
 }
 
-// cancelRun drops a queued send, then cancels the root's run.
+// cancelRun drops a queued send, then cancels the send in flight: its
+// context (which reaches the run even before the session is known) and,
+// once the root is known, the root's run through Chat.Cancel.
 func (s sender) cancelRun() tea.Cmd {
 	a := s.a
 	s.unqueue()
-	if !a.sess.run.running || a.sess.info.ID == "" {
+	if !a.sess.run.inFlight {
+		return nil
+	}
+	if a.sess.run.cancel != nil {
+		a.sess.run.cancel()
+	}
+	if a.sess.info.ID == "" {
 		return nil
 	}
 	return cancelCmd(a.ports, a.sess.info.ID)
@@ -102,7 +115,41 @@ func (s sender) unqueue() {
 	s.a.w.prompt.SetQueued(false)
 }
 
-// afterRun sends the queued prompt, if any, once the root's run ended.
+// done handles Chat.Send returning, which means the run is over and the
+// Runner has released the session: the run state always ends here. A
+// send that failed before its run published any run event (bad config, a
+// busy session, a cancel before it started) is undone — its user block
+// removed, its text back in the prompt, the queue dropped — and its error
+// becomes the hint. Otherwise a queued prompt is sent now.
+func (s sender) done(msg sendDoneMsg) tea.Cmd {
+	a := s.a
+	run := a.sess.run
+	a.flush(a.sess.endSend())
+	if msg.err != nil && !run.sawEvent {
+		s.undo(run.userID, run.text, msg.err)
+		return nil
+	}
+	return s.afterRun()
+}
+
+// undo reverts a send that never ran: the block goes, the text returns
+// to the prompt (ahead of anything typed since), and the queue is
+// dropped.
+func (s sender) undo(id transcript.BlockID, text string, err error) {
+	a := s.a
+	a.w.list.SetItems(a.sess.dropUser(id))
+	if cur := a.w.prompt.Value(); cur != "" {
+		text += "\n" + cur
+	}
+	a.w.prompt.Reset()
+	a.w.prompt.Insert(text)
+	s.unqueue()
+	if !errors.Is(err, context.Canceled) {
+		a.view.hint = "send: " + ansi.SanitizeLine(err.Error())
+	}
+}
+
+// afterRun sends the queued prompt, if any.
 func (s sender) afterRun() tea.Cmd {
 	a := s.a
 	if !a.sess.queued {
@@ -114,23 +161,4 @@ func (s sender) afterRun() tea.Cmd {
 		return nil
 	}
 	return s.send(text)
-}
-
-// done handles Chat.Send returning. A send that failed before its run
-// published anything (bad config, a busy session) ends the run here —
-// no RunFailed will come — and drops the queue; its error becomes the
-// hint. A run that started reports its own end through events.
-func (s sender) done(msg sendDoneMsg) tea.Cmd {
-	a := s.a
-	if msg.err == nil || errors.Is(msg.err, context.Canceled) {
-		return nil
-	}
-	if a.sess.run.running && !a.sess.run.sawEvent {
-		a.sess.run.running = false
-		s.unqueue()
-	}
-	if !a.sess.run.sawEvent {
-		a.view.hint = "send: " + ansi.SanitizeLine(msg.err.Error())
-	}
-	return nil
 }
