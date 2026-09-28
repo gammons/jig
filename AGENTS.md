@@ -26,7 +26,11 @@ resolving any `SendRequest.Attachments` against its `WorkDir` first,
 `Compact` summarizes history behind the Runner's busy exclusion),
 `core.SessionService` (implemented by `service/session`, covering listing,
 `Rename`, and `Configure`), and `core.PermissionService` (implemented by
-`permission.BusAsker`). `chat.Send` and `chat.Compact` failures caused by
+`permission.BusAsker`). Persisted UI preferences go through
+`core.PrefsService` (`internal/core/prefs.go`, implemented by
+`prefsfs.Store`): `Get` and `Update(fn)`, never a whole-struct save —
+`Update` re-reads the file under the store mutex and applies `fn` to the
+fresh copy. `chat.Send` and `chat.Compact` failures caused by
 configuration or input (including a missing session) are `*chat.ConfigError`
 (headless exit 2).
 

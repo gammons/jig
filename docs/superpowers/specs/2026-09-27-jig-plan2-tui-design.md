@@ -343,7 +343,7 @@ All of these go through the `session.modify` mutex.
 - `ProjectService.Files(ctx) ([]string, error)`
 - `ProjectService.ReadFile(ctx, path) ([]byte, error)`: used for diff context and screenshots; limited to files under the workdir or in the spill and blob directories.
 - `BlobService.Open(ref) ([]byte, string, error)`: image bytes and MIME type.
-- `PrefsService`: `Get() Prefs`, `Save(Prefs) error` (theme, sidebar, recent actions, per-project prompt history).
+- `PrefsService`: `Get() Prefs`, `Update(fn func(*Prefs)) error` (theme, sidebar, recent actions, per-project prompt history). `Update` re-reads the file and applies `fn` to that fresh copy, so two jig processes writing different fields don't lose each other's changes (Plan 2a final-review F6; replaces `Save(Prefs)`).
 
 **`ChatService` changes**
 

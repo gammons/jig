@@ -33,8 +33,8 @@ func TestPrefs_RoundTripAndCopy(t *testing.T) {
 			SkillsDir: "/skills",
 		},
 	}
-	if err := s.Save(want); err != nil {
-		t.Fatalf("Save: %v", err)
+	if err := s.Update(func(p *core.Prefs) { *p = want }); err != nil {
+		t.Fatalf("Update: %v", err)
 	}
 
 	reopened, err := Open(path)
@@ -75,16 +75,11 @@ func TestPrefs_CorruptFileIsError(t *testing.T) {
 	}
 }
 
-// TestPrefs_ConcurrentSavesAgree drives N goroutines each Saving a distinct
-// Prefs concurrently, then asserts that whichever one "won" is consistent
-// between the in-memory Store and the bytes on disk: Get().Theme must equal
-// the Theme a fresh Open of the same path sees. Run with -race: before
-// Save held s.mu for its whole body, this could observe cur set by one
-// goroutine's Save while the file on disk held another's bytes.
-func TestPrefs_ConcurrentSavesAgree(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "prefs.json")
-
+// TestPrefs_ConcurrentUpdatesLoseNothing drives N goroutines each
+// appending a distinct entry through Update; every entry must survive, in
+// memory and on disk. Run with -race.
+func TestPrefs_ConcurrentUpdatesLoseNothing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prefs.json")
 	s, err := Open(path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -96,24 +91,74 @@ func TestPrefs_ConcurrentSavesAgree(t *testing.T) {
 	for i := 0; i < n; i++ {
 		go func(i int) {
 			defer wg.Done()
-			p := core.Prefs{Theme: fmt.Sprintf("theme-%d", i)}
-			if err := s.Save(p); err != nil {
-				t.Errorf("Save: %v", err)
+			if err := s.Update(func(p *core.Prefs) { p.Recent = append(p.Recent, fmt.Sprint(i)) }); err != nil {
+				t.Errorf("Update: %v", err)
 			}
 		}(i)
 	}
 	wg.Wait()
 
-	got := s.Get()
-
 	reopened, err := Open(path)
 	if err != nil {
 		t.Fatalf("Open (reopen): %v", err)
 	}
-	onDisk := reopened.Get()
+	if got, onDisk := len(s.Get().Recent), len(reopened.Get().Recent); got != n || onDisk != n {
+		t.Errorf("Recent has %d entries in memory, %d on disk; want %d", got, onDisk, n)
+	}
+}
 
-	if got.Theme != onDisk.Theme {
-		t.Errorf("Get().Theme = %q, but the file on disk has Theme = %q", got.Theme, onDisk.Theme)
+// TestPrefs_UpdateMergesAcrossStores pins that Update applies fn to the
+// file's current contents, not the Store's stale copy: two Stores (two
+// jig processes) on the same path each Updating a different field both
+// survive.
+func TestPrefs_UpdateMergesAcrossStores(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prefs.json")
+	a, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Update(func(p *core.Prefs) { p.Theme = "dark" }); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Update(func(p *core.Prefs) { p.AgentBrowser.Bin = "/bin/ab" }); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.Get(); got.Theme != "dark" || got.AgentBrowser.Bin != "/bin/ab" {
+		t.Errorf("b.Get() = %+v, want both updates", got)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.Get(); got.Theme != "dark" || got.AgentBrowser.Bin != "/bin/ab" {
+		t.Errorf("on disk = %+v, want both updates", got)
+	}
+}
+
+// TestPrefs_UpdateCorruptFileIsErrorNoWrite pins that Update refuses to
+// overwrite a file it cannot parse.
+func TestPrefs_UpdateCorruptFileIsErrorNoWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prefs.json")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	if err := s.Update(func(*core.Prefs) { called = true }); err == nil || !strings.Contains(err.Error(), path) {
+		t.Errorf("Update err = %v, want an error naming %q", err, path)
+	}
+	if called {
+		t.Error("fn was called for a corrupt file")
+	}
+	if data, _ := os.ReadFile(path); string(data) != "{not json" {
+		t.Errorf("file = %q, want it untouched", data)
 	}
 }
 
@@ -128,4 +173,8 @@ func TestPrefs_MissingFileIsZeroValue(t *testing.T) {
 	if got := s.Get(); !reflect.DeepEqual(got, core.Prefs{}) {
 		t.Errorf("Get() = %+v, want zero value", got)
 	}
+}
+
+func TestStore_ImplementsPrefsService(t *testing.T) {
+	var _ core.PrefsService = (*Store)(nil)
 }

@@ -86,8 +86,9 @@ func browserSkillsDir(prefsPath, bin string, skillsPath func(context.Context, st
 		return "", fmt.Sprintf("warning: agent-browser skills path: %v", err)
 	}
 	dir = normalizeSkillsDir(raw)
-	prefs.AgentBrowser = core.AgentBrowserCache{Bin: bin, ModTime: mod, SkillsDir: dir}
-	_ = store.Save(prefs)
+	_ = store.Update(func(p *core.Prefs) {
+		p.AgentBrowser = core.AgentBrowserCache{Bin: bin, ModTime: mod, SkillsDir: dir}
+	})
 	return dir, ""
 }
 

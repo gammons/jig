@@ -20,8 +20,11 @@ type Prefs struct {
 	AgentBrowser AgentBrowserCache
 }
 
-// PrefsService is the port UIs use to read and persist Prefs.
+// PrefsService is the port UIs use to read and persist Prefs. Update
+// applies fn to the latest persisted Prefs (re-read, not a cached copy)
+// and saves the result, so concurrent writers of different fields never
+// lose each other's changes.
 type PrefsService interface {
 	Get() Prefs
-	Save(Prefs) error
+	Update(fn func(*Prefs)) error
 }

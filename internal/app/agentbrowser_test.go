@@ -96,9 +96,9 @@ func TestBrowser_CachedPrefsSkipsSkillsPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Save(core.Prefs{AgentBrowser: core.AgentBrowserCache{
-		Bin: bin, ModTime: info.ModTime().UnixNano(), SkillsDir: "/cached/skills",
-	}}); err != nil {
+	if err := store.Update(func(p *core.Prefs) {
+		p.AgentBrowser = core.AgentBrowserCache{Bin: bin, ModTime: info.ModTime().UnixNano(), SkillsDir: "/cached/skills"}
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -148,6 +148,36 @@ func TestBrowser_CacheMissRunsSkillsPathAndSaves(t *testing.T) {
 	got := store.Get().AgentBrowser
 	if got.Bin != bin || got.SkillsDir != "/fresh/skills" {
 		t.Errorf("saved prefs = %+v, want Bin=%q SkillsDir=/fresh/skills", got, bin)
+	}
+}
+
+// TestBrowser_CacheSaveKeepsConcurrentPrefs pins that caching the skills
+// dir does not clobber a prefs change another process made meanwhile.
+func TestBrowser_CacheSaveKeepsConcurrentPrefs(t *testing.T) {
+	dir := t.TempDir()
+	bin := writeFakeBin(t, dir)
+	prefsPath := filepath.Join(dir, "prefs.json")
+	l := trust.Layers{Global: core.Config{AgentBrowser: core.ToggleAuto}}
+	lookPath := func(string) (string, error) { return bin, nil }
+	skillsPath := func(context.Context, string) (string, error) {
+		other, err := prefsfs.Open(prefsPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := other.Update(func(p *core.Prefs) { p.Theme = "dark" }); err != nil {
+			t.Fatal(err)
+		}
+		return "/fresh/skills", nil
+	}
+
+	resolveBrowser(l, false, lookPath, prefsPath, skillsPath)
+
+	store, err := prefsfs.Open(prefsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Get(); got.Theme != "dark" || got.AgentBrowser.SkillsDir != "/fresh/skills" {
+		t.Errorf("saved prefs = %+v, want Theme=dark and the cached skills dir", got)
 	}
 }
 

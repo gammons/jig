@@ -24,19 +24,28 @@ type Store struct {
 // Open reads path into a Store. A missing file yields a Store holding the
 // zero core.Prefs; corrupt JSON is an error naming path.
 func Open(path string) (*Store, error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return &Store{path: path}, nil
-	}
+	p, err := read(path)
 	if err != nil {
-		return nil, fmt.Errorf("prefsfs: reading %s: %w", path, err)
-	}
-
-	var p core.Prefs
-	if err := json.Unmarshal(data, &p); err != nil {
-		return nil, fmt.Errorf("prefsfs: parsing %s: %w", path, err)
+		return nil, err
 	}
 	return &Store{path: path, cur: p}, nil
+}
+
+// read loads the Prefs at path: a missing file is the zero Prefs, and
+// corrupt JSON is an error naming path.
+func read(path string) (core.Prefs, error) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return core.Prefs{}, nil
+	}
+	if err != nil {
+		return core.Prefs{}, fmt.Errorf("prefsfs: reading %s: %w", path, err)
+	}
+	var p core.Prefs
+	if err := json.Unmarshal(data, &p); err != nil {
+		return core.Prefs{}, fmt.Errorf("prefsfs: parsing %s: %w", path, err)
+	}
+	return p, nil
 }
 
 // Get returns a deep copy of the current Prefs: mutating the result,
@@ -48,14 +57,21 @@ func (s *Store) Get() core.Prefs {
 	return clonePrefs(s.cur)
 }
 
-// Save writes p to disk (atomicfile.Write, 0600) and, on success, makes it
-// the Prefs a later Get returns. Save holds s.mu for its whole body, so
-// concurrent Saves are serialized end to end: the bytes on disk and cur
-// always agree on which Save won.
-func (s *Store) Save(p core.Prefs) error {
+// Update re-reads the file (so another process's changes are kept),
+// applies fn to that fresh copy, writes it atomically (0600), and, on
+// success, makes it the Prefs a later Get returns. A corrupt file is an
+// error, and neither fn nor a write happens. Update holds s.mu for its
+// whole body, so concurrent Updates in one process never lose a change;
+// across processes the window is only between the re-read and the rename.
+func (s *Store) Update(fn func(*core.Prefs)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	p, err := read(s.path)
+	if err != nil {
+		return err
+	}
+	fn(&p)
 	data, err := json.Marshal(p)
 	if err != nil {
 		return fmt.Errorf("prefsfs: encoding prefs: %w", err)
