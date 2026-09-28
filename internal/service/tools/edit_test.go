@@ -16,7 +16,7 @@ import (
 // write or edit passes the read-before-write check.
 func readThenGet(t *testing.T, tr *Tracker, dir, path string) {
 	t.Helper()
-	readTool := NewRead(OSFS(), tr)
+	readTool := NewRead(OSFS(), tr, nil)
 	call := mustCall(t, "read", map[string]any{"path": path})
 	res, err := readTool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {

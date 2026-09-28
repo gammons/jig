@@ -10,12 +10,14 @@ import (
 	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core/event"
 	"github.com/gammons/jig/internal/core/ext"
+	"github.com/gammons/jig/internal/data/blobfs"
 	"github.com/gammons/jig/internal/data/contextfs"
 	"github.com/gammons/jig/internal/data/fsroot"
 	"github.com/gammons/jig/internal/data/store"
 	"github.com/gammons/jig/internal/ids"
 	"github.com/gammons/jig/internal/service/agent"
 	"github.com/gammons/jig/internal/service/agents"
+	"github.com/gammons/jig/internal/service/media"
 	"github.com/gammons/jig/internal/service/permission"
 	"github.com/gammons/jig/internal/service/prompt"
 	"github.com/gammons/jig/internal/service/session"
@@ -37,6 +39,8 @@ type registryDeps struct {
 	asker    permission.Asker
 	ids      *ids.Gen
 	spillDir string
+	blobs    *blobfs.Store
+	media    *media.Pipeline
 }
 
 // buildRegistry registers every built-in tool, hook, transform, and
@@ -56,7 +60,7 @@ func addTools(r *ext.Registry, d registryDeps) error {
 	fsys, tr := tools.OSFS(), tools.NewTracker()
 	srch := searchAdapter{search.New(exec.LookPath)}
 	all := []ext.Tool{
-		tools.NewRead(fsys, tr),
+		tools.NewRead(fsys, tr, d.media),
 		tools.NewWrite(fsys, tr),
 		tools.NewEdit(fsys, tr),
 		tools.NewBash(shellAdapter{shell.Runner{}}, d.spillDir, d.ids),

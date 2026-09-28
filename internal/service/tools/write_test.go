@@ -98,7 +98,7 @@ func TestWrite_ExistingAfterReadSucceedsAndKeepsMode(t *testing.T) {
 	}
 
 	tr := NewTracker()
-	readTool := NewRead(OSFS(), tr)
+	readTool := NewRead(OSFS(), tr, nil)
 	readCall := mustCall(t, "read", map[string]any{"path": path})
 	if _, err := readTool.Run(context.Background(), rcFor(dir), readCall); err != nil {
 		t.Fatalf("read Run: %v", err)

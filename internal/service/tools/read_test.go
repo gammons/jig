@@ -33,7 +33,7 @@ func TestRead_LineNumbersOffsetLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewRead(OSFS(), NewTracker())
+	tool := NewRead(OSFS(), NewTracker(), nil)
 	call := mustCall(t, "read", map[string]any{"path": path, "offset": 2, "limit": 2})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -57,7 +57,7 @@ func TestRead_LongLineTruncated(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewRead(OSFS(), NewTracker())
+	tool := NewRead(OSFS(), NewTracker(), nil)
 	call := mustCall(t, "read", map[string]any{"path": path})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -81,7 +81,7 @@ func TestRead_BinaryRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewRead(OSFS(), NewTracker())
+	tool := NewRead(OSFS(), NewTracker(), nil)
 	call := mustCall(t, "read", map[string]any{"path": path})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -108,7 +108,7 @@ func TestRead_Directory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewRead(OSFS(), NewTracker())
+	tool := NewRead(OSFS(), NewTracker(), nil)
 	call := mustCall(t, "read", map[string]any{"path": dir})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -127,7 +127,7 @@ func TestRead_Directory(t *testing.T) {
 func TestRead_DirectoryDoesNotMarkRead(t *testing.T) {
 	dir := t.TempDir()
 	tr := NewTracker()
-	tool := NewRead(OSFS(), tr)
+	tool := NewRead(OSFS(), tr, nil)
 	call := mustCall(t, "read", map[string]any{"path": dir})
 	if _, err := tool.Run(context.Background(), rcFor(dir), call); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -145,7 +145,7 @@ func TestRead_EmptyFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewRead(OSFS(), NewTracker())
+	tool := NewRead(OSFS(), NewTracker(), nil)
 	call := mustCall(t, "read", map[string]any{"path": path})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -166,7 +166,7 @@ func TestRead_OffsetPastEOF(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewRead(OSFS(), NewTracker())
+	tool := NewRead(OSFS(), NewTracker(), nil)
 	call := mustCall(t, "read", map[string]any{"path": path, "offset": 5})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -189,7 +189,7 @@ func TestRead_MarksReadOnSuccess(t *testing.T) {
 	}
 
 	tr := NewTracker()
-	tool := NewRead(OSFS(), tr)
+	tool := NewRead(OSFS(), tr, nil)
 	call := mustCall(t, "read", map[string]any{"path": path})
 	if _, err := tool.Run(context.Background(), rcFor(dir), call); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -206,7 +206,7 @@ func TestRead_MarksReadOnSuccess(t *testing.T) {
 
 func TestRead_InvalidJSON(t *testing.T) {
 	dir := t.TempDir()
-	tool := NewRead(OSFS(), NewTracker())
+	tool := NewRead(OSFS(), NewTracker(), nil)
 	call := core.ToolCall{ID: "c1", Name: "read", Input: json.RawMessage("{not json")}
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -219,7 +219,7 @@ func TestRead_InvalidJSON(t *testing.T) {
 
 func TestRead_MissingPath(t *testing.T) {
 	dir := t.TempDir()
-	tool := NewRead(OSFS(), NewTracker())
+	tool := NewRead(OSFS(), NewTracker(), nil)
 	call := mustCall(t, "read", map[string]any{})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -232,7 +232,7 @@ func TestRead_MissingPath(t *testing.T) {
 
 func TestRead_RefusesCanceledContext(t *testing.T) {
 	dir := t.TempDir()
-	tool := NewRead(OSFS(), NewTracker())
+	tool := NewRead(OSFS(), NewTracker(), nil)
 	call := mustCall(t, "read", map[string]any{"path": dir})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -250,7 +250,7 @@ func TestRead_NegativeOffsetRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewRead(OSFS(), NewTracker())
+	tool := NewRead(OSFS(), NewTracker(), nil)
 	call := mustCall(t, "read", map[string]any{"path": path, "offset": -1})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -272,7 +272,7 @@ func TestRead_NegativeLimitRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewRead(OSFS(), NewTracker())
+	tool := NewRead(OSFS(), NewTracker(), nil)
 	call := mustCall(t, "read", map[string]any{"path": path, "limit": -5})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -294,7 +294,7 @@ func TestRead_CRLFLinesStripped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewRead(OSFS(), NewTracker())
+	tool := NewRead(OSFS(), NewTracker(), nil)
 	call := mustCall(t, "read", map[string]any{"path": path})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {
@@ -316,7 +316,7 @@ func TestRead_RelativePathResolvesAgainstWorkDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewRead(OSFS(), NewTracker())
+	tool := NewRead(OSFS(), NewTracker(), nil)
 	call := mustCall(t, "read", map[string]any{"path": "f.txt"})
 	res, err := tool.Run(context.Background(), rcFor(dir), call)
 	if err != nil {

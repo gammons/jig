@@ -26,7 +26,7 @@ func TestRead_OutputCappedAt50KB(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := NewRead(OSFS(), NewTracker()).Run(context.Background(), rcFor(dir), mustCall(t, "read", map[string]any{"path": path}))
+	res, err := NewRead(OSFS(), NewTracker(), nil).Run(context.Background(), rcFor(dir), mustCall(t, "read", map[string]any{"path": path}))
 	if err != nil || res.IsError {
 		t.Fatalf("Run: %v %+v", err, res)
 	}
@@ -55,7 +55,7 @@ func TestReadGlobGrep_Subjects(t *testing.T) {
 		}
 		return s.Subject(rc, json.RawMessage(input))
 	}
-	read := NewRead(OSFS(), NewTracker())
+	read := NewRead(OSFS(), NewTracker(), nil)
 	if got := subj(read, `{"path":"sub/.env"}`); got != "/work/sub/.env" {
 		t.Errorf("read subject = %q", got)
 	}
@@ -75,7 +75,7 @@ func TestReadGlobGrep_Subjects(t *testing.T) {
 func TestRead_EnvDenyPatternBlocks(t *testing.T) {
 	cfg := core.PermissionRules{"read": {Default: core.Allow, Patterns: map[string]core.Action{"*.env": core.Deny}}}
 	hook := permission.NewHook(cfg, permission.StaticAsker{})
-	read := NewRead(OSFS(), NewTracker())
+	read := NewRead(OSFS(), NewTracker(), nil)
 	rc := ext.RunContext{SessionID: "s", WorkDir: t.TempDir()}
 
 	_, v, err := hook.Before(context.Background(), rc, read, core.ToolCall{Name: "read", Input: json.RawMessage(`{"path":".env"}`)})

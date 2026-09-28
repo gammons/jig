@@ -5,17 +5,20 @@ import (
 	"crypto/rand"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/gammons/jig/internal/client/catalog"
 	"github.com/gammons/jig/internal/client/llm"
 	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core/event"
 	"github.com/gammons/jig/internal/core/ext"
+	"github.com/gammons/jig/internal/data/blobfs"
 	"github.com/gammons/jig/internal/data/store"
 	"github.com/gammons/jig/internal/ids"
 	"github.com/gammons/jig/internal/service/agent"
 	"github.com/gammons/jig/internal/service/agents"
 	"github.com/gammons/jig/internal/service/chat"
+	"github.com/gammons/jig/internal/service/media"
 	"github.com/gammons/jig/internal/service/permission"
 	"github.com/gammons/jig/internal/service/session"
 	"github.com/gammons/jig/internal/service/skills"
@@ -71,10 +74,12 @@ func newChat(e env, rt *runtime, cat *catalog.Catalog, asker permission.Asker, e
 	src := llm.NewSource(cat, pv, e.cfg().Providers, e.getenv)
 	sess := session.New(session.Deps{Store: rt.store, LLMs: src, Agents: ag, Bus: rt.bus, Clock: clk, IDs: idGen})
 	proxy := &agent.Proxy{}
+	blobs := blobfs.New(filepath.Join(e.paths.DataDir, "blobs"))
 	view, err := buildRegistry(registryDeps{
 		env: e, clk: clk, bus: rt.bus, store: rt.store,
 		skills: skills.New(disc.skills, skillFS{}), sessions: sess, agents: ag,
 		proxy: proxy, asker: asker, ids: idGen, spillDir: rt.spillDir,
+		blobs: blobs, media: media.New(blobs),
 	})
 	if err != nil {
 		return nil, err

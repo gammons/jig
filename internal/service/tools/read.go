@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"path/filepath"
 	"strings"
 
 	"github.com/gammons/jig/internal/core"
@@ -16,6 +17,12 @@ const (
 	maxLineChars     = 2000
 	binarySniffBytes = 8192
 	maxReadBytes     = 50 * 1024
+	// readNoteReserve is subtracted from maxReadBytes when budgeting the
+	// line window, so the "(output truncated at 50 KB; continue with
+	// offset N)" note formatLines appends always fits inside the
+	// executor's own 50 KB cap (and its own truncation notice).
+	readNoteReserve = 96
+	maxImageBytes   = 20 << 20 // largest image read accepts, by file size
 )
 
 // readInput is the JSON input read accepts.
@@ -25,15 +32,25 @@ type readInput struct {
 	Limit  int    `json:"limit,omitempty"`
 }
 
-// readTool implements ext.Tool for the "read" tool.
-type readTool struct {
-	fs FS
-	tr *Tracker
+// Imager turns raw image bytes into a bounded, stored core.Media. It is
+// satisfied by *media.Pipeline; tools depends on it through this
+// interface rather than importing service/media directly.
+type Imager interface {
+	Process(data []byte) (core.Media, core.ImageInfo, error)
 }
 
-// NewRead returns the "read" tool, backed by fs and tr.
-func NewRead(fs FS, tr *Tracker) ext.Tool {
-	return &readTool{fs: fs, tr: tr}
+// readTool implements ext.Tool for the "read" tool.
+type readTool struct {
+	fs  FS
+	tr  *Tracker
+	img Imager
+}
+
+// NewRead returns the "read" tool, backed by fs and tr. img is used to
+// decode image paths into core.Media; a nil img keeps images being read
+// as binary (and refused), as before images were supported.
+func NewRead(fs FS, tr *Tracker, img Imager) ext.Tool {
+	return &readTool{fs: fs, tr: tr, img: img}
 }
 
 func (r *readTool) Name() string { return "read" }
@@ -88,7 +105,53 @@ func (r *readTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 	if info.IsDir() {
 		return r.readDir(call, abs)
 	}
+	if r.img != nil && isImagePath(abs) {
+		return r.readImage(call, abs, info)
+	}
 	return r.readFile(call, rc, abs, in, info)
+}
+
+// isImagePath reports whether path has an image extension Imager
+// accepts. It mirrors media.IsImagePath without importing service/media.
+func isImagePath(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+		return true
+	}
+	return false
+}
+
+// readImage refuses files over maxImageBytes, then runs abs's bytes
+// through r.img and reports the decoded image's dimensions and size. It
+// does not mark abs as read in the tracker: images are not editable.
+func (r *readTool) readImage(call core.ToolCall, abs string, info fs.FileInfo) (core.ToolResult, error) {
+	if info.Size() > maxImageBytes {
+		return core.ToolError(call, "image too large"), nil
+	}
+	data, err := r.fs.ReadFile(abs)
+	if err != nil {
+		return core.ToolError(call, err.Error()), nil
+	}
+	m, imgInfo, err := r.img.Process(data)
+	if err != nil {
+		return core.ToolError(call, err.Error()), nil
+	}
+	res := core.ToolOK(call, fmt.Sprintf("image %dx%d (%s)", imgInfo.Width, imgInfo.Height, humanBytes(imgInfo.Bytes)))
+	res.Media = []core.Media{m}
+	return res, nil
+}
+
+// humanBytes renders n as a human-readable size: bytes below 1024,
+// kilobytes below 1 MiB, else megabytes to one decimal place.
+func humanBytes(n int) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%d B", n)
+	case n < 1<<20:
+		return fmt.Sprintf("%d KB", n/1024)
+	default:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	}
 }
 
 // readDir lists abs's entries, one per line, with a trailing "/" on
@@ -195,7 +258,7 @@ func formatLines(path string, content []byte, offset, limit int) (string, string
 	var b strings.Builder
 	for i := start; i < end; i++ {
 		line := fmt.Sprintf("%d: %s", i+1, truncateLine(lines[i]))
-		if i > start && b.Len()+1+len(line) > maxReadBytes {
+		if i > start && b.Len()+1+len(line) > maxReadBytes-readNoteReserve {
 			fmt.Fprintf(&b, "\n(output truncated at 50 KB; continue with offset %d)", i+1)
 			return b.String(), ""
 		}
