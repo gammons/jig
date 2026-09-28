@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	xansi "github.com/charmbracelet/x/ansi"
+
 	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/core"
@@ -90,6 +92,31 @@ func TestRender_IgnoresSupersededStreamingFlag(t *testing.T) {
 	for _, frame := range spinnerFrames {
 		if strings.ContainsRune(streaming, frame) {
 			t.Errorf("a superseded (but still Streaming) block rendered a spinner frame %q: %q", frame, streaming)
+		}
+	}
+}
+
+// TestRender_ReasoningWordCount: a reasoning block with text shows its
+// word count; one with no readable text (Claude 5 models return empty
+// thinking unless a summary is requested) shows just "∴ thinking", never
+// a misleading "0 words".
+func TestRender_ReasoningWordCount(t *testing.T) {
+	t.Parallel()
+	set := darkSet()
+	r := newRenderer(&set)
+	tests := []struct {
+		name, text, want string
+	}{
+		{"with text", "one two three", "∴ thinking · 3 words"},
+		{"empty", "", "∴ thinking"},
+		{"whitespace only", " \n\t ", "∴ thinking"},
+	}
+	for _, tt := range tests {
+		got := xansi.Strip(renderOne(t, r, blockData{Block: transcript.Block{
+			Kind: transcript.KindReasoning, Text: tt.text,
+		}}, 80))
+		if strings.TrimRight(got, " ") != tt.want {
+			t.Errorf("%s: rendered %q, want %q", tt.name, got, tt.want)
 		}
 	}
 }

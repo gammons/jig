@@ -93,13 +93,19 @@ func (r *renderer) renderUser(b transcript.Block, width int) []string {
 	return lines
 }
 
-// renderReasoning renders "∴ thinking · N words". The Streaming flag is
+// renderReasoning renders "∴ thinking · N words", or just "∴ thinking"
+// when the block has no words: Claude 5 models return empty thinking text
+// unless a summary display is requested, and "0 words" would misread as
+// "no thinking happened". The Streaming flag is
 // never consulted: transcript can leave it set on a block that is no
 // longer the message's open block (until the step ends), so using it here
 // would risk showing a stale "still streaming" indicator on a superseded
 // block. Word count is stable either way.
 func (r *renderer) renderReasoning(b transcript.Block) string {
 	n := len(strings.Fields(b.Text))
+	if n == 0 {
+		return r.set.Render.Dim.Render("∴ thinking")
+	}
 	return r.set.Render.Dim.Render(fmt.Sprintf("∴ thinking · %d words", n))
 }
 
