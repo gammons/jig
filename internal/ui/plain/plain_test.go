@@ -151,3 +151,26 @@ func TestPlain_NoSeparatorBeforeFirstTextOrForTextlessStep(t *testing.T) {
 		t.Errorf("stdout = %q, want %q", out, want)
 	}
 }
+
+// TestPlain_SanitizesUntrustedText pins that no model/tool/session text
+// reaches the terminal with its escape sequences intact.
+func TestPlain_SanitizesUntrustedText(t *testing.T) {
+	const osc52 = "\x1b]52;c;aGk=\x07"
+	out, errw := render(
+		event.SubagentSpawned{Base: base("root"), Child: "kid", Agent: "ex\x1b[2Jplore", Description: "find" + osc52},
+		event.TextDelta{Base: base("root"), Text: "hi" + osc52 + "\nthere\n"},
+		event.ToolCallStarted{Base: base("root"), Call: call("bash", `{"command":"echo \u001b[2J"}`)},
+		event.ToolCallStarted{Base: base("root"), Call: call("bash", "not json \x1b[2J")},
+		event.ToolCallFinished{Base: base("root"), Result: core.ToolResult{Name: "bash", Output: "bad" + osc52, IsError: true}},
+		event.RunFailed{Base: base("root"), Err: "boom\x1b[31m\nsecond"},
+	)
+	if strings.ContainsRune(out+errw, '\x1b') {
+		t.Errorf("output contains ESC:\nstdout %q\nstderr %q", out, errw)
+	}
+	if out != "hi\nthere\n" {
+		t.Errorf("stdout = %q, want the text with newlines kept", out)
+	}
+	if strings.Count(errw, "\n") != 5 {
+		t.Errorf("stderr = %q, want exactly 5 lines", errw)
+	}
+}

@@ -197,7 +197,9 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   awaited.
 - Every string from a model, a tool, a file, or the store passes
   `ansi.Sanitize` (or `SanitizeLine`) before it is rendered; only jig's own
-  styling escapes reach the terminal.
+  styling escapes reach the terminal. This includes `ui/plain`'s output
+  (streamed text via `Sanitize`, stderr lines via `SanitizeLine`) and
+  `internal/app`'s warnings, errors, and listings (via `printLine`).
 - `core.Media.Data` is never persisted; only `client/llm` fills it, from
   blobs, for a single request.
 - Media bytes are loaded only in `client/llm`'s `For` wrapper, per

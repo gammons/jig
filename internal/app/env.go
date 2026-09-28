@@ -176,6 +176,6 @@ func warnProviderOptions(w io.Writer, providers map[string]core.ProviderConfig) 
 	}
 	sort.Strings(ids)
 	for _, id := range ids {
-		fmt.Fprintf(w, "warning: providers.%s.options is not supported yet and is ignored\n", id)
+		printLine(w, "warning: providers."+id+".options is not supported yet and is ignored")
 	}
 }

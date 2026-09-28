@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
 )
@@ -84,7 +85,7 @@ func (r *Renderer) stepText(s string) {
 			r.text("\n\n")
 		}
 	}
-	r.text(s)
+	r.text(ansi.Sanitize(s))
 }
 
 func (r *Renderer) text(s string) {
@@ -96,8 +97,10 @@ func (r *Renderer) text(s string) {
 	r.lastNL = strings.HasSuffix(s, "\n")
 }
 
+// line writes one stderr line; its formatted content is untrusted
+// (model, tool, and session text) and is sanitized to a single line.
 func (r *Renderer) line(depth int, format string, args ...any) {
-	fmt.Fprintf(r.errw, strings.Repeat("  ", depth)+format+"\n", args...)
+	io.WriteString(r.errw, strings.Repeat("  ", depth)+ansi.SanitizeLine(fmt.Sprintf(format, args...))+"\n")
 }
 
 // toolLine is "<tool> <input>", with the input compacted to one line and

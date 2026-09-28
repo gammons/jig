@@ -3,7 +3,6 @@ package app
 import (
 	"cmp"
 	"context"
-	"fmt"
 	"io"
 	"path/filepath"
 
@@ -72,7 +71,7 @@ func discover(e env, errw io.Writer) discovered {
 	printWarnings(errw, warns)
 	printWarnings(errw, e.agentWarns)
 	for _, w := range e.browserWarns {
-		fmt.Fprintln(errw, w)
+		printLine(errw, w)
 	}
 
 	return discovered{

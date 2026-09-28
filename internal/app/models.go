@@ -17,7 +17,7 @@ func modelsCmd(args []string, std Stdio, getenv func(string) string) int {
 	}
 	e, err := loadEnv("", getenv, staticTrust(false))
 	if err != nil {
-		fmt.Fprintln(std.Err, err)
+		printLine(std.Err, err.Error())
 		return exitConfig
 	}
 	cat := newCatalog(e, clock.Real())
@@ -45,10 +45,12 @@ func credentialStatus(p core.ProviderInfo, e env) string {
 	return "(no credentials)"
 }
 
+// printProvider prints p's catalog entry; catalog text comes from the
+// network, so each line is sanitized.
 func printProvider(w io.Writer, p core.ProviderInfo, status string) {
-	fmt.Fprintf(w, "%s %s\n", p.ID, status)
+	printLine(w, p.ID+" "+status)
 	for _, m := range p.Models {
-		fmt.Fprintf(w, "  %s  ctx %dk  $%.2f/$%.2f per 1M\n",
-			m.Ref.String(), m.ContextWindow/1000, m.CostIn, m.CostOut)
+		printLine(w, fmt.Sprintf("  %s  ctx %dk  $%.2f/$%.2f per 1M",
+			m.Ref.String(), m.ContextWindow/1000, m.CostIn, m.CostOut))
 	}
 }

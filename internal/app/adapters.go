@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/client/search"
 	"github.com/gammons/jig/internal/client/shell"
 	"github.com/gammons/jig/internal/data/contextfs"
@@ -83,6 +84,12 @@ func promptFiles(files []contextfs.File) []prompt.File {
 // printWarnings writes discovery warnings as "warning: <path>: <msg>".
 func printWarnings(w io.Writer, ws []skillfs.Warning) {
 	for _, wn := range ws {
-		fmt.Fprintf(w, "warning: %s: %s\n", wn.Path, wn.Msg)
+		printLine(w, "warning: "+wn.Path+": "+wn.Msg)
 	}
+}
+
+// printLine writes s, which may hold untrusted text (paths, file or model
+// content, error messages), as one sanitized line.
+func printLine(w io.Writer, s string) {
+	fmt.Fprintln(w, ansi.SanitizeLine(s))
 }

@@ -24,7 +24,7 @@ func runCmd(ctx context.Context, args []string, std Stdio, getenv func(string) s
 	}
 	e, err := loadEnv(opts.cwd, getenv, staticTrust(opts.trustProject))
 	if err != nil {
-		fmt.Fprintln(std.Err, err)
+		printLine(std.Err, err.Error())
 		return exitConfig
 	}
 	if e.trust.warn() {
@@ -33,7 +33,7 @@ func runCmd(ctx context.Context, args []string, std Stdio, getenv func(string) s
 	warnProviderOptions(std.Err, e.cfg().Providers)
 	rt, err := newRuntime(ctx, e, permission.StaticAsker{Allow: opts.yes}, std.Err)
 	if err != nil {
-		fmt.Fprintln(std.Err, "error:", err)
+		printLine(std.Err, "error: "+err.Error())
 		return exitCode(err)
 	}
 	defer rt.close()
@@ -66,7 +66,7 @@ func (rt *runtime) headless(ctx context.Context, opts runOpts, std Stdio) int {
 		return exitOK
 	}
 	if !reported[res.SessionID] {
-		fmt.Fprintln(std.Err, "error:", err)
+		printLine(std.Err, "error: "+err.Error())
 	}
 	return exitCode(err)
 }

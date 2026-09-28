@@ -18,22 +18,22 @@ func sessionsCmd(ctx context.Context, args []string, std Stdio, getenv func(stri
 	}
 	e, err := loadEnv("", getenv, staticTrust(false))
 	if err != nil {
-		fmt.Fprintln(std.Err, err)
+		printLine(std.Err, err.Error())
 		return exitConfig
 	}
 	st, err := openStore(ctx, e)
 	if err != nil {
-		fmt.Fprintln(std.Err, "error:", err)
+		printLine(std.Err, "error: "+err.Error())
 		return exitRunFailed
 	}
 	defer st.Close()
 	list, err := st.ListSessions(ctx, "", sessionsListLimit)
 	if err != nil {
-		fmt.Fprintln(std.Err, "error:", err)
+		printLine(std.Err, "error: "+err.Error())
 		return exitRunFailed
 	}
 	for _, s := range list {
-		fmt.Fprintf(std.Out, "%s  %s  %s\n", s.ID, s.UpdatedAt.Format(time.RFC3339), s.Title)
+		printLine(std.Out, fmt.Sprintf("%s  %s  %s", s.ID, s.UpdatedAt.Format(time.RFC3339), s.Title))
 	}
 	return exitOK
 }
