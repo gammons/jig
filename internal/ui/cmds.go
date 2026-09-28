@@ -2,11 +2,14 @@ package ui
 
 import (
 	"context"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/jig/internal/bubbles/picker"
 	"github.com/gammons/jig/internal/bubbles/prompt"
 	"github.com/gammons/jig/internal/core"
+	"github.com/gammons/jig/internal/core/ext"
 )
 
 // Every port call the App makes happens inside one of these Cmds, never
@@ -190,5 +193,102 @@ func editorResultCmd(m editorExitedMsg) tea.Cmd {
 		}
 		text, err := m.result()
 		return prompt.EditedMsg{Text: text, Err: err}
+	}
+}
+
+// itemsCmd yields a picker level's items, built without a port call.
+func itemsCmd(level string, items []picker.Item) tea.Cmd {
+	return func() tea.Msg { return picker.ItemsMsg{Level: level, Items: items} }
+}
+
+// sessionsCmd lists the workdir's sessions (at most maxSessions) through
+// p.Sessions, each with its summed message cost, as the sessions level.
+func sessionsCmd(ctx context.Context, p Ports, workDir string, current core.SessionID, now time.Time) tea.Cmd {
+	return func() tea.Msg {
+		list, err := p.Sessions.ListForCwd(ctx, workDir, maxSessions)
+		if err != nil {
+			return picker.ItemsMsg{Level: levelSessions, Err: err}
+		}
+		costs := make([]float64, len(list))
+		for i, s := range list {
+			msgs, err := p.Sessions.Messages(ctx, s.ID)
+			if err != nil {
+				return picker.ItemsMsg{Level: levelSessions, Err: err}
+			}
+			for _, m := range msgs {
+				costs[i] += m.CostUSD
+			}
+		}
+		return picker.ItemsMsg{Level: levelSessions, Items: sessionItems(list, costs, current, now)}
+	}
+}
+
+// modelsCmd lists the catalog's models through p.Catalog as the models
+// level; current is the "provider/model" in use.
+func modelsCmd(p Ports, current string) tea.Cmd {
+	if p.Catalog == nil {
+		return itemsCmd(levelModels, nil)
+	}
+	return func() tea.Msg {
+		return picker.ItemsMsg{Level: levelModels, Items: modelItems(p.Catalog.Providers(), current)}
+	}
+}
+
+// agentItemsCmd lists the primary agents through p.Agents as the agents
+// level; current is the agent in use.
+func agentItemsCmd(p Ports, current string) tea.Cmd {
+	if p.Agents == nil {
+		return itemsCmd(levelAgents, nil)
+	}
+	return func() tea.Msg {
+		return picker.ItemsMsg{Level: levelAgents, Items: agentItems(p.Agents.Primary(), current)}
+	}
+}
+
+// filesCmd lists the project's files through p.Project as the files
+// level, the touched ones (most recent first) leading.
+func filesCmd(ctx context.Context, p Ports, touched []string) tea.Cmd {
+	if p.Project == nil {
+		return itemsCmd(levelFiles, nil)
+	}
+	return func() tea.Msg {
+		files, err := p.Project.Files(ctx)
+		if err != nil {
+			return picker.ItemsMsg{Level: levelFiles, Err: err}
+		}
+		return picker.ItemsMsg{Level: levelFiles, Items: fileItems(files, touched)}
+	}
+}
+
+// renameCmd renames id through p.Sessions; its SessionUpdated event
+// carries the new title back.
+func renameCmd(ctx context.Context, p Ports, id core.SessionID, title string) tea.Cmd {
+	return func() tea.Msg {
+		if err := p.Sessions.Rename(ctx, id, title); err != nil {
+			return errMsg{what: "rename", err: err}
+		}
+		return nil
+	}
+}
+
+// compactedMsg is the outcome of a Chat.Compact of id.
+type compactedMsg struct {
+	id  core.SessionID
+	err error
+}
+
+// compactCmd compacts id's history through p.Chat.
+func compactCmd(ctx context.Context, p Ports, id core.SessionID) tea.Cmd {
+	return func() tea.Msg { return compactedMsg{id: id, err: p.Chat.Compact(ctx, id)} }
+}
+
+// extCmd runs an extension command with no arguments; what names it in
+// the hint an error becomes.
+func extCmd(ctx context.Context, c ext.Command, what string) tea.Cmd {
+	return func() tea.Msg {
+		if err := c.Run(ctx, nil); err != nil {
+			return errMsg{what: what, err: err}
+		}
+		return nil
 	}
 }

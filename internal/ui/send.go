@@ -40,11 +40,11 @@ func (s sender) submit(text string) tea.Cmd {
 // chosen agent and model.
 func (s sender) send(text string) tea.Cmd {
 	a := s.a
-	req := core.SendRequest{SessionID: a.sess.info.ID, Text: text}
+	req := core.SendRequest{SessionID: a.sess.info.ID, Text: text, Attachments: attachments(text, a.sess.attach)}
 	if req.SessionID == "" {
 		req.Agent, req.Model = a.sess.info.Agent, a.sess.info.Model
 	}
-	id := a.sess.proj.AddUser(text, nil)
+	id := a.sess.proj.AddUser(text, req.Attachments)
 	a.flush(a.sess.withDirty([]transcript.BlockID{id}))
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.sess.startRun(id, text, cancel)

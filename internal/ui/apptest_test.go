@@ -32,6 +32,9 @@ type fakeChat struct {
 	ctxs    []context.Context
 	cancels []core.SessionID
 	errs    []error // the n-th Send returns errs[n] (nil past the end)
+
+	compacts   []core.SessionID
+	compactErr error // every Compact returns it
 }
 
 func (f *fakeChat) Send(ctx context.Context, req core.SendRequest) (core.SendResult, error) {
@@ -62,7 +65,12 @@ type runFailure struct{ msg string }
 
 func (e runFailure) Error() string { return e.msg }
 
-func (f *fakeChat) Compact(context.Context, core.SessionID) error { return nil }
+func (f *fakeChat) Compact(_ context.Context, id core.SessionID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.compacts = append(f.compacts, id)
+	return f.compactErr
+}
 
 func (f *fakeChat) Cancel(id core.SessionID) {
 	f.mu.Lock()
@@ -78,29 +86,53 @@ type configureCall struct {
 	Agent, Model string
 }
 
-// recSessions implements core.SessionService over one stored session,
-// recording Configure calls.
+// renameCall is one recorded SessionService.Rename call.
+type renameCall struct {
+	ID    core.SessionID
+	Title string
+}
+
+// recSessions implements core.SessionService over one stored session
+// (info, msgs, todos) plus the listed ones (others, with their messages
+// in otherMsgs), recording Configure and Rename calls.
 type recSessions struct {
 	mu        sync.Mutex
 	info      core.Session
 	msgs      []core.Message
 	todos     []core.Todo
+	others    []core.Session
+	otherMsgs map[core.SessionID][]core.Message
+	listCwd   string
 	configure []configureCall
+	renames   []renameCall
 }
 
 func (f *recSessions) List(context.Context, int) ([]core.Session, error) { return nil, nil }
-func (f *recSessions) ListForCwd(context.Context, string, int) ([]core.Session, error) {
-	return nil, nil
+
+// ListForCwd returns the listed sessions, recording the cwd asked for.
+func (f *recSessions) ListForCwd(_ context.Context, cwd string, limit int) ([]core.Session, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listCwd = cwd
+	return slices.Clone(f.others[:min(limit, len(f.others))]), nil
 }
 
 func (f *recSessions) Get(_ context.Context, id core.SessionID) (core.Session, error) {
-	if id != f.info.ID {
-		return core.Session{}, errors.New("not found")
+	if id == f.info.ID && id != "" {
+		return f.info, nil
 	}
-	return f.info, nil
+	for _, s := range f.others {
+		if s.ID == id {
+			return s, nil
+		}
+	}
+	return core.Session{}, errors.New("not found")
 }
 
-func (f *recSessions) Messages(context.Context, core.SessionID) ([]core.Message, error) {
+func (f *recSessions) Messages(_ context.Context, id core.SessionID) ([]core.Message, error) {
+	if msgs, ok := f.otherMsgs[id]; ok {
+		return msgs, nil
+	}
 	return f.msgs, nil
 }
 
@@ -108,7 +140,12 @@ func (f *recSessions) Todos(context.Context, core.SessionID) ([]core.Todo, error
 	return f.todos, nil
 }
 
-func (f *recSessions) Rename(context.Context, core.SessionID, string) error { return nil }
+func (f *recSessions) Rename(_ context.Context, id core.SessionID, title string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.renames = append(f.renames, renameCall{ID: id, Title: title})
+	return nil
+}
 
 func (f *recSessions) Configure(_ context.Context, id core.SessionID, agent, model string) error {
 	f.mu.Lock()
@@ -146,6 +183,18 @@ type fakeCatalog []core.ProviderStatus
 
 func (f fakeCatalog) Providers() []core.ProviderStatus { return slices.Clone(f) }
 
+// listProject implements core.ProjectService: Files returns files;
+// ReadFile always fails.
+type listProject struct{ files []core.ProjectFile }
+
+func (f *listProject) Files(context.Context) ([]core.ProjectFile, error) {
+	return slices.Clone(f.files), nil
+}
+
+func (f *listProject) ReadFile(context.Context, string) ([]byte, error) {
+	return nil, errors.New("no such file")
+}
+
 // deferredMsg is what a test App's after hook yields instead of sleeping:
 // the message a tick would have delivered, and the delay it asked for.
 type deferredMsg struct {
@@ -161,6 +210,7 @@ type testConfig struct {
 	catalog   fakeCatalog
 	sessions  *recSessions
 	prefs     *fakePrefs
+	project   *listProject
 	keyConfig map[string]string
 }
 
@@ -183,6 +233,20 @@ func withResume(sess core.Session, msgs []core.Message, todos []core.Todo) testO
 // withKeybinds adds "[keybinds]" config entries to the resolved keymap.
 func withKeybinds(cfg map[string]string) testOpt {
 	return func(c *testConfig) { c.keyConfig = cfg }
+}
+
+// withFiles sets the project's files.
+func withFiles(files ...core.ProjectFile) testOpt {
+	return func(c *testConfig) { c.project.files = files }
+}
+
+// withCatalog replaces the catalog.
+func withCatalog(cat fakeCatalog) testOpt { return func(c *testConfig) { c.catalog = cat } }
+
+// withSessions lists others (newest first) for the workdir, each with its
+// stored messages.
+func withSessions(others []core.Session, msgs map[core.SessionID][]core.Message) testOpt {
+	return func(c *testConfig) { c.sessions.others, c.sessions.otherMsgs = others, msgs }
 }
 
 // withPrefs seeds the stored prefs.
@@ -215,6 +279,7 @@ type testApp struct {
 	chat     *fakeChat
 	sessions *recSessions
 	prefs    *fakePrefs
+	project  *listProject
 	clk      *clock.Fake
 	deferred []deferredMsg
 	returns  []sendDoneMsg
@@ -232,6 +297,7 @@ func newTestApp(t testing.TB, opts ...testOpt) *testApp {
 		catalog:  testCatalog(),
 		sessions: &recSessions{},
 		prefs:    &fakePrefs{},
+		project:  &listProject{},
 		opts: Options{
 			WorkDir: testWorkDir, ProjectKey: testWorkDir,
 			Theme:  "dark",
@@ -246,10 +312,10 @@ func newTestApp(t testing.TB, opts ...testOpt) *testApp {
 	km, _ := actions.Resolve(actions.DefaultBindings(), cfg.keyConfig, cat)
 	cfg.opts.Actions, cfg.opts.Keymap = cat, km
 
-	ta := &testApp{t: t, chat: &fakeChat{}, sessions: cfg.sessions, prefs: cfg.prefs, clk: clk}
+	ta := &testApp{t: t, chat: &fakeChat{}, sessions: cfg.sessions, prefs: cfg.prefs, project: cfg.project, clk: clk}
 	ports := Ports{
 		Chat: ta.chat, Sessions: cfg.sessions, Prefs: cfg.prefs,
-		Agents: cfg.agents, Catalog: cfg.catalog,
+		Agents: cfg.agents, Catalog: cfg.catalog, Project: cfg.project,
 	}
 	ta.app = New(ports, cfg.opts)
 	ta.app.after = func(d time.Duration, msg tea.Msg) tea.Cmd {
@@ -343,6 +409,7 @@ func keyPress(k string) tea.KeyPressMsg {
 		"shift+tab": {Code: tea.KeyTab, Mod: tea.ModShift},
 		"up":        {Code: tea.KeyUp},
 		"down":      {Code: tea.KeyDown},
+		"backspace": {Code: tea.KeyBackspace},
 	}
 	if key, ok := named[k]; ok {
 		return tea.KeyPressMsg(key)

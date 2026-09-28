@@ -73,7 +73,9 @@ func TestInsert_SidebarPrefLoadedAtStart(t *testing.T) {
 func TestInsert_MentionInsertsLiteralAt(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
-	ta.typeText("see @x")
+	ta.typeText("see @")
+	ta.key("esc") // @ opens the file picker; esc leaves a literal @
+	ta.typeText("x")
 	if v := ta.app.w.prompt.Value(); v != "see @x" {
 		t.Errorf("prompt = %q, want the @ kept", v)
 	}

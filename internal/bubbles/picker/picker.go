@@ -173,6 +173,11 @@ func inputWidth(boxW int) int { return max(1, boxW-4) }
 func newFrame(level Level, boxW int) frame {
 	ti := textinput.New()
 	ti.Prompt = "› "
+	// A blinking cursor ticks on its own real-time timer; a static one
+	// keeps Focus and every key's Cmd synchronous (like prompt's).
+	st := ti.Styles()
+	st.Cursor.Blink = false
+	ti.SetStyles(st)
 	ti.SetWidth(inputWidth(boxW))
 	if level.Input {
 		ti.SetValue(level.Initial)

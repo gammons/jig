@@ -394,3 +394,9 @@ group.
    bindings live in `actions.DefaultBindings()`, registered through
    `addKeybinds`; config remaps them via `[keybinds]` (`"<mode>.<key>" =
    "<action id>"`), resolved by `actions.Resolve`.
+3. In the TUI, `App.runAction` dispatches an action ID; actions no mode
+   handler owns go to `pickerCtl.action` (`internal/ui/mode_picker.go`).
+   A built-in that drills into a list gets a level in
+   `internal/ui/pickerlevels.go` (`drillLevel`, and `levels.load`, whose
+   port calls run in Cmds from `cmds.go`); its choice is reconciled in
+   `pickerCtl.chosen`. Item text from ports passes `ansi.SanitizeLine`.

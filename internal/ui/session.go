@@ -113,8 +113,11 @@ func (s *idSet) take() []transcript.BlockID {
 // the summed cost, todos, tool durations, the blocklist item versions it
 // has issued, dirty streaming blocks (rendered on the next streamTick),
 // and live blocks (running tools/subagents, whose spinner each tick
-// advances). model is the model the last root step reported.
+// advances). model is the model the last root step reported. attach
+// holds the paths the file picker inserted as @mentions; a send attaches
+// those whose token survives in its text.
 type sessionState struct {
+	attach   []string
 	proj     *transcript.Projection
 	info     core.Session
 	model    string

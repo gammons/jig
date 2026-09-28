@@ -2,21 +2,16 @@ package ui
 
 import (
 	"context"
+	"slices"
 	"time"
 
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/jig/internal/bubbles/ansi"
-	"github.com/gammons/jig/internal/bubbles/blocklist"
-	"github.com/gammons/jig/internal/bubbles/confirm"
-	"github.com/gammons/jig/internal/bubbles/details"
 	"github.com/gammons/jig/internal/bubbles/imgrender"
 	"github.com/gammons/jig/internal/bubbles/overlay"
-	"github.com/gammons/jig/internal/bubbles/permcard"
 	"github.com/gammons/jig/internal/bubbles/picker"
 	"github.com/gammons/jig/internal/bubbles/prompt"
-	"github.com/gammons/jig/internal/bubbles/sidebar"
 	"github.com/gammons/jig/internal/bubbles/statusbar"
 	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core"
@@ -76,31 +71,6 @@ type (
 	resizeMsg     struct{ gen int }
 )
 
-// widgets holds every widget the App owns. upserts counts list Upsert
-// calls (streaming coalescing is asserted on it).
-type widgets struct {
-	list    blocklist.Model
-	prompt  prompt.Model
-	picker  picker.Model
-	details details.Model
-	card    permcard.Model
-	status  statusbar.Model
-	side    sidebar.Model
-	confirm confirm.Model
-	search  textinput.Model
-	render  *renderer
-	upserts int
-}
-
-// upsert re-renders items in the transcript list; nothing for none.
-func (w *widgets) upsert(items []blocklist.Item) {
-	if len(items) == 0 {
-		return
-	}
-	w.upserts++
-	w.list.Upsert(items...)
-}
-
 // viewState is the App's presentation state: the sidebar preference, whether the details split is open, the
 // status hint, the project's prompt history, whether streamTick is
 // running, and the transcript list's applied size (listW/listH) and a
@@ -109,7 +79,9 @@ func (w *widgets) upsert(items []blocklist.Item) {
 // whether the one-line search input owns the status bar's slot;
 // detailsFor is the block ID the open details split shows, so an async
 // detailsMsg for a block the selection has since left can be ignored.
+// pick is the picker's state (pickerView).
 type viewState struct {
+	pick         pickerView
 	sidebarPref  *bool
 	detailsOpen  bool
 	hint         string
@@ -157,7 +129,7 @@ func New(p Ports, o Options) *App {
 		img:   imgrender.New(imgrender.Detect(o.Images, ""), imgrender.WithTmux(o.Tmux)),
 		after: tick,
 	}
-	a.w = newWidgets(&a.theme.set, func(text string) tea.Cmd { return editorCmd(a.ports, text) })
+	a.w = newWidgets(&a.theme.set, func(text string) tea.Cmd { return editorCmd(a.ports, text) }, levels{a}.load)
 	if p.Subscribe != nil {
 		a.sub = p.Subscribe()
 	}
@@ -167,31 +139,6 @@ func New(p Ports, o Options) *App {
 // tick is tea.Tick yielding msg after d.
 func tick(d time.Duration, msg tea.Msg) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg { return msg })
-}
-
-// newWidgets builds every widget styled from set.
-func newWidgets(set *theme.Set, edit prompt.EditFunc) widgets {
-	r := newRenderer(set)
-	search := textinput.New()
-	search.Prompt = "/"
-	// A blinking cursor ticks on its own real-time timer (not the App's
-	// injected clock); a static one keeps the search input's Focus Cmd
-	// synchronous, like prompt's textarea (prompt.go's taStyles).
-	sst := search.Styles()
-	sst.Cursor.Blink = false
-	search.SetStyles(sst)
-	return widgets{
-		list:    blocklist.New(r.render, blocklist.WithStyles(set.Blocklist)),
-		prompt:  prompt.New(edit, prompt.WithStyles(set.Prompt)),
-		picker:  picker.New(func(picker.Level) tea.Cmd { return nil }, picker.WithStyles(set.Picker)),
-		details: details.New(details.WithStyles(set.Details)),
-		card:    permcard.New(func(string, permcard.Reply) tea.Cmd { return nil }, permcard.WithStyles(set.Card)),
-		status:  statusbar.New(statusbar.WithStyles(set.Status)),
-		side:    sidebar.New(sidebar.WithStyles(set.Sidebar)),
-		confirm: confirm.New(confirm.WithStyles(set.Confirm)),
-		search:  search,
-		render:  r,
-	}
 }
 
 // Init focuses the prompt, asks the terminal for its name (image protocol
@@ -312,7 +259,11 @@ func (a *App) onResult(msg tea.Msg) tea.Cmd {
 	case prompt.SubmitMsg:
 		return a.sender().submit(msg.Text)
 	case prompt.MentionMsg:
-		a.w.prompt.Insert("@")
+		return pickerCtl{a}.open(filesLevel(), true)
+	case picker.ItemsMsg, picker.ChosenMsg, picker.InputMsg, picker.ClosedMsg, themePreviewMsg:
+		return pickerCtl{a}.handle(msg)
+	case compactedMsg:
+		return pickerCtl{a}.compacted(msg)
 	case prompt.EditedMsg:
 		if msg.Err != nil {
 			a.view.hint = "editor: " + ansi.SanitizeLine(msg.Err.Error())
@@ -349,6 +300,8 @@ func (a *App) onPortResult(msg tea.Msg) {
 		a.view.sidebarPref = msg.prefs.Sidebar
 		a.view.history = append([]string(nil), msg.prefs.History[a.opts.ProjectKey]...)
 		a.w.prompt.SetHistory(a.view.history)
+		a.view.pick.recent = slices.Clone(msg.prefs.Recent[:min(len(msg.prefs.Recent), maxRecent)])
+		a.w.picker.SetRecent(a.view.pick.recent)
 	case agentsMsg:
 		a.sess.cat.agents = msg.agents
 		if a.sess.info.Agent == "" && len(msg.agents) > 0 {
@@ -363,6 +316,11 @@ func (a *App) onPortResult(msg tea.Msg) {
 			return
 		}
 		if !a.sess.run.busy() {
+			if msg.info.ID != a.sess.info.ID {
+				// A session opened from the picker replaces this one.
+				a.sess = freshSession(a.sess, msg.info.ID)
+				a.view.detailsOpen = false
+			}
 			a.sess.load(msg.info, msg.msgs, msg.todos)
 			a.w.list.SetItems(a.sess.allItems())
 			a.w.prompt.SetAgent(ansi.SanitizeLine(a.sess.info.Agent))
@@ -467,10 +425,14 @@ func (a *App) runAction(id actions.ID) tea.Cmd {
 		return normalKeys{a}.openSearch()
 	case actions.TranscriptYank:
 		return normalKeys{a}.yank()
+	case actions.TranscriptDetails:
+		return normalKeys{a}.toggleDetails()
+	case actions.PickerOpen:
+		return pickerCtl{a}.open(rootLevel(), false)
 	case actions.AppQuit:
 		return a.quit()
 	}
-	return nil
+	return pickerCtl{a}.action(id)
 }
 
 // quit cancels the base context (and with it any run and port call in
