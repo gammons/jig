@@ -269,11 +269,5 @@ func (p pickerCtl) setAgent(name string) tea.Cmd {
 	return configureCmd(a.ctx, a.ports, a.sess.info.ID, name, "")
 }
 
-// restyle pushes the current theme's styles to the widgets that cache
-// renders: the transcript list (a new version re-renders every block)
-// and its Markdown renderer.
-func (p pickerCtl) restyle() {
-	a := p.a
-	a.w.render.md.SetStyles(a.theme.set.Markdown)
-	a.w.list.SetStyles(a.theme.set.Blocklist, a.theme.version)
-}
+// restyle pushes the current theme to every widget (pushTheme).
+func (p pickerCtl) restyle() { pushTheme(p.a) }

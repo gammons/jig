@@ -135,7 +135,7 @@ func (s sender) unqueue() {
 func (s sender) done(msg sendDoneMsg) tea.Cmd {
 	a := s.a
 	if a.sess.adopt(core.Session{ID: msg.res.SessionID}) {
-		a.w.list.SetItems(a.sess.allItems())
+		a.w.setItems(a.sess.allItems())
 	}
 	ran := msg.res.SessionID != "" && !errors.Is(msg.err, core.ErrBusy)
 	run := a.sess.run
@@ -163,7 +163,7 @@ func (s sender) done(msg sendDoneMsg) tea.Cmd {
 // dropped.
 func (s sender) undo(id transcript.BlockID, text string, err error) {
 	a := s.a
-	a.w.list.SetItems(a.sess.dropUser(id))
+	a.w.setItems(a.sess.dropUser(id))
 	if cur := a.w.prompt.Value(); cur != "" {
 		text += "\n" + cur
 	}

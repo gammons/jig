@@ -24,23 +24,35 @@ func (h normalKeys) handle(k tea.KeyPressMsg) tea.Cmd {
 	}
 	if a.view.keyPrefix == "g" {
 		a.view.keyPrefix = ""
-		if k.String() == "g" {
+		switch k.String() {
+		case "g":
 			return h.gotoTop()
+		case "p":
+			return permCtl{a}.next()
 		}
-		return nil // "gp" (Task 18) and any unknown g-command: swallowed.
+		return nil // any unknown g-command: swallowed.
 	}
 
 	key := k.String()
+	if a.w.card.Typing() && key != "ctrl+c" {
+		return permCtl{a}.key(k) // the deny message, enter, esc
+	}
 	switch key {
 	case "ctrl+c":
 		return a.sender().ctrlC()
 	case "g":
 		a.view.keyPrefix = "g"
 		return nil
-	case "i", "a":
+	case "a", "A", "d", "D":
+		if (permCtl{a}).onCard() {
+			return permCtl{a}.key(k)
+		}
+		if key == "a" {
+			return a.setMode(modeInsert)
+		}
+		return nil
+	case "i":
 		return a.setMode(modeInsert)
-	case "A", "d", "D":
-		return nil // permission-card replies (Task 18): reserved, no-op.
 	case "tab":
 		return a.cycleAgent(1)
 	case "shift+tab":
@@ -126,6 +138,7 @@ func (h normalKeys) openDetailsFor(id transcript.BlockID) tea.Cmd {
 		return nil
 	}
 	a.view.detailsFor = id
+	a.img.shown = nil
 	lay := computeLayout(a.width, a.height, a.w.prompt.Height(), a.view.sidebarPref, true)
 	content, cmd := buildDetails(a.ctx, b, lay.Side.W, lay.Side.H, a.w.render, a.ports, a.img)
 	a.w.details.SetContent(content)

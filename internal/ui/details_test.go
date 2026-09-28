@@ -178,7 +178,7 @@ func TestDetails_ReadImageCmd(t *testing.T) {
 		},
 	}
 	p := Ports{Blobs: fakeBlobs{data: map[string][]byte{"sha-1": buf.Bytes()}}}
-	img := imgrender.New(imgrender.Blocks)
+	img := newImageState(imgrender.Blocks, false)
 
 	_, cmd := buildDetails(context.Background(), b, 80, 24, r, p, img)
 	if cmd == nil {

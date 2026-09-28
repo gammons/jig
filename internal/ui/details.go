@@ -25,6 +25,7 @@ type detailsMsg struct {
 	Block   transcript.BlockID
 	Content details.Content
 	Image   *imgrender.Result
+	key     imgKey // Image's cache key
 }
 
 // readNumberedLinePattern matches one line of the read tool's "<n>: <line>"
@@ -53,7 +54,7 @@ func header(parts ...string) string {
 // port error never panics: it becomes a readable, sanitized line in the
 // content instead (or, for edit, falls back to the bare diff already
 // shown).
-func buildDetails(ctx context.Context, b transcript.Block, width, height int, r *renderer, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
+func buildDetails(ctx context.Context, b transcript.Block, width, height int, r *renderer, p Ports, img *imageState) (details.Content, tea.Cmd) {
 	switch b.Kind {
 	case transcript.KindTool:
 		return buildToolDetails(ctx, b, width, height, r, p, img)
@@ -67,7 +68,7 @@ func buildDetails(ctx context.Context, b transcript.Block, width, height int, r 
 }
 
 // buildToolDetails dispatches a Tool block by its call name (spec §5.4).
-func buildToolDetails(ctx context.Context, b transcript.Block, width, height int, r *renderer, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
+func buildToolDetails(ctx context.Context, b transcript.Block, width, height int, r *renderer, p Ports, img *imageState) (details.Content, tea.Cmd) {
 	if b.Call == nil {
 		return details.Content{}, nil
 	}
@@ -147,7 +148,7 @@ func buildWriteDetails(b transcript.Block, r *renderer) details.Content {
 
 // buildReadDetails shows a text read's numbered, highlighted lines, or,
 // for an image read, defers to buildImageDetails.
-func buildReadDetails(ctx context.Context, b transcript.Block, width, height int, r *renderer, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
+func buildReadDetails(ctx context.Context, b transcript.Block, width, height int, r *renderer, p Ports, img *imageState) (details.Content, tea.Cmd) {
 	var in struct {
 		Path string `json:"path"`
 	}
@@ -202,7 +203,7 @@ const spillPrefix = "[output truncated; full output: "
 // output, and "exit N", naming the spill file when the output was
 // truncated to it. An agent-browser screenshot result shows the image
 // instead, like a read.
-func buildBashDetails(ctx context.Context, b transcript.Block, width, height int, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
+func buildBashDetails(ctx context.Context, b transcript.Block, width, height int, p Ports, img *imageState) (details.Content, tea.Cmd) {
 	var in struct {
 		Command string `json:"command"`
 	}
@@ -278,13 +279,20 @@ func buildSearchDetails(name string, b transcript.Block) details.Content {
 }
 
 // buildImageDetails shows a placeholder header immediately, then a Cmd
-// opens ref through p.Blobs, decodes it, and renders it with img at
-// width×(height-2), keyed by ref so re-renders of the same image reuse its
-// protocol state (e.g. a kitty image id). A port or decode error becomes a
-// sanitized line instead of an image.
-func buildImageDetails(ctx context.Context, block transcript.BlockID, kind, subject, ref string, width, height int, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
+// opens ref through p.Blobs, decodes it, and renders it with img's
+// renderer at width×(height-2), keyed by ref so re-renders of the same
+// image reuse its protocol state (e.g. a kitty image id). A Result already
+// cached for ref at that box is shown at once and its Cmd opens nothing.
+// A port or decode error becomes a sanitized line instead of an image.
+func buildImageDetails(ctx context.Context, block transcript.BlockID, kind, subject, ref string, width, height int, p Ports, img *imageState) (details.Content, tea.Cmd) {
 	hdr := header(kind, subject, "image")
+	key := imgKey{ref: ref, cols: width, rows: height - 2}
+	if res, ok := img.cached(key); ok {
+		content := details.Content{Header: hdr, Lines: res.Lines}
+		return content, func() tea.Msg { return detailsMsg{Block: block, Content: content, Image: &res, key: key} }
+	}
 	content := details.Content{Header: hdr}
+	r := img.r
 
 	cmd := openBlobCmd(ctx, p, ref, func(data []byte, _ string, err error) tea.Msg {
 		if err != nil {
@@ -294,8 +302,8 @@ func buildImageDetails(ctx context.Context, block transcript.BlockID, kind, subj
 		if err != nil {
 			return detailsMsg{Block: block, Content: errorContent(hdr, "could not decode image", err)}
 		}
-		res := img.Render(ref, decoded, width, height-2)
-		return detailsMsg{Block: block, Content: details.Content{Header: hdr, Lines: res.Lines}, Image: &res}
+		res := r.Render(ref, decoded, key.cols, key.rows)
+		return detailsMsg{Block: block, Content: details.Content{Header: hdr, Lines: res.Lines}, Image: &res, key: key}
 	})
 	return content, cmd
 }

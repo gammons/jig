@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -105,6 +106,7 @@ type recSessions struct {
 	listCwd   string
 	configure []configureCall
 	renames   []renameCall
+	msgCalls  map[core.SessionID]int
 }
 
 func (f *recSessions) List(context.Context, int) ([]core.Session, error) { return nil, nil }
@@ -130,6 +132,12 @@ func (f *recSessions) Get(_ context.Context, id core.SessionID) (core.Session, e
 }
 
 func (f *recSessions) Messages(_ context.Context, id core.SessionID) ([]core.Message, error) {
+	f.mu.Lock()
+	if f.msgCalls == nil {
+		f.msgCalls = map[core.SessionID]int{}
+	}
+	f.msgCalls[id]++
+	f.mu.Unlock()
 	if msgs, ok := f.otherMsgs[id]; ok {
 		return msgs, nil
 	}
@@ -195,6 +203,46 @@ func (f *listProject) ReadFile(context.Context, string) ([]byte, error) {
 	return nil, errors.New("no such file")
 }
 
+// fakePerms implements core.PermissionService, recording every reply.
+// Reply returns err (e.g. an unknown, already-resolved request).
+type fakePerms struct {
+	mu      sync.Mutex
+	replies []permReply
+	err     error
+}
+
+// permReply is one recorded PermissionService.Reply call.
+type permReply struct {
+	ID    string
+	Reply core.PermissionReply
+}
+
+func (f *fakePerms) Reply(id string, r core.PermissionReply) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.replies = append(f.replies, permReply{ID: id, Reply: r})
+	return f.err
+}
+
+// countBlobs is a core.BlobService over an in-memory map that counts
+// Open calls.
+type countBlobs struct {
+	mu    sync.Mutex
+	data  map[string][]byte
+	opens int
+}
+
+func (f *countBlobs) Open(ref string) ([]byte, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.opens++
+	b, ok := f.data[ref]
+	if !ok {
+		return nil, "", errors.New("no such blob")
+	}
+	return b, "image/png", nil
+}
+
 // deferredMsg is what a test App's after hook yields instead of sleeping:
 // the message a tick would have delivered, and the delay it asked for.
 type deferredMsg struct {
@@ -211,6 +259,7 @@ type testConfig struct {
 	sessions  *recSessions
 	prefs     *fakePrefs
 	project   *listProject
+	blobs     *countBlobs
 	keyConfig map[string]string
 }
 
@@ -249,6 +298,16 @@ func withSessions(others []core.Session, msgs map[core.SessionID][]core.Message)
 	return func(c *testConfig) { c.sessions.others, c.sessions.otherMsgs = others, msgs }
 }
 
+// withBlobs serves data (ref → bytes) from the blob port.
+func withBlobs(data map[string][]byte) testOpt {
+	return func(c *testConfig) { c.blobs.data = data }
+}
+
+// withImages sets the image protocol override (JIG_IMAGES).
+func withImages(override string) testOpt {
+	return func(c *testConfig) { c.opts.Images = imgrender.Env{Override: override} }
+}
+
 // withPrefs seeds the stored prefs.
 func withPrefs(p core.Prefs) testOpt { return func(c *testConfig) { c.prefs.p = p } }
 
@@ -280,6 +339,9 @@ type testApp struct {
 	sessions *recSessions
 	prefs    *fakePrefs
 	project  *listProject
+	perms    *fakePerms
+	blobs    *countBlobs
+	raws     []string
 	clk      *clock.Fake
 	deferred []deferredMsg
 	returns  []sendDoneMsg
@@ -298,6 +360,7 @@ func newTestApp(t testing.TB, opts ...testOpt) *testApp {
 		sessions: &recSessions{},
 		prefs:    &fakePrefs{},
 		project:  &listProject{},
+		blobs:    &countBlobs{},
 		opts: Options{
 			WorkDir: testWorkDir, ProjectKey: testWorkDir,
 			Theme:  "dark",
@@ -312,10 +375,14 @@ func newTestApp(t testing.TB, opts ...testOpt) *testApp {
 	km, _ := actions.Resolve(actions.DefaultBindings(), cfg.keyConfig, cat)
 	cfg.opts.Actions, cfg.opts.Keymap = cat, km
 
-	ta := &testApp{t: t, chat: &fakeChat{}, sessions: cfg.sessions, prefs: cfg.prefs, project: cfg.project, clk: clk}
+	ta := &testApp{
+		t: t, chat: &fakeChat{}, sessions: cfg.sessions, prefs: cfg.prefs, project: cfg.project,
+		perms: &fakePerms{}, blobs: cfg.blobs, clk: clk,
+	}
 	ports := Ports{
 		Chat: ta.chat, Sessions: cfg.sessions, Prefs: cfg.prefs,
 		Agents: cfg.agents, Catalog: cfg.catalog, Project: cfg.project,
+		Perms: ta.perms, Blobs: cfg.blobs,
 	}
 	ta.app = New(ports, cfg.opts)
 	ta.app.after = func(d time.Duration, msg tea.Msg) tea.Cmd {
@@ -351,6 +418,8 @@ func (ta *testApp) run(cmd tea.Cmd) {
 		ta.returns = append(ta.returns, msg)
 	case tea.QuitMsg:
 		ta.quit = true
+	case tea.RawMsg:
+		ta.raws = append(ta.raws, fmt.Sprint(msg.Msg))
 	default:
 		ta.send(msg)
 	}

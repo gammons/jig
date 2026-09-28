@@ -79,7 +79,9 @@ type (
 // whether the one-line search input owns the status bar's slot;
 // detailsFor is the block ID the open details split shows, so an async
 // detailsMsg for a block the selection has since left can be ignored.
-// pick is the picker's state (pickerView).
+// pick is the picker's state (pickerView). subStale is set by a child
+// event while the split shows a running subagent; the next streamTick
+// re-reads its messages.
 type viewState struct {
 	pick         pickerView
 	sidebarPref  *bool
@@ -93,6 +95,7 @@ type viewState struct {
 	keyPrefix    string
 	searching    bool
 	detailsFor   transcript.BlockID
+	subStale     bool
 }
 
 // App is jig's TUI: a bubbletea model that bridges bus events into
@@ -106,7 +109,7 @@ type App struct {
 	lay           rects
 	mode          mode
 	theme         *themeState
-	img           *imgrender.Renderer
+	img           *imageState
 	sub           *event.Subscription
 	view          viewState
 	width, height int
@@ -126,10 +129,10 @@ func New(p Ports, o Options) *App {
 		ports: p, opts: o, ctx: ctx, cancel: cancel,
 		sess:  newSessionState(o.Session, o.Clock),
 		theme: newThemeState(o.Theme, o.Themes),
-		img:   imgrender.New(imgrender.Detect(o.Images, ""), imgrender.WithTmux(o.Tmux)),
+		img:   newImageState(imgrender.Detect(o.Images, ""), o.Tmux),
 		after: tick,
 	}
-	a.w = newWidgets(&a.theme.set, func(text string) tea.Cmd { return editorCmd(a.ports, text) }, levels{a}.load)
+	a.w = newWidgets(&a.theme.set, func(text string) tea.Cmd { return editorCmd(a.ports, text) }, levels{a}.load, replyFunc(a))
 	if p.Subscribe != nil {
 		a.sub = p.Subscribe()
 	}
@@ -180,8 +183,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		cmd = a.onResult(msg)
 	}
+	prev := a.lay
 	layout := a.relayout()
 	a.sync()
+	if a.lay != prev {
+		// The details pane moved or resized: draw a shown sixel again.
+		layout = tea.Batch(layout, placeSixel(a))
+	}
 	return a, tea.Batch(cmd, layout)
 }
 
@@ -227,25 +235,36 @@ func (a *App) onKey(k tea.KeyPressMsg) tea.Cmd {
 func (a *App) onEvent(ev event.Event) tea.Cmd {
 	res := a.sess.apply(ev)
 	if res.reload {
-		a.w.list.SetItems(a.sess.allItems())
+		a.w.setItems(a.sess.allItems())
 	}
 	a.flush(res.upsert)
-	var cmd tea.Cmd
+	cmds := []tea.Cmd{waitEvent(a.sub)}
 	if res.settled {
-		cmd = a.sender().afterRun()
+		cmds = append(cmds, a.sender().afterRun())
 	}
-	return tea.Batch(waitEvent(a.sub), cmd)
+	if a.sess.info.ID == "" || ev.Root() != a.sess.info.ID {
+		return tea.Batch(cmds...)
+	}
+	if e, ok := ev.(event.PermissionRequested); ok {
+		permCtl{a}.sync()
+		cmds = append(cmds, permCtl{a}.requested(e))
+	}
+	if ev.Session() != a.sess.info.ID {
+		detailsCtl{a}.childEvent()
+	}
+	return tea.Batch(cmds...)
 }
 
 // onTick renders the dirty streaming blocks and advances the spinners in
 // one Upsert, and reschedules itself while the run lasts.
 func (a *App) onTick() tea.Cmd {
 	a.flush(a.sess.tick())
+	refresh := detailsCtl{a}.refresh()
 	if a.sess.run.running {
-		return a.after(streamInterval, streamTickMsg{})
+		return tea.Batch(refresh, a.after(streamInterval, streamTickMsg{}))
 	}
 	a.view.ticking = false
-	return nil
+	return refresh
 }
 
 // flush re-renders the blocks ids in the transcript list.
@@ -278,14 +297,10 @@ func (a *App) onResult(msg tea.Msg) tea.Cmd {
 	case sendDoneMsg:
 		return a.sender().done(msg)
 	case detailsMsg:
-		// A build for a block the selection has since left (or whose
-		// split has closed) is stale; only the current one applies.
-		if msg.Block == a.view.detailsFor {
-			a.w.details.SetContent(msg.Content)
-		}
+		return detailsCtl{a}.result(msg)
 	case tea.TerminalVersionMsg:
-		if p := imgrender.Detect(a.opts.Images, msg.Name); p != a.img.Protocol() {
-			a.img = imgrender.New(p, imgrender.WithTmux(a.opts.Tmux))
+		if p := imgrender.Detect(a.opts.Images, msg.Name); p != a.img.r.Protocol() {
+			a.img = newImageState(p, a.opts.Tmux)
 		}
 	default:
 		a.onPortResult(msg)
@@ -322,7 +337,7 @@ func (a *App) onPortResult(msg tea.Msg) {
 				a.view.detailsOpen = false
 			}
 			a.sess.load(msg.info, msg.msgs, msg.todos)
-			a.w.list.SetItems(a.sess.allItems())
+			a.w.setItems(a.sess.allItems())
 			a.w.prompt.SetAgent(ansi.SanitizeLine(a.sess.info.Agent))
 		}
 	case errMsg:
@@ -344,7 +359,6 @@ func (a *App) relayout() tea.Cmd {
 	a.w.details.SetSize(a.lay.Side.W, a.lay.Side.H)
 	a.w.picker.SetSize(a.width, a.height)
 	a.w.confirm.SetSize(a.width, a.height)
-	a.w.card.SetWidth(a.lay.Transcript.W)
 
 	tw, th := a.lay.Transcript.W, a.lay.Transcript.H
 	if a.view.listW == 0 || tw == a.view.listW {
@@ -370,8 +384,10 @@ func (a *App) applyListWidth() {
 	a.view.pendingW = a.view.listW
 }
 
-// sync rebuilds the status bar and the sidebar from the state.
+// sync points the permission card at its request and rebuilds the status
+// bar and the sidebar from the state.
 func (a *App) sync() {
+	permCtl{a}.sync()
 	a.w.status.Set(a.statusState())
 	if a.lay.SideVisible {
 		a.w.side.SetSections(a.sess.sections(a.opts.WorkDir, a.opts.Aliases))
@@ -384,6 +400,7 @@ func (a *App) statusState() statusbar.State {
 	st.Mode = a.mode.String()
 	st.Untrusted = a.opts.Untrusted
 	st.Hint = a.view.hint
+	st.Pending = len(a.sess.proj.Pending())
 	return st
 }
 

@@ -242,6 +242,9 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   block through `AddUser` instead.
 - Keys fixed by R21 are handled by the mode handlers before
   `Keymap.Lookup`, so a `[keybinds]` entry can never override them.
+- The permission card mirrors one of `Projection.Pending()` (the selected
+  block's, else the first); `permCtl.sync` re-points it after every
+  Update, so a resolved or cancelled request can never leave a card up.
 - Only `imgrender` produces kitty placeholder cells and raw image payloads;
   `ui` sends payloads with `tea.Raw`, never inside `View`.
 - `core.Media.Data` is never persisted; only `client/llm` fills it, from
@@ -311,6 +314,9 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Syntax-highlight source code / render a styled unified diff | `coderender.Highlight(path, code, st)` / `coderender.Diff(path, before, after, context, st)`, `coderender.DiffText(before, after, context)` in `internal/bubbles/coderender` |
 | Pick the terminal image protocol / decode untrusted image bytes (bomb-guarded) / render an image into a cell box | `imgrender.Detect(env, terminalName)` / `imgrender.Decode(data)` / `imgrender.New(p, WithCellSize(w, h), WithTmux(on)).Render(key, img, maxCols, maxRows)` (send `Result.Upload` / `Place(res, x, y)` via `tea.Raw`) in `internal/bubbles/imgrender` |
 | Map a theme `Palette` into every widget's `Styles` | `theme.Build(p, version) theme.Set` |
+| Push the App's current theme `Set` to every widget (and bump item versions) | `pushTheme(a)` in `internal/ui/themestate.go` |
+| The agent-browser `--session` a bash command runs in (else `default`) | `transcript.BrowserSession(command)` |
+| Cache rendered images per (blob ref, cell box); send a kitty upload only when the terminal lacks that size | `imageState` (`store`, `cached`, `show`) and `placeSixel(a)` in `internal/ui/images.go` |
 
 ## Performance budgets
 

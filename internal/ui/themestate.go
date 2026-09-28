@@ -38,6 +38,30 @@ func (ts *themeState) apply(p theme.Palette) {
 	ts.set = theme.Build(p, ts.version)
 }
 
+// pushTheme pushes the current theme's Set to every widget: the
+// transcript's Markdown renderer (its block renderer reads the Set
+// through a pointer), the prompt, picker, details, permission card,
+// status bar, sidebar, and confirm dialog, and last the transcript list
+// at the new styles version. Every item's version is bumped too, so no
+// block keeps a render from the old palette; the list's own cache key
+// includes the styles version, so SetStyles re-renders each block once.
+// The card's new version re-renders its block on the next sync.
+func pushTheme(a *App) {
+	set := a.theme.set
+	a.w.render.md.SetStyles(set.Markdown)
+	a.w.prompt.SetStyles(set.Prompt)
+	a.w.picker.SetStyles(set.Picker)
+	a.w.details.SetStyles(set.Details)
+	a.w.card.SetStyles(set.Card)
+	a.w.status.SetStyles(set.Status)
+	a.w.side.SetStyles(set.Sidebar)
+	a.w.confirm.SetStyles(set.Confirm)
+	for id := range a.sess.versions {
+		a.sess.versions[id]++
+	}
+	a.w.list.SetStyles(set.Blocklist, a.theme.version)
+}
+
 // preview applies the palette named name, remembering the palette to
 // restore on the first preview. It reports whether anything changed.
 func (ts *themeState) preview(name string) bool {

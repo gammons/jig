@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -15,10 +16,14 @@ import (
 const newSessionTitle = "new session"
 
 // sections builds the sidebar from the session state: Session (title,
-// context gauge, cost, agent · model), Todos, and Files. Every row's text
-// is sanitized.
+// context gauge, cost, agent · model), Todos, Files, Subagents, and
+// Browser. Every row's text is sanitized.
 func (s *sessionState) sections(workDir string, aliases map[string]string) []sidebar.Section {
-	return []sidebar.Section{s.sessionSection(aliases), todoSection(s.todos), fileSection(workDir, s.proj.ChangedFiles())}
+	blocks := s.proj.Blocks()
+	return []sidebar.Section{
+		s.sessionSection(aliases), todoSection(s.todos), fileSection(workDir, s.proj.ChangedFiles()),
+		subagentSection(blocks), browserSection(s.proj.LastBrowserURL(), blocks),
+	}
 }
 
 func (s *sessionState) sessionSection(aliases map[string]string) sidebar.Section {
@@ -91,4 +96,74 @@ func normalizeChanges(workDir string, in []transcript.FileChange) []transcript.F
 		out = append(out, transcript.FileChange{Path: p, Kind: c.Kind})
 	}
 	return out
+}
+
+// subagentSection lists each Subagent block: its state icon, agent, and
+// description.
+func subagentSection(blocks []transcript.Block) sidebar.Section {
+	var rows []sidebar.Row
+	for _, b := range blocks {
+		if b.Kind != transcript.KindSubagent || b.Sub == nil {
+			continue
+		}
+		icon, tone := subagentIcon(b.State)
+		text := ansi.SanitizeLine(b.Sub.Agent)
+		if d := ansi.SanitizeLine(b.Sub.Description); d != "" {
+			text += "  " + d
+		}
+		rows = append(rows, sidebar.Row{Icon: icon, Text: text, Tone: tone})
+	}
+	return sidebar.Section{Title: "Subagents", Rows: rows}
+}
+
+// subagentIcon is the sidebar icon and tone for a subagent's state.
+func subagentIcon(st transcript.ToolState) (string, sidebar.Tone) {
+	switch st {
+	case transcript.StateOK:
+		return "✓", sidebar.Success
+	case transcript.StateError:
+		return "✗", sidebar.Error
+	case transcript.StateDenied, transcript.StateCancelled:
+		return "⊘", sidebar.Muted
+	case transcript.StateAwaiting:
+		return "⚠", sidebar.Warning
+	case transcript.StatePending:
+		return "○", sidebar.Muted
+	}
+	return "●", sidebar.Accent
+}
+
+// browserSection shows the last agent-browser URL and the session of the
+// latest root agent-browser command (its --session, else "default");
+// nothing until a navigation has happened.
+func browserSection(url string, blocks []transcript.Block) sidebar.Section {
+	if url == "" {
+		return sidebar.Section{Title: "Browser"}
+	}
+	name := "default"
+	for i := len(blocks) - 1; i >= 0; i-- {
+		if n, ok := browserSessionOf(blocks[i]); ok {
+			name = n
+			break
+		}
+	}
+	return sidebar.Section{Title: "Browser", Rows: []sidebar.Row{
+		{Icon: "🌐", Text: ansi.SanitizeLine(url)},
+		{Text: "session " + ansi.SanitizeLine(name), Tone: sidebar.Muted},
+	}}
+}
+
+// browserSessionOf is the agent-browser session a root bash block's
+// command runs in, if it invokes agent-browser.
+func browserSessionOf(b transcript.Block) (string, bool) {
+	if b.Kind != transcript.KindTool || b.Call == nil || b.Call.Name != "bash" {
+		return "", false
+	}
+	var in struct {
+		Command string `json:"command"`
+	}
+	if json.Unmarshal(b.Call.Input, &in) != nil {
+		return "", false
+	}
+	return transcript.BrowserSession(in.Command)
 }

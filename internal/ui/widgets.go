@@ -2,7 +2,6 @@ package ui
 
 import (
 	"charm.land/bubbles/v2/textinput"
-	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/bubbles/confirm"
@@ -13,10 +12,13 @@ import (
 	"github.com/gammons/jig/internal/bubbles/sidebar"
 	"github.com/gammons/jig/internal/bubbles/statusbar"
 	"github.com/gammons/jig/internal/ui/theme"
+	"github.com/gammons/jig/internal/ui/transcript"
 )
 
 // widgets holds every widget the App owns. upserts counts list Upsert
-// calls (streaming coalescing is asserted on it).
+// calls (streaming coalescing is asserted on it). cardAt is the block the
+// permission card renders under and the card version and width its item
+// was last built with.
 type widgets struct {
 	list    blocklist.Model
 	prompt  prompt.Model
@@ -29,6 +31,16 @@ type widgets struct {
 	search  textinput.Model
 	render  *renderer
 	upserts int
+	cardAt  cardKey
+}
+
+// cardKey records where the permission card is rendered: the block that
+// carries it ("" for none), and the card version and width it was built
+// at, so a change to either re-renders that block.
+type cardKey struct {
+	block transcript.BlockID
+	ver   int
+	width int
 }
 
 // upsert re-renders items in the transcript list; nothing for none.
@@ -37,12 +49,34 @@ func (w *widgets) upsert(items []blocklist.Item) {
 		return
 	}
 	w.upserts++
-	w.list.Upsert(items...)
+	w.list.Upsert(w.withCard(items)...)
+}
+
+// setItems replaces every item in the transcript list.
+func (w *widgets) setItems(items []blocklist.Item) {
+	w.list.SetItems(w.withCard(items))
+}
+
+// withCard puts the card's view on the item of the block that carries it.
+func (w *widgets) withCard(items []blocklist.Item) []blocklist.Item {
+	if w.cardAt.block == "" {
+		return items
+	}
+	for i, it := range items {
+		if it.ID != string(w.cardAt.block) {
+			continue
+		}
+		if d, ok := it.Data.(blockData); ok {
+			d.Card = w.card.View()
+			items[i].Data = d
+		}
+	}
+	return items
 }
 
 // newWidgets builds every widget styled from set; the picker loads its
-// levels with load.
-func newWidgets(set *theme.Set, edit prompt.EditFunc, load picker.LoadFunc) widgets {
+// levels with load, and the permission card replies through reply.
+func newWidgets(set *theme.Set, edit prompt.EditFunc, load picker.LoadFunc, reply permcard.ReplyFunc) widgets {
 	r := newRenderer(set)
 	search := textinput.New()
 	search.Prompt = "/"
@@ -57,7 +91,7 @@ func newWidgets(set *theme.Set, edit prompt.EditFunc, load picker.LoadFunc) widg
 		prompt:  prompt.New(edit, prompt.WithStyles(set.Prompt)),
 		picker:  picker.New(load, picker.WithStyles(set.Picker), picker.WithPreview(previewTheme)),
 		details: details.New(details.WithStyles(set.Details)),
-		card:    permcard.New(func(string, permcard.Reply) tea.Cmd { return nil }, permcard.WithStyles(set.Card)),
+		card:    permcard.New(reply, permcard.WithStyles(set.Card)),
 		status:  statusbar.New(statusbar.WithStyles(set.Status)),
 		side:    sidebar.New(sidebar.WithStyles(set.Sidebar)),
 		confirm: confirm.New(confirm.WithStyles(set.Confirm)),

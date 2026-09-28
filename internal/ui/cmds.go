@@ -292,3 +292,18 @@ func extCmd(ctx context.Context, c ext.Command, what string) tea.Cmd {
 		return nil
 	}
 }
+
+// permReplyCmd answers permission request id through p.Perms. A reply to
+// a request that is no longer pending (its run was cancelled, or another
+// reply won) fails harmlessly: the error only becomes a hint.
+func permReplyCmd(p Ports, id string, r core.PermissionReply) tea.Cmd {
+	if p.Perms == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		if err := p.Perms.Reply(id, r); err != nil {
+			return errMsg{what: "permission", err: err}
+		}
+		return nil
+	}
+}
