@@ -1,9 +1,9 @@
 // Package blocklist is jig's transcript list: a vertical list of
 // variable-height blocks with a block cursor, a per-item render cache,
-// yOffset scrolling that stays pinned to the bottom while the cursor is on
-// the last block, and search. It mirrors slk's message-list shape (a
-// flattened line space addressed by per-item offsets and a yOffset), not
-// bubbles/viewport.
+// yOffset scrolling that stays pinned to the bottom while the view is
+// following (scrolled all the way down), and search. It mirrors slk's
+// message-list shape (a flattened line space addressed by per-item
+// offsets and a yOffset), not bubbles/viewport.
 package blocklist
 
 import (
@@ -82,9 +82,16 @@ type Model struct {
 	total   int            // lines in the flattened list
 	sel     int            // selected position, -1 when empty
 	yOffset int            // first visible line
+	flags   viewFlags
 	query   string
-	noHL    bool // hide the selection bar and background (SetHighlight(false))
 	c       *cache
+}
+
+// viewFlags are Model's view toggles, grouped to keep Model within
+// archtest's field limit.
+type viewFlags struct {
+	follow bool // true while the view is scrolled to the bottom
+	noHL   bool // hide the selection bar and background (SetHighlight(false))
 }
 
 // New builds an empty list that renders items with render.
@@ -95,6 +102,7 @@ func New(render RenderFunc, opts ...Option) Model {
 		keys:   DefaultKeyMap(),
 		index:  map[string]int{},
 		sel:    -1,
+		flags:  viewFlags{follow: true},
 		c:      newCache(),
 	}
 	for _, o := range opts {
@@ -128,11 +136,11 @@ func (m *Model) SetStyles(st Styles, version int) {
 }
 
 // SetItems replaces every item. The selection stays on the same ID, or
-// moves to the last item when that ID is gone or the selection was on the
-// last item (so a pinned view follows new blocks).
+// moves to the last item when that ID is gone or the view was following
+// (so a pinned view follows new blocks).
 func (m *Model) SetItems(items []Item) {
 	prev, hadSel := m.Selected()
-	wasLast := hadSel && m.sel == len(m.items)-1
+	wasLast := hadSel && m.flags.follow
 	id, within := m.anchor()
 
 	m.items = slices.Clone(items)
@@ -149,13 +157,13 @@ func (m *Model) SetItems(items []Item) {
 	m.relayout(id, within)
 }
 
-// Upsert replaces each item with the same ID, or appends it. If the
-// selection was on the last item, it moves to the new last item.
+// Upsert replaces each item with the same ID, or appends it. If the view
+// was following, the selection moves to the new last item.
 func (m *Model) Upsert(items ...Item) {
 	if len(items) == 0 {
 		return
 	}
-	wasLast := m.sel == len(m.items)-1
+	wasLast := m.flags.follow
 	id, within := m.anchor()
 
 	// Copy on write: copies of m keep their own items and index.
@@ -184,7 +192,7 @@ func (m Model) Len() int { return len(m.items) }
 
 // SetHighlight shows (the default) or hides the selected item's bar and
 // background. The selection itself, and scrolling, are unaffected.
-func (m *Model) SetHighlight(on bool) { m.noHL = !on }
+func (m *Model) SetHighlight(on bool) { m.flags.noHL = !on }
 
 // Selected returns the selected item; false when the list is empty.
 func (m Model) Selected() (Item, bool) {
@@ -211,6 +219,28 @@ func (m *Model) Top() { m.moveTo(0) }
 func (m *Model) Bottom() {
 	m.moveTo(len(m.items) - 1)
 	m.yOffset = max(0, m.total-m.h)
+	m.flags.follow = true
+}
+
+// ScrollBy moves the view by n lines (negative scrolls up), clamped to
+// [0, total-h]. The selection moves to the item at the view's vertical
+// middle (yOffset + h/2), without ensureVisible, so the view never jumps
+// to a tall item's first line: at yOffset 0 it selects item 0; at the
+// bottom it selects the last item and resumes following.
+func (m *Model) ScrollBy(n int) {
+	if len(m.items) == 0 {
+		return
+	}
+	m.yOffset = clamp(m.yOffset+n, 0, m.total-m.h)
+	switch {
+	case m.yOffset == 0:
+		m.sel = 0
+	case m.yOffset >= m.total-m.h:
+		m.sel = len(m.items) - 1
+	default:
+		m.sel = itemAt(m.offsets, m.yOffset+m.h/2)
+	}
+	m.flags.follow = m.yOffset >= m.total-m.h
 }
 
 // Update handles the KeyMap's keys; everything else is ignored.
@@ -231,9 +261,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case key.Matches(k, m.keys.HalfUp):
 		m.halfPage(-1)
 	case key.Matches(k, m.keys.NextMatch):
-		m.nextMatch(1)
+		nextMatch(&m, 1)
 	case key.Matches(k, m.keys.PrevMatch):
-		m.nextMatch(-1)
+		nextMatch(&m, -1)
 	}
 	return m, nil
 }

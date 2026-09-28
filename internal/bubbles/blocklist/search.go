@@ -19,9 +19,10 @@ func (m *Model) SetSearch(query string) int {
 	return n
 }
 
-// nextMatch selects the next (dir 1) or previous (dir -1) matching item,
-// wrapping around; it does nothing without a query or a match.
-func (m *Model) nextMatch(dir int) {
+// nextMatch selects m's next (dir 1) or previous (dir -1) matching item,
+// wrapping around; it does nothing without a query or a match. It is a
+// function, not a method, to keep Model within archtest's method limit.
+func nextMatch(m *Model, dir int) {
 	n, iw := len(m.items), m.w-2
 	if m.query == "" || n == 0 || iw < 1 {
 		return

@@ -32,7 +32,7 @@ func (m *Model) relayout(id string, within int) {
 		m.total = line - gap
 	}
 
-	if len(m.items) > 0 && m.sel == len(m.items)-1 {
+	if len(m.items) > 0 && m.flags.follow {
 		m.yOffset = max(0, m.total-m.h)
 		return
 	}
@@ -72,12 +72,14 @@ func (m *Model) ensureVisible() {
 	m.yOffset = clamp(m.yOffset, 0, m.total-m.h)
 }
 
-// moveTo selects item i (clamped) and scrolls it into view.
+// moveTo selects item i (clamped) and scrolls it into view. It sets follow
+// when i lands on the last item, and clears it otherwise.
 func (m *Model) moveTo(i int) {
 	if len(m.items) == 0 {
 		return
 	}
 	m.sel = clamp(i, 0, len(m.items)-1)
+	m.flags.follow = m.sel == len(m.items)-1
 	m.ensureVisible()
 }
 
@@ -95,6 +97,7 @@ func (m *Model) halfPage(dir int) {
 	}
 	m.yOffset = clamp(m.yOffset+dir*half, 0, m.total-m.h)
 	m.sel = target
+	m.flags.follow = m.sel == len(m.items)-1
 	m.ensureVisible()
 }
 
