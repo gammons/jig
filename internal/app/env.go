@@ -22,10 +22,11 @@ type env struct {
 	workDir string // absolute
 	gitRoot string // "" outside a git repo
 	loaded  config.Loaded
+	merged  core.Config // config.Merge(loaded.Global, loaded.Project), computed once in loadEnv
 	getenv  func(string) string
 }
 
-func (e env) cfg() core.Config { return e.loaded.Config }
+func (e env) cfg() core.Config { return e.merged }
 
 // loadEnv resolves the XDG paths, the absolute work dir (cwd, or the
 // process's working directory if empty), its git root, and the merged
@@ -43,11 +44,13 @@ func loadEnv(cwd string, getenv func(string) string) (env, error) {
 	if err != nil {
 		return env{}, configError{err}
 	}
-	if err := validateModels(loaded.Config); err != nil {
+	// Task 15 inserts trust filtering between Load and Merge here.
+	merged := config.Merge(loaded.Global, loaded.Project)
+	if err := validateModels(merged); err != nil {
 		return env{}, configError{err}
 	}
 	gitRoot, _ := fsroot.GitRoot(workDir)
-	return env{paths: p, workDir: workDir, gitRoot: gitRoot, loaded: loaded, getenv: getenv}, nil
+	return env{paths: p, workDir: workDir, gitRoot: gitRoot, loaded: loaded, merged: merged, getenv: getenv}, nil
 }
 
 // resolveWorkDir returns cwd as an absolute, canonical path (see

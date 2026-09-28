@@ -78,3 +78,54 @@ write = "maybe"
 		}
 	})
 }
+
+func TestToggle_UnmarshalTOML(t *testing.T) {
+	t.Run("bool true", func(t *testing.T) {
+		var doc struct {
+			T Toggle `toml:"t"`
+		}
+		if _, err := toml.Decode(`t = true`, &doc); err != nil {
+			t.Fatalf("Decode: %v", err)
+		}
+		if doc.T != ToggleTrue {
+			t.Errorf("T = %q, want %q", doc.T, ToggleTrue)
+		}
+	})
+
+	t.Run("bool false", func(t *testing.T) {
+		var doc struct {
+			T Toggle `toml:"t"`
+		}
+		if _, err := toml.Decode(`t = false`, &doc); err != nil {
+			t.Fatalf("Decode: %v", err)
+		}
+		if doc.T != ToggleFalse {
+			t.Errorf("T = %q, want %q", doc.T, ToggleFalse)
+		}
+	})
+
+	t.Run("string auto", func(t *testing.T) {
+		var doc struct {
+			T Toggle `toml:"t"`
+		}
+		if _, err := toml.Decode(`t = "auto"`, &doc); err != nil {
+			t.Fatalf("Decode: %v", err)
+		}
+		if doc.T != ToggleAuto {
+			t.Errorf("T = %q, want %q", doc.T, ToggleAuto)
+		}
+	})
+
+	t.Run("invalid string", func(t *testing.T) {
+		var doc struct {
+			T Toggle `toml:"t"`
+		}
+		_, err := toml.Decode(`t = "maybe"`, &doc)
+		if err == nil {
+			t.Fatal("Decode: want error for invalid toggle, got nil")
+		}
+		if !strings.Contains(err.Error(), "maybe") {
+			t.Errorf("error %q does not mention the invalid value %q", err.Error(), "maybe")
+		}
+	})
+}

@@ -68,9 +68,9 @@ func discover(e env, errw io.Writer) discovered {
 	return discovered{
 		skills: skills,
 		sources: agents.Sources{
-			GlobalTOML:  e.loaded.GlobalAgents,
+			GlobalTOML:  e.loaded.Global.Agents,
 			GlobalMD:    globalMD,
-			ProjectTOML: e.loaded.ProjectAgents,
+			ProjectTOML: e.loaded.Project.Agents,
 			ProjectMD:   projectMD,
 		},
 	}

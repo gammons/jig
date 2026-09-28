@@ -9,20 +9,18 @@ import (
 	"github.com/gammons/jig/internal/data/paths"
 )
 
-// state accumulates one config.Load pass across files, in merge order
-// (later files win). See the package doc and Task 8's brief for the merge
-// rules per key.
+// state accumulates one config.Load pass across the files of a single
+// layer (either just the global file, or the project files root-to-leaf),
+// in merge order (later files win). See the package doc and Task 8's
+// brief for the merge rules per key.
 type state struct {
-	cfg           core.Config
-	globalAgents  map[string]core.AgentConfig
-	projectAgents map[string]core.AgentConfig
+	cfg core.Config
 }
 
 // apply merges one decoded, substituted file into s. file is its path (used
 // as AgentConfig.Source); dir is its directory (used to resolve relative
-// instructions/skill paths); isGlobal marks the single global config file,
-// as opposed to a project (workDir/.jig/config.toml) file.
-func (s *state) apply(dto tomlFile, md toml.MetaData, file, dir, home string, isGlobal bool) {
+// instructions/skill paths).
+func (s *state) apply(dto tomlFile, md toml.MetaData, file, dir, home string) {
 	s.applyScalars(dto, md)
 	s.applyProviders(dto, md)
 	mergePermissions(&s.cfg.Permissions, dto.Permissions)
@@ -30,12 +28,6 @@ func (s *state) apply(dto tomlFile, md toml.MetaData, file, dir, home string, is
 	mergeStringMap(&s.cfg.Keybinds, dto.Keybinds)
 	appendDedup(&s.cfg.Instructions, dto.Instructions, dir, home)
 	appendDedup(&s.cfg.SkillPaths, dto.Skills.Paths, dir, home)
-
-	if isGlobal {
-		s.globalAgents = applyAgents(s.globalAgents, dto.Agents, md, file)
-	} else {
-		s.projectAgents = applyAgents(s.projectAgents, dto.Agents, md, file)
-	}
 	s.cfg.Agents = applyAgents(s.cfg.Agents, dto.Agents, md, file)
 }
 
@@ -48,6 +40,9 @@ func (s *state) applyScalars(dto tomlFile, md toml.MetaData) {
 	}
 	if md.IsDefined("theme") {
 		s.cfg.Theme = dto.Theme
+	}
+	if md.IsDefined("integrations", "agent_browser", "enabled") {
+		s.cfg.AgentBrowser = dto.Integrations.AgentBrowser.Enabled
 	}
 }
 
@@ -80,6 +75,9 @@ func mergeProviderFields(dst *core.ProviderConfig, name string, p providerDTO, m
 	}
 	if md.IsDefined("providers", name, "options") {
 		dst.Options = p.Options
+	}
+	if md.IsDefined("providers", name, "image_models") {
+		dst.ImageModels = p.ImageModels
 	}
 }
 
@@ -148,16 +146,20 @@ func mergeAgentFields(dst *core.AgentConfig, name string, a agentDTO, md toml.Me
 }
 
 // mergePermissions merges src into *dst per tool: Default is replaced if
-// src's rule sets one, and Patterns are merged key by key.
+// src's rule sets one, and Patterns are merged key by key. It always
+// allocates a fresh map (and per-tool Patterns map) rather than mutating
+// *dst's backing storage in place, so it is safe to call with a *dst that
+// aliases a caller-owned map, as Merge's lo does.
 func mergePermissions(dst *core.PermissionRules, src map[string]core.Rule) {
 	if len(src) == 0 {
 		return
 	}
-	if *dst == nil {
-		*dst = make(core.PermissionRules, len(src))
+	out := make(core.PermissionRules, len(*dst)+len(src))
+	for tool, rule := range *dst {
+		out[tool] = cloneRule(rule)
 	}
 	for tool, rule := range src {
-		existing := (*dst)[tool]
+		existing := out[tool]
 		if rule.Default != "" {
 			existing.Default = rule.Default
 		}
@@ -169,22 +171,37 @@ func mergePermissions(dst *core.PermissionRules, src map[string]core.Rule) {
 				existing.Patterns[pattern] = action
 			}
 		}
-		(*dst)[tool] = existing
+		out[tool] = existing
 	}
+	*dst = out
+}
+
+func cloneRule(r core.Rule) core.Rule {
+	if r.Patterns == nil {
+		return r
+	}
+	cp := make(map[string]core.Action, len(r.Patterns))
+	for k, v := range r.Patterns {
+		cp[k] = v
+	}
+	return core.Rule{Default: r.Default, Patterns: cp}
 }
 
 // mergeStringMap merges src into *dst, key by key, later files winning per
-// key.
+// key. Like mergePermissions, it always allocates a fresh map rather than
+// mutating *dst's backing storage in place.
 func mergeStringMap(dst *map[string]string, src map[string]string) {
 	if len(src) == 0 {
 		return
 	}
-	if *dst == nil {
-		*dst = make(map[string]string, len(src))
+	out := make(map[string]string, len(*dst)+len(src))
+	for k, v := range *dst {
+		out[k] = v
 	}
 	for k, v := range src {
-		(*dst)[k] = v
+		out[k] = v
 	}
+	*dst = out
 }
 
 // appendDedup resolves each item relative to dir (with "~" expanded to
@@ -208,4 +225,165 @@ func containsString(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// Merge overlays hi on lo with Plan 1's per-key rules, reusing the same
+// field helpers as the per-file fold above (mergePermissions,
+// mergeStringMap) so the two cannot drift. It operates on already-decoded
+// core.Config values, where "hi sets this field" is approximated by
+// non-empty/non-nil in hi (empty string, nil slice, nil map, or nil *bool
+// mean unset) -- unlike the fold, which asks the TOML decoder's
+// toml.MetaData.IsDefined.
+func Merge(lo, hi core.Config) core.Config {
+	out := lo
+	mergeConfigScalars(&out, hi)
+	mergeProvidersMap(&out.Providers, hi.Providers)
+	mergePermissions(&out.Permissions, hi.Permissions)
+	mergeStringMap(&out.ModelAliases, hi.ModelAliases)
+	mergeStringMap(&out.Keybinds, hi.Keybinds)
+	out.Instructions = mergeAppendDedup(lo.Instructions, hi.Instructions)
+	out.SkillPaths = mergeAppendDedup(lo.SkillPaths, hi.SkillPaths)
+	mergeAgentsMap(&out.Agents, hi.Agents)
+	return out
+}
+
+// mergeConfigScalars is Merge's counterpart of state.applyScalars: it
+// overlays hi's scalar fields onto dst when hi sets them, non-empty in hi
+// standing in for toml.MetaData.IsDefined.
+func mergeConfigScalars(dst *core.Config, hi core.Config) {
+	if hi.DefaultModel != "" {
+		dst.DefaultModel = hi.DefaultModel
+	}
+	if hi.SmallModel != "" {
+		dst.SmallModel = hi.SmallModel
+	}
+	if hi.Theme != "" {
+		dst.Theme = hi.Theme
+	}
+	if hi.AgentBrowser != "" {
+		dst.AgentBrowser = hi.AgentBrowser
+	}
+}
+
+// mergeProvidersMap is Merge's counterpart of state.applyProviders: it
+// overlays hi's providers onto *dst field by field (mergeProviderConfigFields),
+// without mutating *dst's original backing map (which may alias lo's).
+func mergeProvidersMap(dst *map[string]core.ProviderConfig, hi map[string]core.ProviderConfig) {
+	if len(hi) == 0 {
+		return
+	}
+	out := make(map[string]core.ProviderConfig, len(*dst)+len(hi))
+	for name, p := range *dst {
+		out[name] = p
+	}
+	for name, p := range hi {
+		existing := out[name]
+		mergeProviderConfigFields(&existing, p)
+		out[name] = existing
+	}
+	*dst = out
+}
+
+// mergeProviderConfigFields is Merge's counterpart of mergeProviderFields:
+// the same field list, but reading "hi sets this field" straight off the
+// already-decoded core.ProviderConfig rather than toml.MetaData.
+func mergeProviderConfigFields(dst *core.ProviderConfig, hi core.ProviderConfig) {
+	if hi.Type != "" {
+		dst.Type = hi.Type
+	}
+	if hi.APIKey != "" {
+		dst.APIKey = hi.APIKey
+	}
+	if hi.BaseURL != "" {
+		dst.BaseURL = hi.BaseURL
+	}
+	if hi.Models != nil {
+		dst.Models = hi.Models
+	}
+	if hi.Options != nil {
+		dst.Options = hi.Options
+	}
+	if hi.ImageModels != nil {
+		dst.ImageModels = hi.ImageModels
+	}
+}
+
+// mergeAgentsMap is Merge's counterpart of applyAgents: it overlays hi's
+// agents onto *dst field by field (mergeAgentConfigFields), without
+// mutating *dst's original backing map (which may alias lo's).
+func mergeAgentsMap(dst *map[string]core.AgentConfig, hi map[string]core.AgentConfig) {
+	if len(hi) == 0 {
+		return
+	}
+	out := make(map[string]core.AgentConfig, len(*dst)+len(hi))
+	for name, a := range *dst {
+		out[name] = a
+	}
+	for name, a := range hi {
+		existing := out[name]
+		if mergeAgentConfigFields(&existing, a) {
+			existing.Source = a.Source
+		}
+		out[name] = existing
+	}
+	*dst = out
+}
+
+// mergeAgentConfigFields is Merge's counterpart of mergeAgentFields: the
+// same field list, but reading "hi sets this field" straight off the
+// already-decoded core.AgentConfig rather than toml.MetaData. It reports
+// whether it touched anything, so the caller can update Source.
+func mergeAgentConfigFields(dst *core.AgentConfig, hi core.AgentConfig) bool {
+	touched := false
+	if hi.Description != "" {
+		dst.Description = hi.Description
+		touched = true
+	}
+	if hi.Mode != "" {
+		dst.Mode = hi.Mode
+		touched = true
+	}
+	if hi.Model != "" {
+		dst.Model = hi.Model
+		touched = true
+	}
+	if hi.Prompt != "" {
+		dst.Prompt = hi.Prompt
+		touched = true
+	}
+	if hi.MaxSteps != 0 {
+		dst.MaxSteps = hi.MaxSteps
+		touched = true
+	}
+	if hi.CanSpawn != nil {
+		dst.CanSpawn = hi.CanSpawn
+		touched = true
+	}
+	if hi.Hidden != nil {
+		dst.Hidden = hi.Hidden
+		touched = true
+	}
+	if hi.Tools != nil {
+		dst.Tools = hi.Tools
+		touched = true
+	}
+	if len(hi.Permissions) > 0 {
+		mergePermissions(&dst.Permissions, hi.Permissions)
+		touched = true
+	}
+	return touched
+}
+
+// mergeAppendDedup is Merge's counterpart of appendDedup: lo and hi are
+// already-resolved absolute paths (each resolved, at fold time, relative
+// to its declaring file's directory), so it only needs to append and
+// de-duplicate, not resolve.
+func mergeAppendDedup(lo, hi []string) []string {
+	out := append([]string(nil), lo...)
+	for _, item := range hi {
+		if !containsString(out, item) {
+			out = append(out, item)
+		}
+	}
+	return out
 }

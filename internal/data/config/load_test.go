@@ -30,17 +30,14 @@ func TestLoad_NoFilesGivesZeroConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if !reflect.DeepEqual(loaded.Config, core.Config{}) {
-		t.Errorf("Config = %+v, want zero value", loaded.Config)
+	if !reflect.DeepEqual(Merge(loaded.Global, loaded.Project), core.Config{}) {
+		t.Errorf("Merge(Global, Project) = %+v, want zero value", Merge(loaded.Global, loaded.Project))
 	}
-	if len(loaded.Files) != 0 {
-		t.Errorf("Files = %v, want empty", loaded.Files)
+	if len(loaded.GlobalFiles) != 0 {
+		t.Errorf("GlobalFiles = %v, want empty", loaded.GlobalFiles)
 	}
-	if len(loaded.GlobalAgents) != 0 {
-		t.Errorf("GlobalAgents = %v, want empty", loaded.GlobalAgents)
-	}
-	if len(loaded.ProjectAgents) != 0 {
-		t.Errorf("ProjectAgents = %v, want empty", loaded.ProjectAgents)
+	if len(loaded.ProjectFiles) != 0 {
+		t.Errorf("ProjectFiles = %v, want empty", loaded.ProjectFiles)
 	}
 }
 
@@ -62,18 +59,20 @@ default_model = "project/model"
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if loaded.Config.DefaultModel != "project/model" {
-		t.Errorf("DefaultModel = %q, want %q", loaded.Config.DefaultModel, "project/model")
+	merged := Merge(loaded.Global, loaded.Project)
+	if merged.DefaultModel != "project/model" {
+		t.Errorf("DefaultModel = %q, want %q", merged.DefaultModel, "project/model")
 	}
-	if loaded.Config.Theme != "dark" {
-		t.Errorf("Theme = %q, want %q (only global sets it)", loaded.Config.Theme, "dark")
+	if merged.Theme != "dark" {
+		t.Errorf("Theme = %q, want %q (only global sets it)", merged.Theme, "dark")
 	}
-	wantFiles := []string{
-		filepath.Join(configDir, "config.toml"),
-		filepath.Join(workDir, ".jig", "config.toml"),
+	wantGlobalFiles := []string{filepath.Join(configDir, "config.toml")}
+	if !reflect.DeepEqual(loaded.GlobalFiles, wantGlobalFiles) {
+		t.Errorf("GlobalFiles = %v, want %v", loaded.GlobalFiles, wantGlobalFiles)
 	}
-	if !reflect.DeepEqual(loaded.Files, wantFiles) {
-		t.Errorf("Files = %v, want %v", loaded.Files, wantFiles)
+	wantProjectFiles := []string{filepath.Join(workDir, ".jig", "config.toml")}
+	if !reflect.DeepEqual(loaded.ProjectFiles, wantProjectFiles) {
+		t.Errorf("ProjectFiles = %v, want %v", loaded.ProjectFiles, wantProjectFiles)
 	}
 }
 
@@ -96,9 +95,10 @@ max_steps = 12
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	agent, ok := loaded.Config.Agents["explore"]
+	merged := Merge(loaded.Global, loaded.Project)
+	agent, ok := merged.Agents["explore"]
 	if !ok {
-		t.Fatalf("Agents[explore] missing, got %v", loaded.Config.Agents)
+		t.Fatalf("Agents[explore] missing, got %v", merged.Agents)
 	}
 	if agent.Model != "openai/gpt-5" {
 		t.Errorf("Model = %q, want %q", agent.Model, "openai/gpt-5")
@@ -136,9 +136,10 @@ max_tokens = 2048
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	prov, ok := loaded.Config.Providers["openai"]
+	merged := Merge(loaded.Global, loaded.Project)
+	prov, ok := merged.Providers["openai"]
 	if !ok {
-		t.Fatalf("Providers[openai] missing, got %v", loaded.Config.Providers)
+		t.Fatalf("Providers[openai] missing, got %v", merged.Providers)
 	}
 	if prov.Type != "openai" {
 		t.Errorf("Type = %q, want %q", prov.Type, "openai")
@@ -183,9 +184,10 @@ hidden = false
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	agent, ok := loaded.Config.Agents["explore"]
+	merged := Merge(loaded.Global, loaded.Project)
+	agent, ok := merged.Agents["explore"]
 	if !ok {
-		t.Fatalf("Agents[explore] missing, got %v", loaded.Config.Agents)
+		t.Fatalf("Agents[explore] missing, got %v", merged.Agents)
 	}
 	if agent.CanSpawn == nil || *agent.CanSpawn != true {
 		t.Errorf("CanSpawn = %v, want pointer to true (unset in project, must survive from global)", agent.CanSpawn)
@@ -215,9 +217,10 @@ func TestLoad_AgentPermissionsMerge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	agent, ok := loaded.Config.Agents["explore"]
+	merged := Merge(loaded.Global, loaded.Project)
+	agent, ok := merged.Agents["explore"]
 	if !ok {
-		t.Fatalf("Agents[explore] missing, got %v", loaded.Config.Agents)
+		t.Fatalf("Agents[explore] missing, got %v", merged.Agents)
 	}
 	rule := agent.Permissions["bash"]
 	want := map[string]core.Action{
@@ -253,16 +256,17 @@ smart = "anthropic/opus"
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
+	merged := Merge(loaded.Global, loaded.Project)
 	wantAliases := map[string]string{
 		"fast":  "anthropic/haiku", // project overrides the same key
 		"smart": "anthropic/opus",  // project-only key survives
 	}
-	if !reflect.DeepEqual(loaded.Config.ModelAliases, wantAliases) {
-		t.Errorf("ModelAliases = %v, want %v", loaded.Config.ModelAliases, wantAliases)
+	if !reflect.DeepEqual(merged.ModelAliases, wantAliases) {
+		t.Errorf("ModelAliases = %v, want %v", merged.ModelAliases, wantAliases)
 	}
 	wantKeybinds := map[string]string{"quit": "ctrl+c"} // untouched by project file
-	if !reflect.DeepEqual(loaded.Config.Keybinds, wantKeybinds) {
-		t.Errorf("Keybinds = %v, want %v", loaded.Config.Keybinds, wantKeybinds)
+	if !reflect.DeepEqual(merged.Keybinds, wantKeybinds) {
+		t.Errorf("Keybinds = %v, want %v", merged.Keybinds, wantKeybinds)
 	}
 }
 
@@ -293,29 +297,30 @@ max_steps = 12
 		t.Fatalf("Load: %v", err)
 	}
 
-	projectAgent, ok := loaded.ProjectAgents["explore"]
+	projectAgent, ok := loaded.Project.Agents["explore"]
 	if !ok {
-		t.Fatalf("ProjectAgents[explore] missing, got %v", loaded.ProjectAgents)
+		t.Fatalf("Project.Agents[explore] missing, got %v", loaded.Project.Agents)
 	}
 	if projectAgent.Description != "sub desc" {
-		t.Errorf("ProjectAgents[explore].Description = %q, want %q (closer file wins)", projectAgent.Description, "sub desc")
+		t.Errorf("Project.Agents[explore].Description = %q, want %q (closer file wins)", projectAgent.Description, "sub desc")
 	}
 	if projectAgent.Model != "openai/gpt-5" {
-		t.Errorf("ProjectAgents[explore].Model = %q, want %q (unset in sub, must survive from root)", projectAgent.Model, "openai/gpt-5")
+		t.Errorf("Project.Agents[explore].Model = %q, want %q (unset in sub, must survive from root)", projectAgent.Model, "openai/gpt-5")
 	}
 	if projectAgent.MaxSteps != 12 {
-		t.Errorf("ProjectAgents[explore].MaxSteps = %d, want 12", projectAgent.MaxSteps)
+		t.Errorf("Project.Agents[explore].MaxSteps = %d, want 12", projectAgent.MaxSteps)
 	}
 	if projectAgent.Source != subFile {
-		t.Errorf("ProjectAgents[explore].Source = %q, want %q (last project file to touch it)", projectAgent.Source, subFile)
+		t.Errorf("Project.Agents[explore].Source = %q, want %q (last project file to touch it)", projectAgent.Source, subFile)
 	}
 
-	cfgAgent, ok := loaded.Config.Agents["explore"]
+	merged := Merge(loaded.Global, loaded.Project)
+	cfgAgent, ok := merged.Agents["explore"]
 	if !ok {
-		t.Fatalf("Config.Agents[explore] missing, got %v", loaded.Config.Agents)
+		t.Fatalf("Merged Agents[explore] missing, got %v", merged.Agents)
 	}
 	if !reflect.DeepEqual(cfgAgent, projectAgent) {
-		t.Errorf("Config.Agents[explore] = %+v, want it to match ProjectAgents[explore] = %+v (no global file here)", cfgAgent, projectAgent)
+		t.Errorf("Merged Agents[explore] = %+v, want it to match Project.Agents[explore] = %+v (no global file here)", cfgAgent, projectAgent)
 	}
 }
 
@@ -339,7 +344,8 @@ func TestLoad_PermissionPatternsMerge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	rule := loaded.Config.Permissions["bash"]
+	merged := Merge(loaded.Global, loaded.Project)
+	rule := merged.Permissions["bash"]
 	want := map[string]core.Action{
 		"git status*": core.Allow,
 		"*":           core.Ask,
@@ -367,13 +373,14 @@ instructions = ["/abs/shared.md", "extra.md"]
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
+	merged := Merge(loaded.Global, loaded.Project)
 	want := []string{
 		filepath.Join(configDir, "local.md"),
 		"/abs/shared.md",
 		filepath.Join(workDir, ".jig", "extra.md"),
 	}
-	if !reflect.DeepEqual(loaded.Config.Instructions, want) {
-		t.Errorf("Instructions = %v, want %v", loaded.Config.Instructions, want)
+	if !reflect.DeepEqual(merged.Instructions, want) {
+		t.Errorf("Instructions = %v, want %v", merged.Instructions, want)
 	}
 }
 
@@ -393,15 +400,16 @@ func TestLoad_NestedProjectDirsCloserWins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if loaded.Config.DefaultModel != "sub/model" {
-		t.Errorf("DefaultModel = %q, want %q", loaded.Config.DefaultModel, "sub/model")
+	merged := Merge(loaded.Global, loaded.Project)
+	if merged.DefaultModel != "sub/model" {
+		t.Errorf("DefaultModel = %q, want %q", merged.DefaultModel, "sub/model")
 	}
 	wantFiles := []string{
 		filepath.Join(repo, ".jig", "config.toml"),
 		filepath.Join(sub, ".jig", "config.toml"),
 	}
-	if !reflect.DeepEqual(loaded.Files, wantFiles) {
-		t.Errorf("Files = %v, want %v", loaded.Files, wantFiles)
+	if !reflect.DeepEqual(loaded.ProjectFiles, wantFiles) {
+		t.Errorf("ProjectFiles = %v, want %v", loaded.ProjectFiles, wantFiles)
 	}
 }
 
@@ -425,20 +433,77 @@ description = "reviewer desc"
 		t.Fatalf("Load: %v", err)
 	}
 
-	if _, ok := loaded.GlobalAgents["explore"]; !ok {
-		t.Errorf("GlobalAgents missing explore: %v", loaded.GlobalAgents)
+	if _, ok := loaded.Global.Agents["explore"]; !ok {
+		t.Errorf("Global.Agents missing explore: %v", loaded.Global.Agents)
 	}
-	if _, ok := loaded.GlobalAgents["reviewer"]; ok {
-		t.Errorf("GlobalAgents unexpectedly has reviewer: %v", loaded.GlobalAgents)
+	if _, ok := loaded.Global.Agents["reviewer"]; ok {
+		t.Errorf("Global.Agents unexpectedly has reviewer: %v", loaded.Global.Agents)
 	}
-	if _, ok := loaded.ProjectAgents["reviewer"]; !ok {
-		t.Errorf("ProjectAgents missing reviewer: %v", loaded.ProjectAgents)
+	if _, ok := loaded.Project.Agents["reviewer"]; !ok {
+		t.Errorf("Project.Agents missing reviewer: %v", loaded.Project.Agents)
 	}
-	if _, ok := loaded.ProjectAgents["explore"]; ok {
-		t.Errorf("ProjectAgents unexpectedly has explore: %v", loaded.ProjectAgents)
+	if _, ok := loaded.Project.Agents["explore"]; ok {
+		t.Errorf("Project.Agents unexpectedly has explore: %v", loaded.Project.Agents)
 	}
-	if len(loaded.Config.Agents) != 2 {
-		t.Errorf("Config.Agents = %v, want 2 entries", loaded.Config.Agents)
+	merged := Merge(loaded.Global, loaded.Project)
+	if len(merged.Agents) != 2 {
+		t.Errorf("Merged Agents = %v, want 2 entries", merged.Agents)
+	}
+}
+
+func TestLoad_LayersSeparated(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	workDir := filepath.Join(root, "work")
+	projectFile := filepath.Join(workDir, ".jig", "config.toml")
+
+	writeConfigFile(t, filepath.Join(configDir, "config.toml"), `permissions.bash = "ask"`)
+	writeConfigFile(t, projectFile, `permissions.bash = "allow"`)
+
+	p := paths.Paths{Home: root, ConfigDir: configDir}
+	loaded, err := Load(p, workDir, fakeGetenv(nil))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := loaded.Global.Permissions["bash"].Default; got != core.Ask {
+		t.Errorf("Global.Permissions[bash].Default = %q, want %q", got, core.Ask)
+	}
+	if got := loaded.Project.Permissions["bash"].Default; got != core.Allow {
+		t.Errorf("Project.Permissions[bash].Default = %q, want %q", got, core.Allow)
+	}
+	wantProjectFiles := []string{projectFile}
+	if !reflect.DeepEqual(loaded.ProjectFiles, wantProjectFiles) {
+		t.Errorf("ProjectFiles = %v, want %v", loaded.ProjectFiles, wantProjectFiles)
+	}
+}
+
+func TestLoad_ImageModelsAndIntegrations(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	workDir := filepath.Join(root, "work")
+
+	writeConfigFile(t, filepath.Join(configDir, "config.toml"), `
+[integrations.agent_browser]
+enabled = "auto"
+
+[providers.custom]
+image_models = ["custom-vision"]
+`)
+
+	p := paths.Paths{Home: root, ConfigDir: configDir}
+	loaded, err := Load(p, workDir, fakeGetenv(nil))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Global.AgentBrowser != core.ToggleAuto {
+		t.Errorf("Global.AgentBrowser = %q, want %q", loaded.Global.AgentBrowser, core.ToggleAuto)
+	}
+	prov, ok := loaded.Global.Providers["custom"]
+	if !ok {
+		t.Fatalf("Global.Providers[custom] missing, got %v", loaded.Global.Providers)
+	}
+	if !reflect.DeepEqual(prov.ImageModels, []string{"custom-vision"}) {
+		t.Errorf("ImageModels = %v, want %v", prov.ImageModels, []string{"custom-vision"})
 	}
 }
 

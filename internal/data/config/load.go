@@ -17,56 +17,76 @@ import (
 // (p.ConfigDir/config.toml) and each project one (<dir>/.jig/config.toml).
 const configFileName = "config.toml"
 
-// Loaded is the result of discovering and merging jig's TOML config files.
+// Loaded is the result of discovering jig's TOML config files, kept as two
+// separate layers rather than merged: Global (the single global file) and
+// Project (every .jig/config.toml root-to-leaf, closer file winning within
+// the layer). Callers combine them with Merge once they are ready to
+// (Task 15 inserts trust filtering in between).
 type Loaded struct {
-	Config core.Config // everything merged
+	Global  core.Config // the global file only
+	Project core.Config // every .jig/config.toml, root->leaf, closer wins
 
-	Files         []string                    // files actually read, in merge order
-	GlobalAgents  map[string]core.AgentConfig // [agents] from the global file only
-	ProjectAgents map[string]core.AgentConfig // [agents] from project files, merged closer-wins
+	GlobalFiles  []string // files actually read for Global (0 or 1 entries)
+	ProjectFiles []string // files actually read for Project, in merge order
 }
 
-// Load discovers and merges jig's TOML config files: p.ConfigDir/config.toml
-// (the global file), then <dir>/.jig/config.toml for each dir returned by
+// Load discovers jig's TOML config files: p.ConfigDir/config.toml (the
+// global file) and <dir>/.jig/config.toml for each dir returned by
 // fsroot.Chain(gitRoot, workDir), root to leaf. When workDir has no git
-// root, only workDir/.jig/config.toml is considered. Later files win; see
-// the package doc and Task 8's brief for the merge rules per key. A missing
+// root, only workDir/.jig/config.toml is considered. Within the project
+// layer, later files win; see the package doc and Task 8's brief for the
+// merge rules per key, and Merge for combining the two layers. A missing
 // file is skipped. A TOML syntax error returns an error naming the
 // offending file and line.
 func Load(p paths.Paths, workDir string, getenv func(string) string) (Loaded, error) {
-	files := configFiles(p, workDir)
+	global, globalFiles, err := loadLayer(p, []string{globalConfigFile(p)}, getenv)
+	if err != nil {
+		return Loaded{}, err
+	}
+	project, projectFiles, err := loadLayer(p, projectConfigFiles(p, workDir), getenv)
+	if err != nil {
+		return Loaded{}, err
+	}
+	return Loaded{
+		Global:       global,
+		Project:      project,
+		GlobalFiles:  globalFiles,
+		ProjectFiles: projectFiles,
+	}, nil
+}
 
+// loadLayer folds every file in files (skipping missing ones) into a
+// single core.Config, in order, and reports which files it actually read.
+func loadLayer(p paths.Paths, files []string, getenv func(string) string) (core.Config, []string, error) {
 	var st state
 	var read []string
-	for i, path := range files {
+	for _, path := range files {
 		dto, md, ok, err := decodeFile(path, p.Home, getenv)
 		if err != nil {
-			return Loaded{}, err
+			return core.Config{}, nil, err
 		}
 		if !ok {
 			continue
 		}
-		st.apply(dto, md, path, filepath.Dir(path), p.Home, i == 0)
+		st.apply(dto, md, path, filepath.Dir(path), p.Home)
 		read = append(read, path)
 	}
-
-	return Loaded{
-		Config:        st.cfg,
-		Files:         read,
-		GlobalAgents:  st.globalAgents,
-		ProjectAgents: st.projectAgents,
-	}, nil
+	return st.cfg, read, nil
 }
 
-// configFiles returns the config file paths Load considers, in merge order:
-// the global file first, then one per directory in the project chain.
-func configFiles(p paths.Paths, workDir string) []string {
-	files := []string{filepath.Join(p.ConfigDir, configFileName)}
+// globalConfigFile is the single global config file.
+func globalConfigFile(p paths.Paths) string {
+	return filepath.Join(p.ConfigDir, configFileName)
+}
 
+// projectConfigFiles returns the project config file paths Load considers,
+// root to leaf.
+func projectConfigFiles(p paths.Paths, workDir string) []string {
 	dirs := []string{workDir}
 	if root, ok := fsroot.GitRoot(workDir); ok {
 		dirs = fsroot.Chain(root, workDir)
 	}
+	files := make([]string, 0, len(dirs))
 	for _, d := range dirs {
 		files = append(files, filepath.Join(d, ".jig", configFileName))
 	}

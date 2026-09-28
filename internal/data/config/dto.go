@@ -19,15 +19,27 @@ type tomlFile struct {
 	Skills       skillsDTO              `toml:"skills"`
 	Instructions []string               `toml:"instructions"`
 	Keybinds     map[string]string      `toml:"keybinds"`
+	Integrations integrationsDTO        `toml:"integrations"`
 }
 
 // providerDTO is the raw shape of one [providers.<id>] table.
 type providerDTO struct {
-	Type    string         `toml:"type"`
-	APIKey  string         `toml:"api_key"`
-	BaseURL string         `toml:"base_url"`
-	Models  []string       `toml:"models"`
-	Options map[string]any `toml:"options"`
+	Type        string         `toml:"type"`
+	APIKey      string         `toml:"api_key"`
+	BaseURL     string         `toml:"base_url"`
+	Models      []string       `toml:"models"`
+	Options     map[string]any `toml:"options"`
+	ImageModels []string       `toml:"image_models"`
+}
+
+// integrationsDTO is the raw shape of the [integrations] table.
+type integrationsDTO struct {
+	AgentBrowser agentBrowserDTO `toml:"agent_browser"`
+}
+
+// agentBrowserDTO is the raw shape of [integrations.agent_browser].
+type agentBrowserDTO struct {
+	Enabled core.Toggle `toml:"enabled"`
 }
 
 // agentDTO is the raw shape of one [agents.<name>] table. CanSpawn and
