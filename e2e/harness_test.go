@@ -144,6 +144,7 @@ func writeScript(t *testing.T, env *testEnv, name string, s jigtest.Script) stri
 // the file at script, followed by extra (TOML tables). Titles run on
 // jigtest/title, whose queue the tests leave empty: a failed title is
 // ignored, and it keeps the background title request off m1's queue.
+// Only m1 accepts images.
 func jigtestConfig(script, extra string) string {
 	return fmt.Sprintf(`default_model = "jigtest/m1"
 small_model = "jigtest/title"
@@ -151,6 +152,7 @@ small_model = "jigtest/title"
 [providers.jigtest]
 type = "jigtest"
 models = ["m1", "m2", "title"]
+image_models = ["m1"]
 options = { script = %q }
 %s`, script, extra)
 }

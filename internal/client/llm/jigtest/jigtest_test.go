@@ -197,3 +197,40 @@ func assertLLMError(t *testing.T, err error, contains string, retryable bool) {
 		t.Fatalf("err = %q retryable=%v, want containing %q retryable=%v", le.Error(), le.Retryable, contains, retryable)
 	}
 }
+
+// mediaRequest is a request whose read result carries one loaded image.
+func mediaRequest() core.LLMRequest {
+	return core.LLMRequest{Messages: []core.Message{
+		{Role: core.RoleUser, Parts: []core.Part{{Kind: core.PartText, Text: "look at it"}}},
+		{Role: core.RoleAssistant, Parts: []core.Part{
+			{Kind: core.PartToolCall, Call: &core.ToolCall{ID: "c1", Name: "read", Input: json.RawMessage(`{}`)}},
+			{Kind: core.PartToolResult, Result: &core.ToolResult{CallID: "c1", Output: "image 2x2 (9 B)", Media: []core.Media{{MIME: "image/png", Data: []byte("x")}}}},
+		}},
+	}}
+}
+
+func TestStream_ExpectMediaMismatchFails(t *testing.T) {
+	one, zero := 1, 0
+	l, _, _ := newLLM(t, Script{Models: map[string][]Turn{"m1": {
+		{Text: "ok", ExpectMedia: &one},
+		{Text: "ok", ExpectMedia: &zero},
+	}}}, "m1")
+
+	if _, err := collect(context.Background(), l, mediaRequest()); err != nil {
+		t.Fatalf("one medium, ExpectMedia 1: %v", err)
+	}
+	_, err := collect(context.Background(), l, mediaRequest())
+	assertLLMError(t, err, "jigtest: prompt has 1 media, want 0", false)
+}
+
+func TestStream_ExpectPromptContains(t *testing.T) {
+	turn := Turn{Text: "ok", ExpectPromptContains: []string{"look at it", "image 2x2"}}
+	missing := Turn{Text: "ok", ExpectPromptContains: []string{"zebra"}}
+	l, _, _ := newLLM(t, Script{Models: map[string][]Turn{"m1": {turn, missing}}}, "m1")
+
+	if _, err := collect(context.Background(), l, mediaRequest()); err != nil {
+		t.Fatalf("user text and media tool-result text present: %v", err)
+	}
+	_, err := collect(context.Background(), l, mediaRequest())
+	assertLLMError(t, err, `jigtest: prompt does not contain "zebra"`, false)
+}

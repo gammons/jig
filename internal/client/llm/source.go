@@ -22,20 +22,30 @@ type Source struct {
 	reg       ext.View
 	providers map[string]core.ProviderConfig
 	getenv    func(string) string
+	blobs     BlobReader
 }
 
 // NewSource returns a Source that resolves models against cat, builds
 // clients through the factories registered in reg, overlays providers
 // (user config, keyed by provider ID) onto the catalog's credentials, and
-// reads credential environment variables through getenv.
-func NewSource(cat Catalog, reg ext.View, providers map[string]core.ProviderConfig, getenv func(string) string) *Source {
-	return &Source{cat: cat, reg: reg, providers: providers, getenv: getenv}
+// reads credential environment variables through getenv. Media bytes for
+// each request are read from blobs.
+func NewSource(cat Catalog, reg ext.View, providers map[string]core.ProviderConfig, getenv func(string) string, blobs BlobReader) *Source {
+	return &Source{cat: cat, reg: reg, providers: providers, getenv: getenv, blobs: blobs}
 }
 
 // For resolves ref into a core.LLM and its core.ModelInfo. It fails if the
 // provider or model is unknown, if no API key is configured or set in the
 // environment for a provider that requires one, or if no factory is
 // registered for the provider's Type.
+//
+// The returned LLM resolves each request's media first: for a model that
+// SupportsImages, Media.Data is loaded from the blob store (a failed load
+// drops that medium and appends "\n[image unavailable: <err>]"); otherwise
+// the media are dropped and "\n[image omitted: <provider/model> does not
+// accept images]" is appended to the tool result's Output (for an
+// attachment, it replaces Content). The request's messages are copied,
+// never mutated.
 func (s *Source) For(ref core.ModelRef) (core.LLM, core.ModelInfo, error) {
 	info, ok := s.cat.Provider(ref.Provider)
 	if !ok {
@@ -63,7 +73,7 @@ func (s *Source) For(ref core.ModelRef) (core.LLM, core.ModelInfo, error) {
 	if err != nil {
 		return nil, core.ModelInfo{}, err
 	}
-	return client, model, nil
+	return withMedia(client, s.blobs, model.SupportsImages, ref.String()), model, nil
 }
 
 // resolveEndpoint substitutes a catwalk-style "$ENV_VAR" placeholder

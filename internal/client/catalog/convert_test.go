@@ -178,3 +178,37 @@ func TestCustomProviderOverridesExistingCatalogProvider(t *testing.T) {
 		t.Errorf("custom model Name = %q, want %q", custom.Name, "custom-model")
 	}
 }
+
+func TestConvertModel_SupportsImages(t *testing.T) {
+	p := catwalk.Provider{ID: "testprov", Models: []catwalk.Model{
+		{ID: "vision", SupportsImages: true},
+		{ID: "text"},
+	}}
+	models := convertProviders([]catwalk.Provider{p})[0].Models
+	if !models[0].SupportsImages {
+		t.Errorf("vision: SupportsImages = false, want true")
+	}
+	if models[1].SupportsImages {
+		t.Errorf("text: SupportsImages = true, want false")
+	}
+}
+
+func TestCustomProvider_ImageModels(t *testing.T) {
+	clk := clock.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	c := New(Options{
+		CachePath: filepath.Join(t.TempDir(), "catalog.json"),
+		Clock:     clk,
+		Custom: map[string]core.ProviderConfig{
+			"local": {Type: "openai-compat", Models: []string{"see", "blind"}, ImageModels: []string{"see"}},
+		},
+	})
+	for model, want := range map[string]bool{"see": true, "blind": false} {
+		m, ok := c.Model(core.ModelRef{Provider: "local", Model: model})
+		if !ok {
+			t.Fatalf("Model(local/%s) not found", model)
+		}
+		if m.SupportsImages != want {
+			t.Errorf("local/%s SupportsImages = %v, want %v", model, m.SupportsImages, want)
+		}
+	}
+}

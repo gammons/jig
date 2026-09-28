@@ -57,7 +57,7 @@ func noEnv(string) string { return "" }
 
 func TestSource_UnknownProvider(t *testing.T) {
 	cat := fakeCatalog{}
-	s := NewSource(cat, viewWith(), nil, noEnv)
+	s := NewSource(cat, viewWith(), nil, noEnv, nil)
 
 	_, _, err := s.For(core.ModelRef{Provider: "nope", Model: "m"})
 
@@ -71,7 +71,7 @@ func TestSource_UnknownModel(t *testing.T) {
 	cat := fakeCatalog{providers: map[string]core.ProviderInfo{
 		"anthropic": {ID: "anthropic", Type: "anthropic", APIKeyEnv: "ANTHROPIC_API_KEY"},
 	}}
-	s := NewSource(cat, viewWith(), nil, noEnv)
+	s := NewSource(cat, viewWith(), nil, noEnv, nil)
 
 	_, _, err := s.For(core.ModelRef{Provider: "anthropic", Model: "claude-nope"})
 
@@ -89,7 +89,7 @@ func TestSource_MissingCredentialsNamesEnvVar(t *testing.T) {
 		},
 		models: map[core.ModelRef]core.ModelInfo{ref: {Ref: ref}},
 	}
-	s := NewSource(cat, viewWith(), nil, noEnv)
+	s := NewSource(cat, viewWith(), nil, noEnv, nil)
 
 	_, _, err := s.For(ref)
 
@@ -115,7 +115,7 @@ func TestSource_ConfigKeyBeatsEnv(t *testing.T) {
 		}
 		return ""
 	}
-	s := NewSource(cat, viewWith(factory), providers, getenv)
+	s := NewSource(cat, viewWith(factory), providers, getenv, nil)
 
 	_, info, err := s.For(ref)
 	if err != nil {
@@ -143,7 +143,7 @@ func TestSource_ResolvesEndpointPlaceholderFromEnv_Empty(t *testing.T) {
 		models: map[core.ModelRef]core.ModelInfo{ref: {Ref: ref}},
 	}
 	factory := &fakeFactory{typ: "anthropic"}
-	s := NewSource(cat, viewWith(factory), map[string]core.ProviderConfig{"anthropic": {APIKey: "k"}}, noEnv)
+	s := NewSource(cat, viewWith(factory), map[string]core.ProviderConfig{"anthropic": {APIKey: "k"}}, noEnv, nil)
 
 	if _, _, err := s.For(ref); err != nil {
 		t.Fatalf("For: unexpected error: %v", err)
@@ -168,7 +168,7 @@ func TestSource_ResolvesEndpointPlaceholderFromEnv_Set(t *testing.T) {
 		}
 		return ""
 	}
-	s := NewSource(cat, viewWith(factory), map[string]core.ProviderConfig{"anthropic": {APIKey: "k"}}, getenv)
+	s := NewSource(cat, viewWith(factory), map[string]core.ProviderConfig{"anthropic": {APIKey: "k"}}, getenv, nil)
 
 	if _, _, err := s.For(ref); err != nil {
 		t.Fatalf("For: unexpected error: %v", err)
@@ -187,7 +187,7 @@ func TestSource_EndpointWithoutPlaceholderPassesThrough(t *testing.T) {
 		models: map[core.ModelRef]core.ModelInfo{ref: {Ref: ref}},
 	}
 	factory := &fakeFactory{typ: "openai-compat"}
-	s := NewSource(cat, viewWith(factory), nil, noEnv)
+	s := NewSource(cat, viewWith(factory), nil, noEnv, nil)
 
 	if _, _, err := s.For(ref); err != nil {
 		t.Fatalf("For: unexpected error: %v", err)
@@ -205,7 +205,7 @@ func TestSource_UnsupportedProviderType(t *testing.T) {
 		},
 		models: map[core.ModelRef]core.ModelInfo{ref: {Ref: ref}},
 	}
-	s := NewSource(cat, viewWith(), nil, noEnv)
+	s := NewSource(cat, viewWith(), nil, noEnv, nil)
 
 	_, _, err := s.For(ref)
 
@@ -224,7 +224,7 @@ func TestSource_NoAPIKeyEnvAllowsThrough(t *testing.T) {
 		models: map[core.ModelRef]core.ModelInfo{ref: {Ref: ref}},
 	}
 	factory := &fakeFactory{typ: "openai-compat"}
-	s := NewSource(cat, viewWith(factory), nil, noEnv)
+	s := NewSource(cat, viewWith(factory), nil, noEnv, nil)
 
 	_, _, err := s.For(ref)
 	if err != nil {

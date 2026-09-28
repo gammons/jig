@@ -71,10 +71,10 @@ func newChat(e env, rt *runtime, cat *catalog.Catalog, asker permission.Asker, e
 	}
 	clk := clock.Real()
 	idGen := ids.New(clk, rand.Reader)
-	src := llm.NewSource(cat, pv, e.cfg().Providers, e.getenv)
+	blobs := blobfs.New(filepath.Join(e.paths.DataDir, "blobs"))
+	src := llm.NewSource(cat, pv, e.cfg().Providers, e.getenv, blobs)
 	sess := session.New(session.Deps{Store: rt.store, LLMs: src, Agents: ag, Bus: rt.bus, Clock: clk, IDs: idGen})
 	proxy := &agent.Proxy{}
-	blobs := blobfs.New(filepath.Join(e.paths.DataDir, "blobs"))
 	view, err := buildRegistry(registryDeps{
 		env: e, clk: clk, bus: rt.bus, store: rt.store,
 		skills: skills.New(disc.skills, skillFS{}), sessions: sess, agents: ag,

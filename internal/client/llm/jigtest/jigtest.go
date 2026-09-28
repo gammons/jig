@@ -45,6 +45,12 @@ type Turn struct {
 	// ExpectSystemContains fails the turn with a non-retryable error if
 	// any entry is missing from the request's system prompt.
 	ExpectSystemContains []string
+	// ExpectMedia, if set, is the exact number of media parts (tool-result
+	// media outputs plus file parts) the converted prompt must hold.
+	ExpectMedia *int
+	// ExpectPromptContains lists substrings of the converted prompt's
+	// concatenated text: text parts plus tool-result text and error text.
+	ExpectPromptContains []string
 }
 
 // usage is the token usage every finished turn reports.
@@ -116,7 +122,8 @@ type client struct {
 // model's next turn.
 func (c *client) Stream(ctx context.Context, req core.LLMRequest) iter.Seq2[core.StreamEvent, error] {
 	return func(yield func(core.StreamEvent, error) bool) {
-		if err := validate(llm.ToFantasy(req).Prompt); err != nil {
+		prompt := llm.ToFantasy(req).Prompt
+		if err := validate(prompt); err != nil {
 			yield(core.StreamEvent{}, fatal(err))
 			return
 		}
@@ -126,6 +133,10 @@ func (c *client) Stream(ctx context.Context, req core.LLMRequest) iter.Seq2[core
 			return
 		}
 		if err := checkSystem(req.System, turn.ExpectSystemContains); err != nil {
+			yield(core.StreamEvent{}, fatal(err))
+			return
+		}
+		if err := checkPrompt(prompt, turn); err != nil {
 			yield(core.StreamEvent{}, fatal(err))
 			return
 		}
@@ -195,6 +206,58 @@ func checkSystem(system, want []string) error {
 		}
 	}
 	return nil
+}
+
+// checkPrompt fails if prompt's media count differs from
+// turn.ExpectMedia (when set) or its text lacks an ExpectPromptContains
+// entry.
+func checkPrompt(prompt []fantasy.Message, turn Turn) error {
+	media, text := promptContent(prompt)
+	if turn.ExpectMedia != nil && media != *turn.ExpectMedia {
+		return fmt.Errorf("jigtest: prompt has %d media, want %d", media, *turn.ExpectMedia)
+	}
+	for _, w := range turn.ExpectPromptContains {
+		if !strings.Contains(text, w) {
+			return fmt.Errorf("jigtest: prompt does not contain %q", w)
+		}
+	}
+	return nil
+}
+
+// promptContent counts prompt's media parts and joins its text.
+func promptContent(prompt []fantasy.Message) (int, string) {
+	var media int
+	var text strings.Builder
+	for _, m := range prompt {
+		for _, p := range m.Content {
+			if _, ok := fantasy.AsMessagePart[fantasy.FilePart](p); ok {
+				media++
+			}
+			if t, ok := fantasy.AsMessagePart[fantasy.TextPart](p); ok {
+				text.WriteString(t.Text + "\n")
+			}
+			if r, ok := fantasy.AsMessagePart[fantasy.ToolResultPart](p); ok {
+				n, s := resultContent(r.Output)
+				media += n
+				text.WriteString(s + "\n")
+			}
+		}
+	}
+	return media, text.String()
+}
+
+// resultContent returns a tool result's media count and text.
+func resultContent(out fantasy.ToolResultOutputContent) (int, string) {
+	if m, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentMedia](out); ok {
+		return 1, m.Text
+	}
+	if t, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentText](out); ok {
+		return 0, t.Text
+	}
+	if e, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentError](out); ok && e.Error != nil {
+		return 0, e.Error.Error()
+	}
+	return 0, ""
 }
 
 // replay streams turn: its text, then its error, hang, or tool calls and

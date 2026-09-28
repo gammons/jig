@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"testing"
 
@@ -246,5 +247,65 @@ func TestToFantasy_NonObjectToolInputReplaysAsEmptyObject(t *testing.T) {
 				t.Errorf("Input = %q, want %q", tc.Input, c.want)
 			}
 		})
+	}
+}
+
+// toolOutput returns the Output of the single tool result ToFantasy makes
+// from one assistant message holding call c1 and result r.
+func toolOutput(t *testing.T, r *core.ToolResult) fantasy.ToolResultOutputContent {
+	t.Helper()
+	call := ToFantasy(core.LLMRequest{Messages: []core.Message{{Role: core.RoleAssistant, Parts: []core.Part{
+		{Kind: core.PartToolCall, Call: &core.ToolCall{ID: "c1", Name: "read", Input: json.RawMessage(`{}`)}},
+		{Kind: core.PartToolResult, Result: r},
+	}}}})
+	if len(call.Prompt) != 2 || len(call.Prompt[1].Content) != 1 {
+		t.Fatalf("prompt = %+v, want assistant + one tool result", call.Prompt)
+	}
+	tr, ok := call.Prompt[1].Content[0].(fantasy.ToolResultPart)
+	if !ok {
+		t.Fatalf("part = %#v, want ToolResultPart", call.Prompt[1].Content[0])
+	}
+	return tr.Output
+}
+
+func TestToFantasy_ToolResultMedia(t *testing.T) {
+	data := []byte{0x89, 'P', 'N', 'G', 0, 1, 2}
+	out := toolOutput(t, &core.ToolResult{CallID: "c1", Output: "image 20x10 (7 B)", Media: []core.Media{{MIME: "image/png", Ref: "r", Data: data}}})
+	m, ok := out.(fantasy.ToolResultOutputContentMedia)
+	if !ok {
+		t.Fatalf("Output = %#v, want ToolResultOutputContentMedia", out)
+	}
+	if m.Data != base64.StdEncoding.EncodeToString(data) {
+		t.Errorf("Data = %q, want base64 of the bytes", m.Data)
+	}
+	if m.MediaType != "image/png" || m.Text != "image 20x10 (7 B)" {
+		t.Errorf("MediaType/Text = %q/%q, want image/png and the Output", m.MediaType, m.Text)
+	}
+}
+
+func TestToFantasy_ToolResultExtraMediaOmitted(t *testing.T) {
+	media := []core.Media{{MIME: "image/png", Data: []byte("a")}, {MIME: "image/png", Data: []byte("b")}, {MIME: "image/png", Data: []byte("c")}}
+	out := toolOutput(t, &core.ToolResult{CallID: "c1", Output: "shots", Media: media})
+	m, ok := out.(fantasy.ToolResultOutputContentMedia)
+	if !ok {
+		t.Fatalf("Output = %#v, want ToolResultOutputContentMedia", out)
+	}
+	if m.Text != "shots [+2 more images omitted]" {
+		t.Errorf("Text = %q, want the extra-media note", m.Text)
+	}
+}
+
+func TestToFantasy_UnloadedMediaIsText(t *testing.T) {
+	out := toolOutput(t, &core.ToolResult{CallID: "c1", Output: "img", Media: []core.Media{{MIME: "image/png", Ref: "r"}}})
+	if tx, ok := out.(fantasy.ToolResultOutputContentText); !ok || tx.Text != "img" {
+		t.Errorf("Output = %#v, want text %q (no Data loaded)", out, "img")
+	}
+}
+
+func TestToFantasy_ErrorResultIgnoresMedia(t *testing.T) {
+	out := toolOutput(t, &core.ToolResult{CallID: "c1", Output: "boom", IsError: true, Media: []core.Media{{MIME: "image/png", Data: []byte("x")}}})
+	e, ok := out.(fantasy.ToolResultOutputContentError)
+	if !ok || e.Error.Error() != "boom" {
+		t.Errorf("Output = %#v, want error %q", out, "boom")
 	}
 }

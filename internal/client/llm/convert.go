@@ -5,8 +5,10 @@
 package llm
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"charm.land/fantasy"
 
@@ -154,13 +156,30 @@ func convertAssistantMessage(m core.Message) []fantasy.Message {
 }
 
 // toolResultPart converts a core.ToolResult into a fantasy.ToolResultPart,
-// using ToolResultOutputContentError for an error result and
-// ToolResultOutputContentText otherwise.
+// using ToolResultOutputContentError for an error result (its media are
+// ignored), ToolResultOutputContentMedia for a result whose first medium
+// has loaded Data (further media are dropped with a note in Text; a
+// provider takes one medium per result), and ToolResultOutputContentText
+// otherwise.
 func toolResultPart(callID string, r *core.ToolResult) fantasy.ToolResultPart {
 	if r.IsError {
 		return fantasy.ToolResultPart{
 			ToolCallID: callID,
 			Output:     fantasy.ToolResultOutputContentError{Error: errors.New(r.Output)},
+		}
+	}
+	if len(r.Media) > 0 && r.Media[0].Data != nil {
+		text := r.Output
+		if extra := len(r.Media) - 1; extra > 0 {
+			text += fmt.Sprintf(" [+%d more images omitted]", extra)
+		}
+		return fantasy.ToolResultPart{
+			ToolCallID: callID,
+			Output: fantasy.ToolResultOutputContentMedia{
+				Data:      base64.StdEncoding.EncodeToString(r.Media[0].Data),
+				MediaType: r.Media[0].MIME,
+				Text:      text,
+			},
 		}
 	}
 	return fantasy.ToolResultPart{

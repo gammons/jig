@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"slices"
 	"strings"
 
 	"charm.land/catwalk/pkg/catwalk"
@@ -48,6 +49,7 @@ func convertModel(providerID string, m catwalk.Model) core.ModelInfo {
 		CostCacheRead:    m.CostPer1MOutCached,
 		CostCacheWrite:   m.CostPer1MInCached,
 		CanReason:        m.CanReason,
+		SupportsImages:   m.SupportsImages,
 	}
 }
 
@@ -76,7 +78,7 @@ func mergeCustom(infos []core.ProviderInfo, custom map[string]core.ProviderConfi
 	}
 
 	for id, cfg := range custom {
-		models := customModels(id, cfg.Models)
+		models := customModels(id, cfg)
 		if i, ok := index[id]; ok {
 			infos[i].Endpoint = cfg.BaseURL
 			infos[i].Models = append(infos[i].Models, models...)
@@ -94,14 +96,16 @@ func mergeCustom(infos []core.ProviderInfo, custom map[string]core.ProviderConfi
 	return infos
 }
 
-// customModels builds one zero-cost ModelInfo per model ID, named after the
-// model ID itself (custom providers have no pricing data).
-func customModels(providerID string, ids []string) []core.ModelInfo {
-	models := make([]core.ModelInfo, 0, len(ids))
-	for _, id := range ids {
+// customModels builds one zero-cost ModelInfo per model ID in cfg.Models,
+// named after the model ID itself (custom providers have no pricing data).
+// A model accepts images iff cfg.ImageModels lists it (R10).
+func customModels(providerID string, cfg core.ProviderConfig) []core.ModelInfo {
+	models := make([]core.ModelInfo, 0, len(cfg.Models))
+	for _, id := range cfg.Models {
 		models = append(models, core.ModelInfo{
-			Ref:  core.ModelRef{Provider: providerID, Model: id},
-			Name: id,
+			Ref:            core.ModelRef{Provider: providerID, Model: id},
+			Name:           id,
+			SupportsImages: slices.Contains(cfg.ImageModels, id),
 		})
 	}
 	return models
