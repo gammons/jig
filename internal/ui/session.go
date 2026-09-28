@@ -311,7 +311,7 @@ func (s *sessionState) dropUser(id transcript.BlockID) []blocklist.Item {
 		out[i] = blocklist.Item{
 			ID:      string(b.ID),
 			Version: s.versions[b.ID],
-			Data:    blockData{Block: b, Duration: s.tools.durs[b.ID], Frame: s.run.frame},
+			Data:    s.data(b),
 		}
 	}
 	return out
@@ -380,10 +380,13 @@ func (s *sessionState) allItems() []blocklist.Item {
 	return out
 }
 
-// item builds b's blocklist item at its next version.
+// item builds b's blocklist item at its next version. A reasoning block
+// the model is still thinking in counts as live (its spinner animates);
+// it stays in s.live until a tick re-renders it after thinking ends.
 func (s *sessionState) item(b transcript.Block) blocklist.Item {
 	s.versions[b.ID]++
-	if isLive(b) {
+	data := s.data(b)
+	if isLive(b) || data.Thinking {
 		s.live[b.ID] = true
 	} else {
 		delete(s.live, b.ID)
@@ -391,7 +394,17 @@ func (s *sessionState) item(b transcript.Block) blocklist.Item {
 	return blocklist.Item{
 		ID:      string(b.ID),
 		Version: s.versions[b.ID],
-		Data:    blockData{Block: b, Duration: s.tools.durs[b.ID], Frame: s.run.frame},
+		Data:    data,
+	}
+}
+
+// data builds b's blockData from the session's current run state.
+func (s *sessionState) data(b transcript.Block) blockData {
+	return blockData{
+		Block:    b,
+		Duration: s.tools.durs[b.ID],
+		Frame:    s.run.frame,
+		Thinking: b.Thinking,
 	}
 }
 

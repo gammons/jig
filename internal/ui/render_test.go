@@ -73,7 +73,9 @@ func TestRender_SanitizesHostileOutput(t *testing.T) {
 // the carry-over requirement that a superseded block (one transcript kept
 // Streaming true on, because the open slot for its message moved to a
 // block of the other kind) never shows a running/streaming indicator:
-// Reasoning's one-liner never depends on Streaming at all.
+// Reasoning's one-liner never depends on Streaming at all, only on
+// blockData.Thinking (from Projection.Thinking), which is false once
+// the block is superseded.
 func TestRender_IgnoresSupersededStreamingFlag(t *testing.T) {
 	t.Parallel()
 	set := darkSet()
@@ -118,6 +120,28 @@ func TestRender_ReasoningWordCount(t *testing.T) {
 		if strings.TrimRight(got, " ") != tt.want {
 			t.Errorf("%s: rendered %q, want %q", tt.name, got, tt.want)
 		}
+	}
+}
+
+// TestRender_ThinkingSpinner: while the model is still thinking the block
+// shows the bash spinner in place of "∴", advancing with Frame; once
+// thinking ends it's back to the static "∴".
+func TestRender_ThinkingSpinner(t *testing.T) {
+	t.Parallel()
+	set := darkSet()
+	r := newRenderer(&set)
+	b := transcript.Block{Kind: transcript.KindReasoning, Text: "one two"}
+	at := func(thinking bool, frame int) string {
+		return strings.TrimRight(xansi.Strip(renderOne(t, r, blockData{Block: b, Thinking: thinking, Frame: frame}, 80)), " ")
+	}
+	if got, want := at(true, 0), string(spinnerGlyph(0))+" thinking · 2 words"; got != want {
+		t.Errorf("thinking frame 0 = %q, want %q", got, want)
+	}
+	if got, want := at(true, 1), string(spinnerGlyph(1))+" thinking · 2 words"; got != want {
+		t.Errorf("thinking frame 1 = %q, want %q", got, want)
+	}
+	if got, want := at(false, 1), "∴ thinking · 2 words"; got != want {
+		t.Errorf("done thinking = %q, want %q", got, want)
 	}
 }
 

@@ -68,6 +68,7 @@ func (p *Projection) delta(msg core.MessageID, kind Kind, text string) []BlockID
 		return []BlockID{b.ID}
 	}
 	b := p.addPart(msg, kind, text, true)
+	b.Thinking = kind == KindReasoning
 	p.open[msg] = b
 	return []BlockID{b.ID}
 }
@@ -127,6 +128,10 @@ func (p *Projection) endRun(match func(*Block) bool, settle ToolState) []BlockID
 		if b.Streaming {
 			b.Streaming = false
 			delete(p.open, b.MessageID)
+			changed = true
+		}
+		if b.Thinking {
+			b.Thinking = false
 			changed = true
 		}
 		if settle != "" && (b.State == StateRunning || b.State == StateAwaiting) {

@@ -53,11 +53,12 @@ func TestApply_StreamingAppendsAndSplitsOnKindChange(t *testing.T) {
 	want := []Block{
 		{ID: "m/m1/0", Kind: KindReasoning, MessageID: "m1", Text: "ab", Streaming: true},
 		{ID: "m/m1/1", Kind: KindText, MessageID: "m1", Text: "c", Streaming: true},
-		{ID: "m/m1/2", Kind: KindReasoning, MessageID: "m1", Text: "d", Streaming: true},
+		{ID: "m/m1/2", Kind: KindReasoning, MessageID: "m1", Text: "d", Streaming: true, Thinking: true},
 		{ID: "m/m2/0", Kind: KindText, MessageID: "m2", Text: "xyz", Streaming: true},
 	}
 	assertBlocks(t, p.Blocks(), want)
-	versions := map[BlockID]int{"m/m1/0": 2, "m/m1/1": 1, "m/m1/2": 1, "m/m2/0": 3}
+	// m/m1/0: 2 deltas, then +1 when text ended its thinking.
+	versions := map[BlockID]int{"m/m1/0": 3, "m/m1/1": 1, "m/m1/2": 1, "m/m2/0": 3}
 	for id, v := range versions {
 		if b, _ := p.Block(id); b.Version != v {
 			t.Errorf("%s: Version = %d, want %d", id, b.Version, v)
@@ -90,14 +91,52 @@ func TestApply_StreamingFlagClearsOnStepEnd(t *testing.T) {
 				}
 			}
 			run(t, p, []step{{tt.end, tt.want}})
-			for _, id := range []BlockID{"m/m1/0", "m/m1/1"} {
-				if b, _ := p.Block(id); b.Streaming || b.Version != 2 {
-					t.Errorf("%s: Streaming = %v, Version = %d; want false, 2", id, b.Streaming, b.Version)
+			// Reasoning: 1 (added) +1 (text ended thinking) +1 (step end).
+			for id, v := range map[BlockID]int{"m/m1/0": 3, "m/m1/1": 2} {
+				if b, _ := p.Block(id); b.Streaming || b.Thinking || b.Version != v {
+					t.Errorf("%s: Streaming = %v, Thinking = %v, Version = %d; want false, false, %d", id, b.Streaming, b.Thinking, b.Version, v)
 				}
 			}
 			// A delta after the step ended opens a fresh block.
 			run(t, p, []step{{textDelta("m1", "late"), []BlockID{"m/m1/2"}}})
 		})
+	}
+}
+
+// TestProjection_Thinking: a reasoning block is Thinking only while it is
+// its message's newest block — not after text or a tool call starts, nor
+// once the step ends, even though its Streaming flag lingers until then.
+func TestProjection_Thinking(t *testing.T) {
+	call := core.ToolCall{ID: "c1", Name: "bash", Input: []byte(`{"command":"ls"}`)}
+	tests := []struct {
+		name  string
+		after []event.Event
+		want  bool
+	}{
+		{"still streaming", nil, true},
+		{"more reasoning", []event.Event{reasonDelta("m1", " more")}, true},
+		{"text started", []event.Event{textDelta("m1", "answer")}, false},
+		{"tool call started", []event.Event{event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: call}}, false},
+		{"step finished", []event.Event{event.StepFinished{Base: rootBase(), MessageID: "m1"}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := New(root)
+			p.Apply(started("m1"))
+			p.Apply(reasonDelta("m1", "hmm"))
+			for _, ev := range tt.after {
+				p.Apply(ev)
+			}
+			if b, _ := p.Block("m/m1/0"); b.Thinking != tt.want {
+				t.Errorf("Thinking = %v, want %v", b.Thinking, tt.want)
+			}
+		})
+	}
+	p := New(root)
+	p.Apply(started("m1"))
+	p.Apply(textDelta("m1", "plain text"))
+	if b, _ := p.Block("m/m1/0"); b.Thinking {
+		t.Errorf("a streaming text block reports Thinking")
 	}
 }
 

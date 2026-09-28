@@ -117,7 +117,18 @@ type blockList struct {
 }
 
 // add appends b at Version 1 and returns it.
+// add appends b, first clearing Thinking on its message's previous
+// newest block: whatever follows a reasoning block ends that thinking.
 func (l *blockList) add(b *Block) *Block {
+	for i := len(l.blocks) - 1; i >= 0; i-- {
+		if prev := l.blocks[i]; prev.MessageID == b.MessageID && b.MessageID != "" {
+			if prev.Thinking {
+				prev.Thinking = false
+				prev.Version++
+			}
+			break
+		}
+	}
 	b.Version = 1
 	l.index[b.ID] = len(l.blocks)
 	l.blocks = append(l.blocks, b)

@@ -30,6 +30,7 @@ type blockData struct {
 	Card     string
 	Duration time.Duration
 	Frame    int
+	Thinking bool // a reasoning block the model is still thinking in (Projection.Thinking)
 }
 
 // renderer renders blockData items for the transcript's blocklist.
@@ -61,7 +62,7 @@ func (r *renderer) render(it blocklist.Item, width int, _ blocklist.Styles) []st
 	case transcript.KindText:
 		lines = r.md.Render(ansi.Sanitize(b.Text), width)
 	case transcript.KindReasoning:
-		lines = []string{r.renderReasoning(b)}
+		lines = []string{r.renderReasoning(b, data.Thinking, data.Frame)}
 	case transcript.KindTool:
 		lines = []string{r.renderTool(b, data.Duration, data.Frame)}
 	case transcript.KindSubagent:
@@ -96,17 +97,22 @@ func (r *renderer) renderUser(b transcript.Block, width int) []string {
 // renderReasoning renders "∴ thinking · N words", or just "∴ thinking"
 // when the block has no words: Claude 5 models return empty thinking text
 // unless a summary display is requested, and "0 words" would misread as
-// "no thinking happened". The Streaming flag is
-// never consulted: transcript can leave it set on a block that is no
-// longer the message's open block (until the step ends), so using it here
-// would risk showing a stale "still streaming" indicator on a superseded
-// block. Word count is stable either way.
-func (r *renderer) renderReasoning(b transcript.Block) string {
+// "no thinking happened". While thinking (Projection.Thinking: the
+// model is still adding to this block), the running spinner replaces
+// "∴". The Streaming flag is never consulted: transcript leaves it set
+// on a block that is no longer the message's open block (until the step
+// ends), so using it here would show a stale spinner on a superseded
+// block.
+func (r *renderer) renderReasoning(b transcript.Block, thinking bool, frame int) string {
+	icon := "∴"
+	if thinking {
+		icon = string(spinnerGlyph(frame))
+	}
 	n := len(strings.Fields(b.Text))
 	if n == 0 {
-		return r.set.Render.Dim.Render("∴ thinking")
+		return r.set.Render.Dim.Render(icon + " thinking")
 	}
-	return r.set.Render.Dim.Render(fmt.Sprintf("∴ thinking · %d words", n))
+	return r.set.Render.Dim.Render(fmt.Sprintf("%s thinking · %d words", icon, n))
 }
 
 // renderTool renders one Tool block's line via toolLine, then applies the

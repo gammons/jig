@@ -75,6 +75,10 @@ type Block struct {
 	Sub         *Subagent // subagent
 	Level       Level     // notice
 	Streaming   bool      // text/reasoning block still receiving deltas
+	// Thinking: a reasoning block the model is still thinking in — its
+	// message's newest block. Unlike Streaming, which stays set until the
+	// step ends, it clears as soon as text or a tool call follows.
+	Thinking bool
 }
 
 // Subagent is the state of a task call's child session.

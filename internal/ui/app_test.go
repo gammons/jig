@@ -913,6 +913,38 @@ func TestApp_GoldenIdle(t *testing.T) {
 	golden.Assert(t, "app_idle", ta.view())
 }
 
+// TestApp_ThinkingSpinnerAnimatesUntilTextStarts: a reasoning block's
+// spinner advances on each streamTick while the model is thinking, and
+// settles back to "∴" once text follows.
+func TestApp_ThinkingSpinnerAnimatesUntilTextStarts(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("Explain the build")
+	ta.event(event.MessageStarted{Base: rootBase(), MessageID: "m1", Agent: "build", Model: "anthropic/claude-sonnet-5"})
+	ta.event(event.ReasoningDelta{Base: rootBase(), MessageID: "m1", Text: "hmm"})
+	line := func() string {
+		for _, r := range strings.Split(xansi.Strip(ta.view()), "\n") {
+			if strings.Contains(r, "thinking") {
+				return strings.TrimSpace(strings.TrimLeft(r, "▌ "))
+			}
+		}
+		t.Fatalf("no thinking line in:\n%s", xansi.Strip(ta.view()))
+		return ""
+	}
+	ta.fire()
+	first := line()
+	ta.fire()
+	second := line()
+	if first == second || strings.HasPrefix(first, "∴") || strings.HasPrefix(second, "∴") {
+		t.Errorf("while thinking, want an advancing spinner; got %q then %q", first, second)
+	}
+	ta.event(event.TextDelta{Base: rootBase(), MessageID: "m1", Text: "answer"})
+	ta.fire()
+	if got := line(); !strings.HasPrefix(got, "∴ thinking") {
+		t.Errorf("after text started, thinking line = %q, want the static ∴", got)
+	}
+}
+
 // TestApp_GapAbovePrompt: with a full, bottom-pinned transcript, the row
 // right above the prompt's top border is blank, not model output.
 func TestApp_GapAbovePrompt(t *testing.T) {
