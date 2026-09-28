@@ -13,12 +13,14 @@ import (
 // grandchild process detached from the group and kept a pipe end open.
 const waitDelay = 2 * time.Second
 
-// configureProcessGroup puts cmd in its own process group and arranges for
-// ctx cancellation (parent cancel or our own timeout) to SIGKILL the whole
-// group, so background jobs the command spawned (e.g. "sleep 5 &") die
-// with it instead of leaking.
+// configureProcessGroup starts cmd in a new session (setsid), so it has no
+// controlling terminal — a command that opens /dev/tty, or reads the
+// terminal, can't fight the TUI for it — and leads its own process group
+// (pgid == pid). ctx cancellation (parent cancel or our own timeout)
+// SIGKILLs that whole group, so background jobs the command spawned (e.g.
+// "sleep 5 &") die with it instead of leaking.
 func configureProcessGroup(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.WaitDelay = waitDelay
 	cmd.Cancel = func() error {
 		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)

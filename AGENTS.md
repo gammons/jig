@@ -267,6 +267,11 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   pattern matched); a preset allow then applies, still subject to the
   metachar downgrade. It never overrides a deny or a user pattern, and
   never affects `ToolsFor`.
+- `client/shell` runs every command in a new session (`Setsid`, unix):
+  it has no controlling terminal, so it can never read from or take
+  over the TUI's tty, and it leads its own process group, which a
+  timeout or cancellation SIGKILLs whole (background grandchildren
+  included).
 - bash attaches a screenshot only from the workdir or `screenshot*` files
   in the OS temp dir, after resolving symlinks.
 

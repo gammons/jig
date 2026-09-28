@@ -44,7 +44,8 @@ type Result struct {
 // Runner runs shell commands via bash -c (sh -c if bash is not on PATH).
 type Runner struct{}
 
-// Run runs s.Command in a fresh process group. If s.Timeout is positive
+// Run runs s.Command in a new session (on unix: no controlling terminal,
+// its own process group). If s.Timeout is positive
 // and the command has not finished by then, the process group is killed
 // and Run returns a partial Result with TimedOut set and a nil error. If
 // ctx is done for any other reason, Run returns a partial Result and
