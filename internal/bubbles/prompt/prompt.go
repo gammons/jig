@@ -175,11 +175,15 @@ func (m *Model) Insert(s string) {
 }
 
 // Value returns the textarea's text with every live paste chip expanded
-// back to the text it replaced. Any chip marker runes left over from a
-// token an edit damaged (see chips.go's stripMarkers) are stripped, so
-// Value, SubmitMsg (built from Value), and history (built from submitted
-// Value text) never contain them.
-func (m Model) Value() string { return stripMarkers(m.chips.expand(m.ta.Value())) }
+// back to the text it replaced. It never contains a chip's marker runes
+// or a partial/damaged token: chips.go's reconcile is a backstop that
+// removes any leftover token fragment first (see its doc), and
+// stripMarkers is a second backstop that removes any marker rune
+// reconcile's own tokenPrefix scan didn't happen to catch. Together they
+// mean Value, SubmitMsg (built from Value), and history (built from
+// submitted Value text) are always clean, regardless of which editing
+// command produced the damage.
+func (m Model) Value() string { return stripMarkers(m.chips.reconcile(m.ta.Value())) }
 
 // Reset clears the text, any paste chips, and any history walk in
 // progress. The App decides when to call this; the widget never resets
@@ -219,11 +223,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 // handleKey dispatches a key press: '@' emits MentionMsg without
 // inserting; enter submits (unless blank); shift+enter/alt+enter insert a
 // literal newline; ctrl+e opens the editor; ↑/↓ on the first/last line
-// walk history; backspace/delete remove a whole chip token when the
-// cursor touches one. Anything else is forwarded to the textarea, first
-// moving the cursor out of a chip it's inside if the key types text (so
-// typing inside a chip appends after it instead of splitting it apart —
-// a plain cursor move, by contrast, is left alone).
+// walk history; backspace, forward-delete, and bubbles/textarea's own
+// word/line deletion bindings remove a whole chip token when the cursor
+// touches one (see handleDeleteKey). Anything else is forwarded to the
+// textarea, first moving the cursor out of a chip it's inside if the key
+// types text (so typing inside a chip appends after it instead of
+// splitting it apart — a plain cursor move, by contrast, is left alone).
 func (m Model) handleKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
 	switch {
 	case k.String() == "@":
@@ -250,9 +255,11 @@ func (m Model) handleKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
 			return m.walkHistory(false)
 		}
 	case k.String() == "backspace":
-		return m.handleBackspace()
+		return m.handleDeleteKey(k, deleteBack)
 	case k.String() == "delete":
-		return m.handleDelete()
+		return m.handleDeleteKey(k, deleteForward)
+	case isRiskyDeleteKey(k):
+		return m.handleDeleteKey(k, deleteWhole)
 	}
 	m.hist.idx = -1
 	if k.Text != "" {
@@ -290,40 +297,6 @@ func (m Model) walkHistory(back bool) (Model, tea.Cmd) {
 	m.ta.SetValue(text)
 	m.ta = reposition(m.ta)
 	return m, nil
-}
-
-// handleBackspace deletes the whole chip token when the cursor touches
-// one — anywhere from just past its start through its end, i.e.
-// wherever the character backspace would otherwise delete falls inside
-// the token — otherwise forwards a single backspace to the textarea.
-func (m Model) handleBackspace() (Model, tea.Cmd) {
-	line, col := currentLineRunes(m.ta), m.ta.Column()
-	if tok, start, end, ok := m.chips.spanContaining(line, col); ok && col > start {
-		ta, cs, cmd := deleteChip(m.ta, m.chips, tok, end)
-		m.ta, m.chips, m.hist.idx = ta, cs, -1
-		return m, cmd
-	}
-	m.hist.idx = -1
-	ta, cmd := m.ta.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	m.ta = ta
-	return m, cmd
-}
-
-// handleDelete deletes the whole chip token when the cursor touches one
-// — anywhere from its start through just before its end, i.e. wherever
-// the character forward-delete would otherwise delete falls inside the
-// token — otherwise forwards a single forward-delete to the textarea.
-func (m Model) handleDelete() (Model, tea.Cmd) {
-	line, col := currentLineRunes(m.ta), m.ta.Column()
-	if tok, _, end, ok := m.chips.spanContaining(line, col); ok && col < end {
-		ta, cs, cmd := deleteChip(m.ta, m.chips, tok, end)
-		m.ta, m.chips, m.hist.idx = ta, cs, -1
-		return m, cmd
-	}
-	m.hist.idx = -1
-	ta, cmd := m.ta.Update(tea.KeyPressMsg{Code: tea.KeyDelete})
-	m.ta = ta
-	return m, cmd
 }
 
 // handlePaste sanitizes the pasted content (dropping C0 controls other
@@ -385,55 +358,6 @@ func (m Model) View() string {
 	}
 	rows = append(rows, borderRow(w, b.BottomLeft, b.Bottom, b.BottomRight, "", m.styles.Border, m.styles.Title))
 	return strings.Join(rows, "\n")
-}
-
-// currentLineRunes returns ta's current logical line as runes.
-func currentLineRunes(ta textarea.Model) []rune {
-	lines := strings.Split(ta.Value(), "\n")
-	row := ta.Line()
-	if row < 0 || row >= len(lines) {
-		return nil
-	}
-	return []rune(lines[row])
-}
-
-// exitChipInterior moves ta's cursor to the end of the chip token it's
-// strictly inside (touching neither edge), so the next edit appends
-// after the token instead of splitting it apart. It's a no-op everywhere
-// else, including when the cursor merely touches a token's edge — typing
-// there is already safe, since it can't split any of the token's runes.
-func exitChipInterior(ta textarea.Model, cs chips) textarea.Model {
-	line, col := currentLineRunes(ta), ta.Column()
-	if _, start, end, ok := cs.spanContaining(line, col); ok && col > start && col < end {
-		ta.SetCursorColumn(end)
-	}
-	return ta
-}
-
-// deleteChip removes tok in full: it moves the cursor to end (the
-// token's trailing edge) and backspaces its whole rune length, staying
-// inside bubbles/textarea's own key handling so height/scroll
-// bookkeeping happens exactly as it would for any other backspace.
-func deleteChip(ta textarea.Model, cs chips, tok string, end int) (textarea.Model, chips, tea.Cmd) {
-	ta.SetCursorColumn(end)
-	var cmd tea.Cmd
-	for range utf8.RuneCountInString(tok) {
-		ta, cmd = ta.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	}
-	return ta, cs.withoutToken(tok), cmd
-}
-
-// reposition round-trips a message that matches none of bubbles/
-// textarea's own key or paste handling, purely to run the
-// recalculateHeight/repositionView bookkeeping every Update call
-// performs — including scrolling the viewport to keep the cursor
-// visible, which InsertRune/SetValue (called directly, bypassing Update,
-// so this widget can insert a literal newline past bubbles/textarea's
-// own atContentLimit-guarded enter handling, or replace the value
-// outright for history/$EDITOR) recompute the height for but don't do.
-func reposition(ta textarea.Model) textarea.Model {
-	ta, _ = ta.Update(tea.KeyPressMsg{})
-	return ta
 }
 
 // borderRow renders one border line of width w, embedding title (if any)

@@ -140,3 +140,55 @@ func TestChips_EditingInsideChipIsAtomic(t *testing.T) {
 	}
 	assertNoMarkerRunes(t, m3.Value())
 }
+
+// TestChips_RiskyDeleteBindingsAreAtomic covers the review's still-open
+// critical #2: bubbles/textarea's own word/line deletion bindings
+// (ctrl+w, ctrl+k, ctrl+u, alt+backspace, ...) must not leave a partial
+// token behind either, whether the cursor sits at a chip's edge (right
+// after pasting) or strictly inside it (after left x3).
+func TestChips_RiskyDeleteBindingsAreAtomic(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("x", 600)
+
+	for _, key := range []string{"ctrl+w", "ctrl+k", "ctrl+u", "alt+backspace"} {
+		for _, pos := range []string{"edge", "inside"} {
+			t.Run(key+"/"+pos, func(t *testing.T) {
+				m := New(nil)
+				m.Focus()
+				m, _ = m.Update(tea.PasteMsg{Content: long})
+				if pos == "inside" {
+					for range 3 {
+						m, _ = m.Update(keyMsg("left"))
+					}
+				}
+				m, _ = m.Update(keyMsg(key))
+				if got := m.Value(); got != "" {
+					t.Errorf("%s from the %s: Value() = %q, want empty (the whole chip removed)", key, pos, got)
+				}
+				assertNoMarkerRunes(t, m.Value())
+			})
+		}
+	}
+}
+
+// TestChips_ReconcileStripsDamagedTokenFragments exercises chips.go's
+// reconcile backstop directly (bypassing prompt.go's interception, which
+// in normal use never lets a damaged token reach it — see reconcile's
+// doc), against a hand-built fragment shaped like what a word-backward
+// deletion from inside a token can leave: truncated visible text with no
+// closing "]", plus a few orphaned marker runes.
+func TestChips_ReconcileStripsDamagedTokenFragments(t *testing.T) {
+	t.Parallel()
+
+	c := newChips()
+	c, _ = c.withToken(600, strings.Repeat("x", 600))
+
+	markerRunes := []rune(chipMarker(0))
+	damaged := "[pasted 600 " + string(markerRunes[:3])
+
+	got := c.reconcile(damaged)
+	if got != "" {
+		t.Errorf("reconcile(%q) = %q, want empty (the fragment was the whole string)", damaged, got)
+	}
+}

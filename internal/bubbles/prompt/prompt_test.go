@@ -43,6 +43,14 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyLeft}
 	case "delete":
 		return tea.KeyPressMsg{Code: tea.KeyDelete}
+	case "ctrl+w":
+		return tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl}
+	case "ctrl+k":
+		return tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl}
+	case "ctrl+u":
+		return tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}
+	case "alt+backspace":
+		return tea.KeyPressMsg{Code: tea.KeyBackspace, Mod: tea.ModAlt}
 	}
 	r := []rune(k)[0]
 	return tea.KeyPressMsg{Code: r, Text: k}
@@ -146,6 +154,13 @@ func TestPrompt_NeverDropsPastHeightCap(t *testing.T) {
 
 	for range 14 {
 		m, _ = m.Update(keyMsg("shift+enter"))
+	}
+	// Check the scroll offset here, before typing "last" below: a real
+	// key press's own Update call would reposition the viewport on its
+	// own and mask a regression in the Newline case's own repositioning
+	// (see prompt.go's reposition helper).
+	if got, want := m.ta.ScrollYOffset(), 15-maxContentLines; got != want {
+		t.Errorf("after growing past the cap: ScrollYOffset() = %d, want %d (the cursor's line scrolled into view)", got, want)
 	}
 	m = typeText(m, "last")
 

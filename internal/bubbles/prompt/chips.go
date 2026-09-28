@@ -3,12 +3,18 @@ package prompt
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // pasteChipThreshold is the exact spec number: a paste over this many
 // (sanitized) runes collapses into a chip instead of being inserted
 // verbatim.
 const pasteChipThreshold = 500
+
+// tokenPrefix opens every chip token's visible text; it never appears in
+// a live token at any other position, so a scan for it finds every chip
+// (intact or damaged) in a line.
+const tokenPrefix = "[pasted "
 
 // chipMarkerLen is the number of invisible runes appended after a chip's
 // visible "[pasted N chars]" text.
@@ -41,7 +47,7 @@ func newChips() chips {
 // withToken returns chips with a new, unique token recorded for text (n
 // runes), plus that token.
 func (c chips) withToken(n int, text string) (chips, string) {
-	tok := "[pasted " + strconv.Itoa(n) + " chars]" + chipMarker(c.seq)
+	tok := tokenPrefix + strconv.Itoa(n) + " chars]" + chipMarker(c.seq)
 	next := make(map[string]string, len(c.byToken)+1)
 	for k, v := range c.byToken {
 		next[k] = v
@@ -117,17 +123,7 @@ const (
 	markerHigh = 0xFE0F
 )
 
-// stripMarkers removes every chip marker rune from s. Value calls this
-// unconditionally: an edit this widget doesn't otherwise guard against
-// (see exitChipInterior/handleBackspace/handleDelete in prompt.go) could
-// still slice through a token via some other bubbles/textarea editing
-// command (ctrl+k, ctrl+w, a mouse selection, ...), leaving a damaged
-// token that no longer matches any live entry in chips.byToken. expand
-// then leaves it as plain text — stripMarkers is the last line of
-// defense that keeps its invisible marker runes out of Value,
-// SubmitMsg, and (since history is built from submitted Value text)
-// history, even though the damaged token's visible text, if any
-// survives, is left alone as ordinary text the user can see and fix.
+// stripMarkers removes every chip marker rune from s.
 func stripMarkers(s string) string {
 	return strings.Map(func(r rune) rune {
 		if r >= markerLow && r <= markerHigh {
@@ -135,4 +131,86 @@ func stripMarkers(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// reconcile is Value's backstop against a damaged chip token: it removes
+// every leftover fragment of a token that a bubbles/textarea editing
+// command this widget doesn't specifically guard (a mouse-driven
+// selection delete, a future keymap addition, ...) tore apart, then
+// expands every token that's still intact. prompt.go's
+// isRiskyDeleteKey/exitChipInterior/handleBackspace/handleDelete
+// intercept the deletion bindings that are cheap to get exactly right
+// (backspace, forward-delete, and bubbles/textarea's own word/line
+// deletion bindings) before they ever reach the textarea, so in
+// practice reconcile is a no-op; it exists so Value's "never a partial
+// token" guarantee doesn't depend on that interception list being
+// exhaustive.
+func (c chips) reconcile(s string) string {
+	return c.expand(stripDamagedTokens(c, s))
+}
+
+// stripDamagedTokens removes every occurrence of tokenPrefix in s that
+// isn't the start of one of c's own live, fully intact tokens. A scan
+// for tokenPrefix finds every chip in s, live or damaged (tokenPrefix
+// never appears anywhere else in a live token, and typed text starting
+// with it is vanishingly unlikely — accepted as a limitation of a
+// backstop that only runs after an edit this widget doesn't otherwise
+// guard against); each damaged one is removed through its closing "]"
+// (plus marker runes, if any survive right after it) or, if even the
+// "]" is gone, to the end of the line — since a deletion command can
+// leave the visible prefix and the closing bracket on either side of
+// its cut, there's no shorter fragment guaranteed to be exactly the
+// stray remains and nothing more.
+func stripDamagedTokens(c chips, s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		j := strings.Index(s[i:], tokenPrefix)
+		if j < 0 {
+			b.WriteString(s[i:])
+			break
+		}
+		j += i
+		b.WriteString(s[i:j])
+		if live, n := liveTokenAt(c, s[j:]); live {
+			b.WriteString(s[j : j+n])
+			i = j + n
+			continue
+		}
+		i = j + damagedTokenLen(s[j:])
+	}
+	return b.String()
+}
+
+// liveTokenAt reports whether s starts with one of c's live tokens, and
+// its byte length.
+func liveTokenAt(c chips, s string) (bool, int) {
+	for tok := range c.byToken {
+		if strings.HasPrefix(s, tok) {
+			return true, len(tok)
+		}
+	}
+	return false, 0
+}
+
+// damagedTokenLen returns the byte length of the damaged token fragment
+// at the start of s (which starts with tokenPrefix): through its
+// closing "]" and any marker runes right after it, or to the next
+// newline (or the end of s) if there's no closing "]" on this line.
+func damagedTokenLen(s string) int {
+	end := strings.IndexAny(s, "]\n")
+	if end < 0 {
+		return len(s)
+	}
+	if s[end] == '\n' {
+		return end
+	}
+	end++ // include the "]"
+	for end < len(s) {
+		r, size := utf8.DecodeRuneInString(s[end:])
+		if r < markerLow || r > markerHigh {
+			break
+		}
+		end += size
+	}
+	return end
 }
