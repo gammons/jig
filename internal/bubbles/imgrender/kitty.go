@@ -17,15 +17,14 @@ const maxKittyID = 1<<24 - 1
 // kittyChunk is the kitty protocol's maximum base64 payload per APC.
 const kittyChunk = 4096
 
-// uploadKey is one virtual placement the terminal has been sent.
-type uploadKey struct {
-	key        string
-	cols, rows int
-}
+// cellSize is the virtual placement size a key's image was last sent at.
+type cellSize struct{ cols, rows int }
 
 // renderKitty renders img as unicode-placeholder cells for the image id
-// bound to key, with the upload attached the first time (key, cols, rows)
-// is seen. Callers hold r.mu.
+// bound to key, with the upload attached whenever (cols, rows) differs
+// from the size key was last uploaded at: re-transmitting an id replaces
+// the terminal's image and placements, so only the latest size is live.
+// Callers hold r.mu.
 func (r *Renderer) renderKitty(key string, img image.Image, cols, rows int) Result {
 	id, ok := r.ids[key]
 	if !ok {
@@ -37,8 +36,8 @@ func (r *Renderer) renderKitty(key string, img image.Image, cols, rows int) Resu
 		r.ids[key] = id
 	}
 	res := Result{Lines: placeholderLines(id, cols, rows)}
-	uk := uploadKey{key: key, cols: cols, rows: rows}
-	if r.uploaded[uk] {
+	size := cellSize{cols: cols, rows: rows}
+	if cur, ok := r.uploaded[key]; ok && cur == size {
 		return res
 	}
 	var buf bytes.Buffer
@@ -47,7 +46,7 @@ func (r *Renderer) renderKitty(key string, img image.Image, cols, rows int) Resu
 		return res
 	}
 	res.Upload = kittyUpload(id, base64.StdEncoding.EncodeToString(buf.Bytes()), cols, rows, r.tmux)
-	r.uploaded[uk] = true
+	r.uploaded[key] = size
 	return res
 }
 

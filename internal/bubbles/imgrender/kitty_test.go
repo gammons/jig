@@ -90,6 +90,23 @@ func TestKitty_UploadOnce(t *testing.T) {
 	}
 }
 
+func TestKitty_ReuploadWhenReturningToEarlierSize(t *testing.T) {
+	t.Parallel()
+	// Re-transmitting an id replaces the terminal's image, so going back
+	// to a size uploaded earlier must upload again.
+	r := New(Kitty)
+	img := solid(32, 64)
+	for i, tc := range []struct {
+		size   int
+		upload bool
+	}{{4, true}, {4, false}, {2, true}, {2, false}, {4, true}, {4, false}} {
+		res := r.Render("k", img, tc.size, tc.size)
+		if got := res.Upload != ""; got != tc.upload {
+			t.Errorf("render %d (%dx%d): upload = %v, want %v", i, tc.size, tc.size, got, tc.upload)
+		}
+	}
+}
+
 var apcRE = regexp.MustCompile(`\x1b_G([^;]*);([^\x1b]*)\x1b\\`)
 
 func TestKitty_Chunking(t *testing.T) {

@@ -28,8 +28,8 @@ type Result struct {
 
 // Renderer renders images for one protocol at one cell size. Callers key
 // each image so protocols with terminal-side state (kitty) can reuse it:
-// a key keeps its kitty image id, and each (key, cols, rows) is uploaded
-// once. The mutex guards that state.
+// a key keeps its kitty image id and remembers the one size it was last
+// uploaded at. The mutex guards that state.
 type Renderer struct {
 	proto Protocol
 	cellW int
@@ -39,7 +39,7 @@ type Renderer struct {
 	mu       sync.Mutex
 	ids      map[string]uint32
 	nextID   uint32
-	uploaded map[uploadKey]bool
+	uploaded map[string]cellSize
 }
 
 // Option configures a Renderer.
@@ -65,7 +65,7 @@ func WithTmux(on bool) Option {
 func New(p Protocol, opts ...Option) *Renderer {
 	r := &Renderer{
 		proto: p, cellW: DefaultCellWidth, cellH: DefaultCellHeight,
-		ids: map[string]uint32{}, nextID: 1, uploaded: map[uploadKey]bool{},
+		ids: map[string]uint32{}, nextID: 1, uploaded: map[string]cellSize{},
 	}
 	for _, o := range opts {
 		o(r)
@@ -80,8 +80,9 @@ func (r *Renderer) Protocol() Protocol { return r.proto }
 // and never scaling it past its natural size at the cell size (but always
 // at least 1×1 cell). A non-positive box or an empty image gives an empty
 // Result. key identifies the image across calls: kitty binds an image id
-// to it and attaches Upload only on the first render of (key, cols,
-// rows); a kitty image is at most 297×297 cells (the diacritic table).
+// to it and attaches Upload whenever (cols, rows) differs from the size
+// key was last uploaded at (a re-upload replaces the terminal's image, so
+// returning to an earlier size uploads again); a kitty image is at most 297×297 cells (the diacritic table).
 // Sixel reserves blank cells and returns the payload for Place.
 func (r *Renderer) Render(key string, img image.Image, maxCols, maxRows int) Result {
 	if img == nil || maxCols <= 0 || maxRows <= 0 {
