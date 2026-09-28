@@ -17,19 +17,46 @@ import (
 	"strings"
 )
 
-// Palette holds one theme's semantic colors, as hex ("#RRGGBB") or ANSI-16
-// index strings ("0"-"15"). It mirrors slk's ThemeColors, minus
-// RailBackground (jig has no workspace rail).
+// BaseColors holds a theme's ten core colors, as hex ("#RRGGBB") or
+// ANSI-16 index strings ("0"-"15").
+type BaseColors struct {
+	Primary, Accent, Warning, Error  string
+	Background, Surface, SurfaceDark string
+	Text, TextMuted, Border          string
+}
+
+// SidebarColors holds a theme's sidebar colors. Each falls back to its
+// message-pane equivalent (Background/Text/TextMuted) in Complete when
+// left empty.
+type SidebarColors struct {
+	SidebarBackground, SidebarText, SidebarTextMuted string
+}
+
+// SelectionColors holds the selected-text and search-match highlight
+// colors. Each falls back to a derived default (Primary/Background,
+// Warning/Background) in Complete when left empty.
+type SelectionColors struct {
+	SelectionBackground, SelectionForeground string
+	SearchHighlightBg, SearchHighlightFg     string
+}
+
+// TintColors holds colors derived by mixing (see mixColors) when a theme
+// leaves them empty: the compose box's insert-mode background and the
+// selected-row tint used when its panel is/isn't focused.
+type TintColors struct {
+	ComposeInsertBG, SelectionBgFocused, SelectionBgUnfocused string
+}
+
+// Palette holds one theme's semantic colors. It mirrors slk's
+// ThemeColors, minus RailBackground (jig has no workspace rail), grouped
+// into embedded structs so field promotion keeps p.Primary-style access
+// while keeping each struct's field count under this repo's cap.
 type Palette struct {
 	Name string
-
-	Primary, Accent, Warning, Error                           string
-	Background, Surface, SurfaceDark                          string
-	Text, TextMuted, Border                                   string
-	SidebarBackground, SidebarText, SidebarTextMuted          string
-	SelectionBackground, SelectionForeground                  string
-	SearchHighlightBg, SearchHighlightFg                      string
-	ComposeInsertBG, SelectionBgFocused, SelectionBgUnfocused string
+	BaseColors
+	SidebarColors
+	SelectionColors
+	TintColors
 }
 
 // Builtin returns every built-in palette, sorted alphabetically by Name.
@@ -92,9 +119,7 @@ const defaultTintAlpha = 0.15
 // the selection tints are derived by mixing colors, unless the palette
 // sets them explicitly. This mirrors slk's styles.Apply derivation order.
 func Complete(p Palette) Palette {
-	d := darkRaw()
-
-	fillBase(&p, d)
+	fillBase(&p.BaseColors, darkRaw().BaseColors)
 
 	if p.SidebarBackground == "" {
 		p.SidebarBackground = p.Background
@@ -133,38 +158,37 @@ func Complete(p Palette) Palette {
 	return p
 }
 
-// fillBase fills p's ten base color fields from d wherever p leaves them
-// empty.
-func fillBase(p *Palette, d Palette) {
-	if p.Primary == "" {
-		p.Primary = d.Primary
+// fillBase fills b's ten fields from d wherever b leaves them empty.
+func fillBase(b *BaseColors, d BaseColors) {
+	if b.Primary == "" {
+		b.Primary = d.Primary
 	}
-	if p.Accent == "" {
-		p.Accent = d.Accent
+	if b.Accent == "" {
+		b.Accent = d.Accent
 	}
-	if p.Warning == "" {
-		p.Warning = d.Warning
+	if b.Warning == "" {
+		b.Warning = d.Warning
 	}
-	if p.Error == "" {
-		p.Error = d.Error
+	if b.Error == "" {
+		b.Error = d.Error
 	}
-	if p.Background == "" {
-		p.Background = d.Background
+	if b.Background == "" {
+		b.Background = d.Background
 	}
-	if p.Surface == "" {
-		p.Surface = d.Surface
+	if b.Surface == "" {
+		b.Surface = d.Surface
 	}
-	if p.SurfaceDark == "" {
-		p.SurfaceDark = d.SurfaceDark
+	if b.SurfaceDark == "" {
+		b.SurfaceDark = d.SurfaceDark
 	}
-	if p.Text == "" {
-		p.Text = d.Text
+	if b.Text == "" {
+		b.Text = d.Text
 	}
-	if p.TextMuted == "" {
-		p.TextMuted = d.TextMuted
+	if b.TextMuted == "" {
+		b.TextMuted = d.TextMuted
 	}
-	if p.Border == "" {
-		p.Border = d.Border
+	if b.Border == "" {
+		b.Border = d.Border
 	}
 }
 

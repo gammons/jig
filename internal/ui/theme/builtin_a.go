@@ -4,144 +4,224 @@ package theme
 func builtinA() []Palette {
 	return []Palette{
 		{
-			Name:    "ANSI Dark",
-			Primary: "4", Accent: "6", Warning: "3", Error: "1",
-			Background: "0", Surface: "8", SurfaceDark: "0",
-			Text: "15", TextMuted: "8", Border: "8",
-			SelectionBgFocused: "8", SelectionBgUnfocused: "8",
+			Name: "ANSI Dark",
+			BaseColors: BaseColors{
+				Primary: "4", Accent: "6", Warning: "3", Error: "1",
+				Background: "0", Surface: "8", SurfaceDark: "0",
+				Text: "15", TextMuted: "8", Border: "8",
+			},
+			TintColors: TintColors{
+				SelectionBgFocused: "8", SelectionBgUnfocused: "8",
+			},
 		},
 		{
-			Name:    "ANSI Light",
-			Primary: "4", Accent: "6", Warning: "3", Error: "1",
-			Background: "15", Surface: "7", SurfaceDark: "7",
-			Text: "0", TextMuted: "8", Border: "8",
-			SelectionBgFocused: "8", SelectionBgUnfocused: "8",
+			Name: "ANSI Light",
+			BaseColors: BaseColors{
+				Primary: "4", Accent: "6", Warning: "3", Error: "1",
+				Background: "15", Surface: "7", SurfaceDark: "7",
+				Text: "0", TextMuted: "8", Border: "8",
+			},
+			TintColors: TintColors{
+				SelectionBgFocused: "8", SelectionBgUnfocused: "8",
+			},
 		},
 		{
-			Name:    "Atom One Light",
-			Primary: "#4078F2", Accent: "#50A14F", Warning: "#C18401", Error: "#E45649",
-			Background: "#FAFAFA", Surface: "#F0F0F0", SurfaceDark: "#E5E5E6",
-			Text: "#383A42", TextMuted: "#A0A1A7", Border: "#D3D3D3",
-			SidebarBackground: "#282C34", SidebarText: "#ABB2BF", SidebarTextMuted: "#5C6370",
+			Name: "Atom One Light",
+			BaseColors: BaseColors{
+				Primary: "#4078F2", Accent: "#50A14F", Warning: "#C18401", Error: "#E45649",
+				Background: "#FAFAFA", Surface: "#F0F0F0", SurfaceDark: "#E5E5E6",
+				Text: "#383A42", TextMuted: "#A0A1A7", Border: "#D3D3D3",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#282C34", SidebarText: "#ABB2BF", SidebarTextMuted: "#5C6370",
+			},
 		},
 		{
-			Name:    "Aubergine",
-			Primary: "#1264A3", Accent: "#007A5A", Warning: "#ECB22E", Error: "#E01E5A",
-			Background: "#FFFFFF", Surface: "#F8F8F8", SurfaceDark: "#F0F0F0",
-			Text: "#1D1C1D", TextMuted: "#616061", Border: "#DDDDDD",
-			SidebarBackground: "#4D394B", SidebarText: "#FFFFFF", SidebarTextMuted: "#BAA2B8",
+			Name: "Aubergine",
+			BaseColors: BaseColors{
+				Primary: "#1264A3", Accent: "#007A5A", Warning: "#ECB22E", Error: "#E01E5A",
+				Background: "#FFFFFF", Surface: "#F8F8F8", SurfaceDark: "#F0F0F0",
+				Text: "#1D1C1D", TextMuted: "#616061", Border: "#DDDDDD",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#4D394B", SidebarText: "#FFFFFF", SidebarTextMuted: "#BAA2B8",
+			},
 		},
 		{
-			Name:    "Ayu Dark",
-			Primary: "#39BAE6", Accent: "#C2D94C", Warning: "#FFB454", Error: "#FF3333",
-			Background: "#0B0E14", Surface: "#131721", SurfaceDark: "#06080D",
-			Text: "#BFBDB6", TextMuted: "#565B66", Border: "#1B1F28",
-			SidebarBackground: "#1B202B", SidebarText: "", SidebarTextMuted: "",
+			Name: "Ayu Dark",
+			BaseColors: BaseColors{
+				Primary: "#39BAE6", Accent: "#C2D94C", Warning: "#FFB454", Error: "#FF3333",
+				Background: "#0B0E14", Surface: "#131721", SurfaceDark: "#06080D",
+				Text: "#BFBDB6", TextMuted: "#565B66", Border: "#1B1F28",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#1B202B", SidebarText: "", SidebarTextMuted: "",
+			},
 		},
 		{
-			Name:    "Ayu Mirage",
-			Primary: "#73D0FF", Accent: "#BAE67E", Warning: "#FFD580", Error: "#F28779",
-			Background: "#1F2430", Surface: "#232834", SurfaceDark: "#191E2A",
-			Text: "#CBCCC6", TextMuted: "#707A8C", Border: "#33415E",
-			SidebarBackground: "#0E121C", SidebarText: "", SidebarTextMuted: "",
+			Name: "Ayu Mirage",
+			BaseColors: BaseColors{
+				Primary: "#73D0FF", Accent: "#BAE67E", Warning: "#FFD580", Error: "#F28779",
+				Background: "#1F2430", Surface: "#232834", SurfaceDark: "#191E2A",
+				Text: "#CBCCC6", TextMuted: "#707A8C", Border: "#33415E",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#0E121C", SidebarText: "", SidebarTextMuted: "",
+			},
 		},
 		{
-			Name:    "Carbonfox",
-			Primary: "#78A9FF", Accent: "#25BE6A", Warning: "#FF832B", Error: "#EE5396",
-			Background: "#161616", Surface: "#262626", SurfaceDark: "#0C0C0C",
-			Text: "#F2F4F8", TextMuted: "#7B7C7E", Border: "#393939",
-			SidebarBackground: "#242424", SidebarText: "", SidebarTextMuted: "",
+			Name: "Carbonfox",
+			BaseColors: BaseColors{
+				Primary: "#78A9FF", Accent: "#25BE6A", Warning: "#FF832B", Error: "#EE5396",
+				Background: "#161616", Surface: "#262626", SurfaceDark: "#0C0C0C",
+				Text: "#F2F4F8", TextMuted: "#7B7C7E", Border: "#393939",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#242424", SidebarText: "", SidebarTextMuted: "",
+			},
 		},
 		{
-			Name:    "Catppuccin Frappé",
-			Primary: "#8CAAEE", Accent: "#A6D189", Warning: "#E5C890", Error: "#E78284",
-			Background: "#303446", Surface: "#414559", SurfaceDark: "#292C3C",
-			Text: "#C6D0F5", TextMuted: "#838BA7", Border: "#51576D",
-			SidebarBackground: "#1E212C", SidebarText: "", SidebarTextMuted: "",
+			Name: "Catppuccin Frappé",
+			BaseColors: BaseColors{
+				Primary: "#8CAAEE", Accent: "#A6D189", Warning: "#E5C890", Error: "#E78284",
+				Background: "#303446", Surface: "#414559", SurfaceDark: "#292C3C",
+				Text: "#C6D0F5", TextMuted: "#838BA7", Border: "#51576D",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#1E212C", SidebarText: "", SidebarTextMuted: "",
+			},
 		},
 		{
-			Name:    "Catppuccin Latte",
-			Primary: "#1E66F5", Accent: "#40A02B", Warning: "#DF8E1D", Error: "#D20F39",
-			Background: "#EFF1F5", Surface: "#E6E9EF", SurfaceDark: "#DCE0E8",
-			Text: "#4C4F69", TextMuted: "#6C6F85", Border: "#BCC0CC",
-			SidebarBackground: "#1E1E2E", SidebarText: "#CDD6F4", SidebarTextMuted: "#9399B2",
+			Name: "Catppuccin Latte",
+			BaseColors: BaseColors{
+				Primary: "#1E66F5", Accent: "#40A02B", Warning: "#DF8E1D", Error: "#D20F39",
+				Background: "#EFF1F5", Surface: "#E6E9EF", SurfaceDark: "#DCE0E8",
+				Text: "#4C4F69", TextMuted: "#6C6F85", Border: "#BCC0CC",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#1E1E2E", SidebarText: "#CDD6F4", SidebarTextMuted: "#9399B2",
+			},
 		},
 		{
-			Name:    "Catppuccin Macchiato",
-			Primary: "#8AADF4", Accent: "#A6DA95", Warning: "#EED49F", Error: "#ED8796",
-			Background: "#24273A", Surface: "#363A4F", SurfaceDark: "#1E2030",
-			Text: "#CAD3F5", TextMuted: "#6E738D", Border: "#494D64",
-			SidebarBackground: "#181A28", SidebarText: "", SidebarTextMuted: "",
+			Name: "Catppuccin Macchiato",
+			BaseColors: BaseColors{
+				Primary: "#8AADF4", Accent: "#A6DA95", Warning: "#EED49F", Error: "#ED8796",
+				Background: "#24273A", Surface: "#363A4F", SurfaceDark: "#1E2030",
+				Text: "#CAD3F5", TextMuted: "#6E738D", Border: "#494D64",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#181A28", SidebarText: "", SidebarTextMuted: "",
+			},
 		},
 		{
-			Name:    "Catppuccin Mocha",
-			Primary: "#89B4FA", Accent: "#A6E3A1", Warning: "#F9E2AF", Error: "#F38BA8",
-			Background: "#1E1E2E", Surface: "#313244", SurfaceDark: "#181825",
-			Text: "#CDD6F4", TextMuted: "#6C7086", Border: "#45475A",
-			SidebarBackground: "#0E0E16", SidebarText: "", SidebarTextMuted: "",
+			Name: "Catppuccin Mocha",
+			BaseColors: BaseColors{
+				Primary: "#89B4FA", Accent: "#A6E3A1", Warning: "#F9E2AF", Error: "#F38BA8",
+				Background: "#1E1E2E", Surface: "#313244", SurfaceDark: "#181825",
+				Text: "#CDD6F4", TextMuted: "#6C7086", Border: "#45475A",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#0E0E16", SidebarText: "", SidebarTextMuted: "",
+			},
 		},
 		{
-			Name:    "Choco Mint",
-			Primary: "#16A085", Accent: "#16C098", Warning: "#D9A441", Error: "#C0563B",
-			Background: "#FAF7F2", Surface: "#F0EBE3", SurfaceDark: "#E6DFD5",
-			Text: "#2B2017", TextMuted: "#6E6258", Border: "#DDD4C8",
-			SidebarBackground: "#25190F", SidebarText: "#E8E2DB", SidebarTextMuted: "#A8998C",
+			Name: "Choco Mint",
+			BaseColors: BaseColors{
+				Primary: "#16A085", Accent: "#16C098", Warning: "#D9A441", Error: "#C0563B",
+				Background: "#FAF7F2", Surface: "#F0EBE3", SurfaceDark: "#E6DFD5",
+				Text: "#2B2017", TextMuted: "#6E6258", Border: "#DDD4C8",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#25190F", SidebarText: "#E8E2DB", SidebarTextMuted: "#A8998C",
+			},
 		},
 		{
-			Name:    "Cobalt2",
-			Primary: "#FFC600", Accent: "#3AD900", Warning: "#FF9D00", Error: "#FF628C",
-			Background: "#193549", Surface: "#1F4662", SurfaceDark: "#15232D",
-			Text: "#E1EFFF", TextMuted: "#6E96B5", Border: "#0D3A58",
-			SidebarBackground: "#0C2030", SidebarText: "", SidebarTextMuted: "",
+			Name: "Cobalt2",
+			BaseColors: BaseColors{
+				Primary: "#FFC600", Accent: "#3AD900", Warning: "#FF9D00", Error: "#FF628C",
+				Background: "#193549", Surface: "#1F4662", SurfaceDark: "#15232D",
+				Text: "#E1EFFF", TextMuted: "#6E96B5", Border: "#0D3A58",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#0C2030", SidebarText: "", SidebarTextMuted: "",
+			},
 		},
 		{
-			Name:    "Cyberpunk Neon",
-			Primary: "#0ABDC6", Accent: "#00FF9C", Warning: "#FCEE0C", Error: "#EA00D9",
-			Background: "#000B1E", Surface: "#0D1B2A", SurfaceDark: "#000814",
-			Text: "#D7D7D7", TextMuted: "#7E7E8E", Border: "#133E7C",
-			SidebarBackground: "#0D1B2A", SidebarText: "", SidebarTextMuted: "",
+			Name: "Cyberpunk Neon",
+			BaseColors: BaseColors{
+				Primary: "#0ABDC6", Accent: "#00FF9C", Warning: "#FCEE0C", Error: "#EA00D9",
+				Background: "#000B1E", Surface: "#0D1B2A", SurfaceDark: "#000814",
+				Text: "#D7D7D7", TextMuted: "#7E7E8E", Border: "#133E7C",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#0D1B2A", SidebarText: "", SidebarTextMuted: "",
+			},
 		},
 		{
-			Name:    "Dark",
-			Primary: "#4A9EFF", Accent: "#50C878", Warning: "#E0A030", Error: "#E04040",
-			Background: "#1A1A2E", Surface: "#16162B", SurfaceDark: "#0F0F23",
-			Text: "#E0E0E0", TextMuted: "#888888", Border: "#333333",
-			SidebarBackground: "#0D0D1A", SidebarText: "", SidebarTextMuted: "",
+			Name: "Dark",
+			BaseColors: BaseColors{
+				Primary: "#4A9EFF", Accent: "#50C878", Warning: "#E0A030", Error: "#E04040",
+				Background: "#1A1A2E", Surface: "#16162B", SurfaceDark: "#0F0F23",
+				Text: "#E0E0E0", TextMuted: "#888888", Border: "#333333",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#0D0D1A", SidebarText: "", SidebarTextMuted: "",
+			},
 		},
 		{
-			Name:    "Dracula",
-			Primary: "#BD93F9", Accent: "#50FA7B", Warning: "#FFB86C", Error: "#FF5555",
-			Background: "#282A36", Surface: "#343746", SurfaceDark: "#21222C",
-			Text: "#F8F8F2", TextMuted: "#6272A4", Border: "#44475A",
-			SidebarBackground: "#14151C", SidebarText: "", SidebarTextMuted: "",
+			Name: "Dracula",
+			BaseColors: BaseColors{
+				Primary: "#BD93F9", Accent: "#50FA7B", Warning: "#FFB86C", Error: "#FF5555",
+				Background: "#282A36", Surface: "#343746", SurfaceDark: "#21222C",
+				Text: "#F8F8F2", TextMuted: "#6272A4", Border: "#44475A",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#14151C", SidebarText: "", SidebarTextMuted: "",
+			},
 		},
 		{
-			Name:    "Everforest Dark",
-			Primary: "#7FBBB3", Accent: "#A7C080", Warning: "#DBBC7F", Error: "#E67E80",
-			Background: "#2D353B", Surface: "#343F44", SurfaceDark: "#232A2E",
-			Text: "#D3C6AA", TextMuted: "#859289", Border: "#3D484D",
-			SidebarBackground: "#1E2429", SidebarText: "", SidebarTextMuted: "",
+			Name: "Everforest Dark",
+			BaseColors: BaseColors{
+				Primary: "#7FBBB3", Accent: "#A7C080", Warning: "#DBBC7F", Error: "#E67E80",
+				Background: "#2D353B", Surface: "#343F44", SurfaceDark: "#232A2E",
+				Text: "#D3C6AA", TextMuted: "#859289", Border: "#3D484D",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#1E2429", SidebarText: "", SidebarTextMuted: "",
+			},
 		},
 		{
-			Name:    "Everforest Light",
-			Primary: "#3A94C5", Accent: "#8DA101", Warning: "#DFA000", Error: "#F85552",
-			Background: "#FDF6E3", Surface: "#F4F0D9", SurfaceDark: "#EFEBD4",
-			Text: "#5C6A72", TextMuted: "#939F91", Border: "#E0DCC7",
-			SidebarBackground: "#343F44", SidebarText: "#D3C6AA", SidebarTextMuted: "#859289",
+			Name: "Everforest Light",
+			BaseColors: BaseColors{
+				Primary: "#3A94C5", Accent: "#8DA101", Warning: "#DFA000", Error: "#F85552",
+				Background: "#FDF6E3", Surface: "#F4F0D9", SurfaceDark: "#EFEBD4",
+				Text: "#5C6A72", TextMuted: "#939F91", Border: "#E0DCC7",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#343F44", SidebarText: "#D3C6AA", SidebarTextMuted: "#859289",
+			},
 		},
 		{
-			Name:    "Flexoki Dark",
-			Primary: "#4385BE", Accent: "#879A39", Warning: "#D0A215", Error: "#D14D41",
-			Background: "#100F0F", Surface: "#1C1B1A", SurfaceDark: "#0A0908",
-			Text: "#CECDC3", TextMuted: "#878580", Border: "#282726",
-			SidebarBackground: "#201F1E", SidebarText: "", SidebarTextMuted: "",
+			Name: "Flexoki Dark",
+			BaseColors: BaseColors{
+				Primary: "#4385BE", Accent: "#879A39", Warning: "#D0A215", Error: "#D14D41",
+				Background: "#100F0F", Surface: "#1C1B1A", SurfaceDark: "#0A0908",
+				Text: "#CECDC3", TextMuted: "#878580", Border: "#282726",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#201F1E", SidebarText: "", SidebarTextMuted: "",
+			},
 		},
 		{
-			Name:    "Flexoki Light",
-			Primary: "#205EA6", Accent: "#66800B", Warning: "#AD8301", Error: "#AF3029",
-			Background: "#FFFCF0", Surface: "#F2F0E5", SurfaceDark: "#E6E4D9",
-			Text: "#100F0F", TextMuted: "#6F6E69", Border: "#DAD8CE",
-			SidebarBackground: "#100F0F", SidebarText: "#CECDC3", SidebarTextMuted: "#878580",
+			Name: "Flexoki Light",
+			BaseColors: BaseColors{
+				Primary: "#205EA6", Accent: "#66800B", Warning: "#AD8301", Error: "#AF3029",
+				Background: "#FFFCF0", Surface: "#F2F0E5", SurfaceDark: "#E6E4D9",
+				Text: "#100F0F", TextMuted: "#6F6E69", Border: "#DAD8CE",
+			},
+			SidebarColors: SidebarColors{
+				SidebarBackground: "#100F0F", SidebarText: "#CECDC3", SidebarTextMuted: "#878580",
+			},
 		},
 	}
 }
