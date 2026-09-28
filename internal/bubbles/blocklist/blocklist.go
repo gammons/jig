@@ -83,6 +83,7 @@ type Model struct {
 	sel     int            // selected position, -1 when empty
 	yOffset int            // first visible line
 	query   string
+	noHL    bool // hide the selection bar and background (SetHighlight(false))
 	c       *cache
 }
 
@@ -180,6 +181,10 @@ func (m *Model) Upsert(items ...Item) {
 
 // Len is the number of items.
 func (m Model) Len() int { return len(m.items) }
+
+// SetHighlight shows (the default) or hides the selected item's bar and
+// background. The selection itself, and scrolling, are unaffected.
+func (m *Model) SetHighlight(on bool) { m.noHL = !on }
 
 // Selected returns the selected item; false when the list is empty.
 func (m Model) Selected() (Item, bool) {

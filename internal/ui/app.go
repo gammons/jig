@@ -136,6 +136,7 @@ func New(p Ports, o Options) *App {
 		after: tick,
 	}
 	a.w = newWidgets(&a.theme.set, func(text string) tea.Cmd { return editorCmd(a.ports, text) }, levels{a}.load, replyFunc(a))
+	a.w.list.SetHighlight(false) // the App starts in INSERT
 	if p.Subscribe != nil {
 		a.sub = p.Subscribe()
 	}
@@ -419,9 +420,13 @@ func (a *App) statusState() statusbar.State {
 	return st
 }
 
-// setMode switches the input mode; only INSERT focuses the prompt.
+// setMode switches the input mode; only INSERT focuses the prompt, and
+// only NORMAL highlights the selected block (the picker keeps the prior).
 func (a *App) setMode(m mode) tea.Cmd {
 	a.mode = m
+	if m != modePicker {
+		a.w.list.SetHighlight(m == modeNormal)
+	}
 	if m == modeInsert {
 		return a.w.prompt.Focus()
 	}

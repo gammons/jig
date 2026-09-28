@@ -410,6 +410,26 @@ func TestView_SelectionDrawing(t *testing.T) {
 	}
 }
 
+func TestView_HighlightOff(t *testing.T) {
+	t.Parallel()
+	m := newList(12, 3, testItems("aa", "bb"))
+	m.SetHighlight(false)
+	rows := strings.Split(m.View(), "\n")
+	if !strings.HasPrefix(rows[2], " bb") {
+		t.Errorf("with highlight off, selected row %q does not start with a 1-space prefix", rows[2])
+	}
+	if strings.Contains(rows[2], "\x1b[48;2;32;32;32m") {
+		t.Errorf("with highlight off, selected row %q still has the SelectedBg background", rows[2])
+	}
+	if got := selectedID(t, m); got != "i1" {
+		t.Errorf("highlight off moved the selection to %s", got)
+	}
+	m.SetHighlight(true)
+	if rows := strings.Split(m.View(), "\n"); !strings.HasPrefix(rows[2], pinnedStyles().Bar.Render("▌")) {
+		t.Errorf("highlight back on: selected row %q lacks the bar", rows[2])
+	}
+}
+
 func TestGolden_ListSelected(t *testing.T) {
 	t.Parallel()
 	m := newList(30, 8, testItems(

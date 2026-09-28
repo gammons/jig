@@ -69,7 +69,7 @@ func (m Model) visibleRows(iw int, rows []string) []string {
 			if k < len(e.lines) {
 				line = e.lines[k]
 			}
-			rows = append(rows, p.line(line, i == m.sel, match))
+			rows = append(rows, p.line(line, i == m.sel && !m.noHL, match))
 		}
 		for g := range gap {
 			if i == len(m.items)-1 || len(rows) >= m.h {

@@ -913,6 +913,26 @@ func TestApp_GoldenIdle(t *testing.T) {
 	golden.Assert(t, "app_idle", ta.view())
 }
 
+// TestApp_SelectionHighlightOnlyInNormal: the transcript's selected block
+// shows its bar only in NORMAL mode, not in INSERT.
+func TestApp_SelectionHighlightOnlyInNormal(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("Explain the build")
+	hasBar := func() bool { return strings.Contains(xansi.Strip(ta.view()), "▌") }
+	if hasBar() {
+		t.Errorf("INSERT mode shows the selection bar:\n%s", xansi.Strip(ta.view()))
+	}
+	ta.key("esc")
+	if !hasBar() {
+		t.Errorf("NORMAL mode lacks the selection bar:\n%s", xansi.Strip(ta.view()))
+	}
+	ta.key("i")
+	if hasBar() {
+		t.Errorf("back in INSERT, the selection bar is still shown")
+	}
+}
+
 // TestApp_ThinkingSpinnerAnimatesUntilTextStarts: a reasoning block's
 // spinner advances on each streamTick while the model is thinking, and
 // settles back to "∴" once text follows.
