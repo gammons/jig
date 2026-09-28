@@ -3,16 +3,14 @@
 jig is a terminal AI coding harness written in Go, in the spirit of
 OpenCode, built on the Charm stack (`fantasy` for LLM access, `catwalk`
 for the model catalog). It runs agents with tools — read, write, edit,
-bash, glob, grep, todo, skill, task — against your codebase, in a
-headless (non-interactive) mode today, with an interactive TUI planned
-for Plan 2.
+bash, glob, grep, todo, skill, task — against your codebase, in an
+interactive TUI (`jig`) or headless (`jig run`).
 
 ## Status
 
-**Plan 1 (foundation + headless `jig run`) is implemented.** There is no
-TUI yet: `jig run "<prompt>"` is the only way to have jig do work.
-`jig models`, `jig sessions`, and `jig version` are also available.
-Plan 2 adds the interactive TUI.
+Plan 1 (foundation + headless `jig run`) and the Plan 2 interactive TUI
+(`jig` with no subcommand) are implemented. `jig models`, `jig sessions`,
+and `jig version` are also available.
 
 ## Install
 
@@ -35,6 +33,23 @@ jig needs a `default_model` (or a `--model` flag on every run) before
 it can call an LLM; jig's built-in `anthropic` provider needs no other
 config, since it resolves its API key from `$ANTHROPIC_API_KEY`. See
 "Config files" below for the full file, including other providers.
+
+## `jig` (the TUI)
+
+```
+jig [--cwd DIR] [--session ID] [--trust-project]
+```
+
+- `--cwd DIR` — as for `jig run`.
+- `--session ID` — resume an existing session.
+- `--trust-project` — trust this project's config without asking.
+
+Without `--trust-project`, a project config (`.jig/config.toml`, project
+agent files) that is new or changed since you last trusted it opens a
+trust dialog listing what it would change: `t` trusts it (remembered
+until the config changes); `n` or `esc` continues untrusted, with its
+loosening settings (and its `[keybinds]`) ignored. The TUI needs a
+terminal: with stdout redirected, `jig` exits 2 and suggests `jig run`.
 
 ## `jig run`
 

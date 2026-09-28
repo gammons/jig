@@ -76,6 +76,34 @@ func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
 	}
 }
 
+// tuiOpts are the parsed flags of `jig` (the TUI).
+type tuiOpts struct {
+	cwd, session string
+	trustProject bool
+}
+
+const tuiUsage = `usage: jig [--cwd DIR] [--session ID] [--trust-project]`
+
+// parseTUI parses `jig`'s flags. A flag error or any positional arg
+// writes the usage to errw and returns ErrUsage.
+func parseTUI(args []string, errw io.Writer) (tuiOpts, error) {
+	var o tuiOpts
+	fs := flag.NewFlagSet("jig", flag.ContinueOnError)
+	fs.SetOutput(errw)
+	fs.Usage = func() { fmt.Fprintln(errw, tuiUsage) }
+	fs.StringVar(&o.cwd, "cwd", "", "working directory (default: current directory)")
+	fs.StringVar(&o.session, "session", "", "session ID to resume")
+	fs.BoolVar(&o.trustProject, "trust-project", false, "trust this project's config (and remember it until the config changes)")
+	if err := fs.Parse(args); err != nil {
+		return tuiOpts{}, ErrUsage
+	}
+	if fs.NArg() > 0 {
+		fs.Usage()
+		return tuiOpts{}, ErrUsage
+	}
+	return o, nil
+}
+
 // parseModels parses `jig models [provider]`.
 func parseModels(args []string, errw io.Writer) (string, error) {
 	switch len(args) {

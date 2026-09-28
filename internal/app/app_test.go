@@ -12,7 +12,6 @@ import (
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/data/store"
 	"github.com/gammons/jig/internal/pathid"
-	"github.com/gammons/jig/internal/service/permission"
 )
 
 // testEnv is an isolated set of XDG dirs, a work dir, and an environment
@@ -62,20 +61,6 @@ func (e *testEnv) run(t *testing.T, args ...string) (int, string, string) {
 	var out, errw bytes.Buffer
 	code := Run(t.Context(), args, Stdio{In: strings.NewReader(""), Out: &out, Err: &errw}, e.getenv)
 	return code, out.String(), errw.String()
-}
-
-func TestRun_NoArgsExits2(t *testing.T) {
-	code, out, stderr := newTestEnv(t).run(t)
-	if code != exitConfig {
-		t.Errorf("exit = %d, want %d", code, exitConfig)
-	}
-	if out != "" {
-		t.Errorf("stdout = %q, want empty", out)
-	}
-	want := "the interactive UI is not built yet; use: jig run \"prompt\"\n"
-	if stderr != want {
-		t.Errorf("stderr = %q, want %q", stderr, want)
-	}
 }
 
 func TestRun_UnknownSubcommandExits2(t *testing.T) {
@@ -301,7 +286,7 @@ func TestRuntime_PrivateSpillDirRemovedOnClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt, err := newRuntime(t.Context(), e, permission.StaticAsker{}, io.Discard)
+	rt, err := newRuntime(t.Context(), e, staticAsker(false), io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}

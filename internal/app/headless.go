@@ -8,7 +8,6 @@ import (
 
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
-	"github.com/gammons/jig/internal/service/permission"
 	"github.com/gammons/jig/internal/ui/plain"
 )
 
@@ -31,7 +30,7 @@ func runCmd(ctx context.Context, args []string, std Stdio, getenv func(string) s
 		fmt.Fprintln(std.Err, untrustedWarning)
 	}
 	warnProviderOptions(std.Err, e.cfg().Providers)
-	rt, err := newRuntime(ctx, e, permission.StaticAsker{Allow: opts.yes}, std.Err)
+	rt, err := newRuntime(ctx, e, staticAsker(opts.yes), std.Err)
 	if err != nil {
 		printLine(std.Err, "error: "+err.Error())
 		return exitCode(err)
@@ -57,9 +56,7 @@ func (rt *runtime) headless(ctx context.Context, opts runOpts, std Stdio) int {
 		Attachments: opts.attach,
 	})
 
-	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
-	_ = rt.chat.Close(closeCtx)
-	cancel()
+	rt.closeChat(ctx)
 	reported := r.finish()
 
 	if err == nil {

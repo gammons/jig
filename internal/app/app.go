@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"runtime/debug"
+	"strings"
 
 	"github.com/gammons/jig/internal/service/chat"
 )
@@ -21,9 +22,8 @@ const (
 	exitConfig    = 2
 )
 
-const noUIMessage = `the interactive UI is not built yet; use: jig run "prompt"`
-
 const usage = `usage:
+  jig [--cwd DIR] [--session ID] [--trust-project]
   jig run [--agent A] [--model M] [--yes] [--trust-project] [--session ID] [--cwd DIR] <prompt...>
   jig models [provider]
   jig sessions
@@ -36,11 +36,11 @@ type Stdio struct {
 }
 
 // Run executes the jig command line args (without the program name) and
-// returns the process exit code.
+// returns the process exit code. No args, or leading flags, start the TUI
+// (R25).
 func Run(ctx context.Context, args []string, std Stdio, getenv func(string) string) int {
-	if len(args) == 0 {
-		fmt.Fprintln(std.Err, noUIMessage)
-		return exitConfig
+	if len(args) == 0 || isTUIFlag(args[0]) {
+		return runTUI(ctx, args, std, getenv)
 	}
 	switch args[0] {
 	case "run":
@@ -59,6 +59,12 @@ func Run(ctx context.Context, args []string, std Stdio, getenv func(string) stri
 		fmt.Fprintf(std.Err, "jig: unknown command %q\n%s\n", args[0], usage)
 		return exitConfig
 	}
+}
+
+// isTUIFlag reports whether arg is a flag (not -h/--help), so the command
+// line is `jig [flags]`, the TUI.
+func isTUIFlag(arg string) bool {
+	return strings.HasPrefix(arg, "-") && arg != "-h" && arg != "--help"
 }
 
 // version reports the main module's version from the build info, or

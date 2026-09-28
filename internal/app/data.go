@@ -5,12 +5,14 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"sync"
 
 	"charm.land/catwalk/pkg/catwalk"
 
 	"github.com/gammons/jig/internal/client/catalog"
 	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core"
+	"github.com/gammons/jig/internal/data/prefsfs"
 	"github.com/gammons/jig/internal/data/skillfs"
 	"github.com/gammons/jig/internal/data/store"
 	"github.com/gammons/jig/internal/service/agents"
@@ -30,6 +32,27 @@ func openStore(ctx context.Context, e env) (*store.Store, error) {
 // ($XDG_STATE_HOME/jig/prefs.json).
 func (e env) prefsPath() string {
 	return filepath.Join(e.paths.StateDir, "prefs.json")
+}
+
+// blobsDir is the blob store's directory (<DataDir>/blobs).
+func (e env) blobsDir() string {
+	return filepath.Join(e.paths.DataDir, "blobs")
+}
+
+// prefsHandle opens the prefs store at path at most once, so every user in
+// a process (agent-browser discovery in loadEnv, the TUI's Prefs port)
+// shares one prefsfs.Store and its mutex.
+type prefsHandle struct {
+	path  string
+	once  sync.Once
+	store *prefsfs.Store
+	err   error
+}
+
+// open returns the shared store, opening it on the first call.
+func (h *prefsHandle) open() (*prefsfs.Store, error) {
+	h.once.Do(func() { h.store, h.err = prefsfs.Open(h.path) })
+	return h.store, h.err
 }
 
 // newCatalog loads the provider catalog from <CacheDir>/catalog.json (or

@@ -34,6 +34,7 @@ type env struct {
 	browser      browserIntegration
 	browserWarns []string // agent-browser warnings, printed by discover
 	getenv       func(string) string
+	prefs        *prefsHandle // the one prefs store of the process, opened on first use
 }
 
 func (e env) cfg() core.Config { return e.merged }
@@ -55,6 +56,7 @@ func loadEnv(cwd string, getenv func(string) string, decide trustDecider) (env, 
 	}
 	gitRoot, _ := fsroot.GitRoot(workDir)
 	e := env{paths: p, workDir: workDir, gitRoot: gitRoot, getenv: getenv}
+	e.prefs = &prefsHandle{path: e.prefsPath()}
 	if err := e.resolveLayers(decide, clock.Real()); err != nil {
 		return env{}, configError{err}
 	}
@@ -96,7 +98,7 @@ func (e *env) resolveLayers(decide trustDecider, clk clock.Clock) error {
 			return err
 		}
 	}
-	e.browser, e.browserWarns = resolveBrowser(l, st.trusted, exec.LookPath, e.prefsPath(), agentbrowser.SkillsPath)
+	e.browser, e.browserWarns = resolveBrowser(l, st.trusted, exec.LookPath, e.prefs, agentbrowser.SkillsPath)
 	e.layers, e.trust = applyTrust(l, st)
 	return nil
 }

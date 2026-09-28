@@ -36,7 +36,7 @@ func TestBrowser_ToggleFalse_NoExec(t *testing.T) {
 	l := trust.Layers{Global: core.Config{AgentBrowser: core.ToggleFalse}}
 	prefsPath := filepath.Join(t.TempDir(), "prefs.json")
 
-	bi, warns := resolveBrowser(l, false, failingLookPath(t), prefsPath, failingSkillsPath(t))
+	bi, warns := resolveBrowser(l, false, failingLookPath(t), &prefsHandle{path: prefsPath}, failingSkillsPath(t))
 	if bi.enabled {
 		t.Errorf("browserIntegration = %+v, want disabled", bi)
 	}
@@ -50,7 +50,7 @@ func TestBrowser_MissingBinaryWithTrue_Warns(t *testing.T) {
 	prefsPath := filepath.Join(t.TempDir(), "prefs.json")
 	lookPath := func(string) (string, error) { return "", errors.New("not found") }
 
-	bi, warns := resolveBrowser(l, false, lookPath, prefsPath, failingSkillsPath(t))
+	bi, warns := resolveBrowser(l, false, lookPath, &prefsHandle{path: prefsPath}, failingSkillsPath(t))
 	if bi.enabled {
 		t.Errorf("browserIntegration = %+v, want disabled", bi)
 	}
@@ -64,7 +64,7 @@ func TestBrowser_AutoWithoutBinary_NoWarning(t *testing.T) {
 	prefsPath := filepath.Join(t.TempDir(), "prefs.json")
 	lookPath := func(string) (string, error) { return "", errors.New("not found") }
 
-	bi, warns := resolveBrowser(l, false, lookPath, prefsPath, failingSkillsPath(t))
+	bi, warns := resolveBrowser(l, false, lookPath, &prefsHandle{path: prefsPath}, failingSkillsPath(t))
 	if bi.enabled {
 		t.Errorf("browserIntegration = %+v, want disabled", bi)
 	}
@@ -105,7 +105,7 @@ func TestBrowser_CachedPrefsSkipsSkillsPath(t *testing.T) {
 	l := trust.Layers{Global: core.Config{AgentBrowser: core.ToggleAuto}}
 	lookPath := func(string) (string, error) { return bin, nil }
 
-	bi, warns := resolveBrowser(l, false, lookPath, prefsPath, failingSkillsPath(t))
+	bi, warns := resolveBrowser(l, false, lookPath, &prefsHandle{path: prefsPath}, failingSkillsPath(t))
 	if !bi.enabled || bi.bin != bin || bi.skillsDir != "/cached/skills" {
 		t.Errorf("browserIntegration = %+v, want enabled with cached skills dir", bi)
 	}
@@ -130,7 +130,7 @@ func TestBrowser_CacheMissRunsSkillsPathAndSaves(t *testing.T) {
 		return "/fresh/skills", nil
 	}
 
-	bi, warns := resolveBrowser(l, false, lookPath, prefsPath, skillsPath)
+	bi, warns := resolveBrowser(l, false, lookPath, &prefsHandle{path: prefsPath}, skillsPath)
 	if calls != 1 {
 		t.Errorf("skillsPath called %d times, want 1", calls)
 	}
@@ -170,7 +170,7 @@ func TestBrowser_CacheSaveKeepsConcurrentPrefs(t *testing.T) {
 		return "/fresh/skills", nil
 	}
 
-	resolveBrowser(l, false, lookPath, prefsPath, skillsPath)
+	resolveBrowser(l, false, lookPath, &prefsHandle{path: prefsPath}, skillsPath)
 
 	store, err := prefsfs.Open(prefsPath)
 	if err != nil {
@@ -189,7 +189,7 @@ func TestBrowser_SkillsPathErrorWarnsButStaysEnabled(t *testing.T) {
 	lookPath := func(string) (string, error) { return bin, nil }
 	skillsPath := func(context.Context, string) (string, error) { return "", errors.New("boom") }
 
-	bi, warns := resolveBrowser(l, false, lookPath, prefsPath, skillsPath)
+	bi, warns := resolveBrowser(l, false, lookPath, &prefsHandle{path: prefsPath}, skillsPath)
 	if !bi.enabled || bi.skillsDir != "" {
 		t.Errorf("browserIntegration = %+v, want enabled with no skills dir", bi)
 	}
@@ -300,7 +300,7 @@ func TestBrowser_TrustedProjectTogglesOverridesGlobal(t *testing.T) {
 	}
 	prefsPath := filepath.Join(t.TempDir(), "prefs.json")
 
-	bi, warns := resolveBrowser(l, true, failingLookPath(t), prefsPath, failingSkillsPath(t))
+	bi, warns := resolveBrowser(l, true, failingLookPath(t), &prefsHandle{path: prefsPath}, failingSkillsPath(t))
 	if bi.enabled {
 		t.Errorf("browserIntegration = %+v, want disabled (Project overrides trusted)", bi)
 	}
@@ -316,7 +316,7 @@ func TestBrowser_UntrustedProjectIgnored(t *testing.T) {
 	}
 	prefsPath := filepath.Join(t.TempDir(), "prefs.json")
 
-	bi, warns := resolveBrowser(l, false, failingLookPath(t), prefsPath, failingSkillsPath(t))
+	bi, warns := resolveBrowser(l, false, failingLookPath(t), &prefsHandle{path: prefsPath}, failingSkillsPath(t))
 	if bi.enabled {
 		t.Errorf("browserIntegration = %+v, want disabled (untrusted Project ignored)", bi)
 	}

@@ -114,10 +114,12 @@ func tokenActions(in []config.TokenAction) []trust.TokenAction {
 	return out
 }
 
-// decideTrust asks decide about an untrusted, non-empty project and
-// persists a grant.
+// decideTrust asks decide about an untrusted project with effects and
+// persists a grant. A project with zero effects (e.g. an empty
+// .jig/config.toml) has nothing to trust: decide is not asked and nothing
+// is granted.
 func decideTrust(st trustState, decide trustDecider, store *trustfs.Store, clk clock.Clock) (trustState, error) {
-	if st.trusted || st.hash == "" {
+	if st.trusted || st.hash == "" || len(st.effects) == 0 {
 		return st, nil
 	}
 	grant, err := decide(st)

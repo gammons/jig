@@ -103,7 +103,7 @@ internal/bubbles/blocklist/             transcript list: block cursor, per-item 
 internal/bubbles/picker/                ctrl+p picker: fuzzy drill-down list, groups, recents, multi-mark, text-input level, preview callback
 internal/bubbles/prompt/                growing 1-8 line prompt: history walk, paste chips, $EDITOR round trip, queued state
 internal/golden/                        golden-frame test assertion
-internal/app/                           composition root + CLI
+internal/app/                           composition root + CLI: `jig` (TUI: trust dialog, BusAsker, ports, keymap/themes/prefs), `jig run` (headless)
 e2e/                                    end-to-end tests against the built binary
 ```
 
@@ -171,12 +171,17 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   merge; `permission.Tighten` never keeps an `allow` pattern, and keeps an
   `ask` pattern only where the baseline has no `deny`. A top-level project
   `ask` pattern is also dropped when any global agent denies that tool.
+  Untrusted project `[keybinds]` are dropped whole, so a project can never
+  remap the permission-card keys, `run.cancel`, or `app.quit`.
   Trust effects never print secrets: a literal `api_key`/`options` →
   `(set)`, a `{env:}`/`{file:}` token prints raw (it is a name, not a
   secret), and `base_url` prints as `scheme://host[:port]/path` with
   userinfo dropped and any query shown as `?…`.
 - Trust is decided once in `loadEnv`, before any service is built;
-  `e.cfg()` is already the trusted or restricted merge. Project config
+  `e.cfg()` is already the trusted or restricted merge. The decider is
+  `staticTrust` headless and the trust dialog (`trustDialog`, a
+  short-lived tea program, every line `SanitizeLine`d) in the TUI; it is
+  never asked for a project with zero effects (nothing is granted). Project config
   files are loaded without `{env:}`/`{file:}` substitution until the
   project is trusted (a permission action holding a token is then not
   applied, but is listed in the trust effects by its raw token and counts
@@ -282,6 +287,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Find a project's git root from a directory | `fsroot.GitRoot(dir)` |
 | Walk root→leaf ancestor directories for context/skill discovery | `fsroot.Chain(root, dir)` |
 | Parse a `---\n<yaml>\n---\n<body>` file | `frontmatter.Parse(src, &meta)` |
+| The process's one prefs store (`internal/app`; shared by agent-browser discovery and the TUI's Prefs port) | `e.prefs.open()` (`prefsHandle`, opened once) |
 | Resolve XDG base directories | `paths.Resolve(getenv)` (`ConfigDir`/`DataDir`/`CacheDir`/`StateDir`) |
 | Write a file atomically (temp file, fsync, rename) | `atomicfile.Write(path, data, perm)` |
 | Content-addressed blob storage (SHA-256 refs) | `blobfs.New(dir)` / `(*Store).Put`, `.Open` |

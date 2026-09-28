@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/gammons/jig/internal/client/catalog"
 	"github.com/gammons/jig/internal/client/llm"
@@ -26,18 +25,39 @@ import (
 )
 
 // runtime is a fully wired jig: the one event bus, the store backing it,
-// and the chat service the UIs drive.
+// the chat service the UIs drive, and the services the TUI's other ports
+// wrap.
 type runtime struct {
 	bus      *event.Bus
 	store    *store.Store
 	chat     *chat.Service
 	spillDir string // private (0700) per-process dir for bash spill files
+	svc      tuiServices
 }
 
-// newRuntime builds every service for e. asker answers permission
-// requests; discovery warnings go to errw. Errors caused by configuration
-// are configErrors.
-func newRuntime(ctx context.Context, e env, asker permission.Asker, errw io.Writer) (*runtime, error) {
+// tuiServices are the runtime's services the TUI reaches through ports
+// other than chat: sessions, agents, the catalog, blobs, and the frozen
+// registry (its commands and keybinds).
+type tuiServices struct {
+	sessions *session.Service
+	agents   *agents.Service
+	catalog  catalogPort
+	blobs    *blobfs.Store
+	view     ext.View
+}
+
+// askerFunc builds the permission.Asker for a runtime from its bus.
+type askerFunc func(*event.Bus) permission.Asker
+
+// staticAsker is an askerFunc for a permission.StaticAsker (headless).
+func staticAsker(allow bool) askerFunc {
+	return func(*event.Bus) permission.Asker { return permission.StaticAsker{Allow: allow} }
+}
+
+// newRuntime builds every service for e. askerFor builds the asker that
+// answers permission requests; discovery warnings go to errw. Errors
+// caused by configuration are configErrors.
+func newRuntime(ctx context.Context, e env, askerFor askerFunc, errw io.Writer) (*runtime, error) {
 	clk := clock.Real()
 	st, err := openStore(ctx, e)
 	if err != nil {
@@ -50,7 +70,7 @@ func newRuntime(ctx context.Context, e env, asker permission.Asker, errw io.Writ
 	}
 	cat := newCatalog(e, clk)
 	rt := &runtime{bus: event.NewBus(), store: st, spillDir: spillDir}
-	if rt.chat, err = newChat(e, rt, cat, asker, errw); err != nil {
+	if rt.chat, err = newChat(e, rt, cat, askerFor(rt.bus), errw); err != nil {
 		_ = rt.close()
 		return nil, err
 	}
@@ -72,7 +92,7 @@ func newChat(e env, rt *runtime, cat *catalog.Catalog, asker permission.Asker, e
 	}
 	clk := clock.Real()
 	idGen := ids.New(clk, rand.Reader)
-	blobs := blobfs.New(filepath.Join(e.paths.DataDir, "blobs"))
+	blobs := blobfs.New(e.blobsDir())
 	src := llm.NewSource(cat, pv, e.cfg().Providers, e.getenv, blobs)
 	sess := session.New(session.Deps{Store: rt.store, LLMs: src, Agents: ag, Bus: rt.bus, Clock: clk, IDs: idGen})
 	proxy := &agent.Proxy{}
@@ -87,15 +107,29 @@ func newChat(e env, rt *runtime, cat *catalog.Catalog, asker permission.Asker, e
 	if err != nil {
 		return nil, err
 	}
-	runner := agent.NewRunner(agent.Deps{
-		LLMs: src, Ext: view, Store: rt.store, History: sess, Bus: rt.bus,
-		Clock: clk, IDs: idGen, ToolsFor: agents.ToolsFor,
-	})
+	rt.svc = tuiServices{sessions: sess, agents: ag, catalog: catalogPort{cat: cat, src: src}, blobs: blobs, view: view}
+	runner := newRunner(rt, src, view, sess, clk, idGen)
 	proxy.Set(runner)
 	return chat.New(chat.Deps{
 		Sessions: sess, Agents: ag, LLMs: src, Runner: runner, WorkDir: e.workDir,
 		Files: tools.OSFS(), Reads: tracker, Images: pipeline,
 	}), nil
+}
+
+// newRunner builds the agent Runner over rt's bus and store.
+func newRunner(rt *runtime, src *llm.Source, view ext.View, sess *session.Service, clk clock.Clock, idGen *ids.Gen) *agent.Runner {
+	return agent.NewRunner(agent.Deps{
+		LLMs: src, Ext: view, Store: rt.store, History: sess, Bus: rt.bus,
+		Clock: clk, IDs: idGen, ToolsFor: agents.ToolsFor,
+	})
+}
+
+// closeChat closes rt's chat service, waiting at most closeTimeout for
+// background work (session titles), even if ctx is already cancelled.
+func (rt *runtime) closeChat(ctx context.Context) {
+	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
+	_ = rt.chat.Close(closeCtx)
+	cancel()
 }
 
 // providerView is a frozen registry holding only the provider factories.
