@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gammons/jig/internal/core"
+	"github.com/gammons/jig/internal/core/event"
 )
 
 const (
@@ -21,8 +22,11 @@ const (
 )
 
 // GenerateTitle asks the session's small model for a title for
-// firstPrompt and saves it. On any error the current (placeholder) title
-// is left unchanged.
+// firstPrompt and saves it, but only if the session's title still holds
+// the placeholder for firstPrompt at save time: a rename that lands while
+// the model is generating a title is never clobbered. On any error, or
+// when the title was already renamed, the current title is left
+// unchanged and no event is published.
 func (s *Service) GenerateTitle(ctx context.Context, id core.SessionID, firstPrompt string) error {
 	sess, err := s.d.Store.GetSession(ctx, id)
 	if err != nil {
@@ -36,7 +40,23 @@ func (s *Service) GenerateTitle(ctx context.Context, id core.SessionID, firstPro
 	if title == "" {
 		return errors.New("session: title model returned no title")
 	}
-	return s.modify(ctx, id, func(sess *core.Session) { sess.Title = title })
+	placeholder := PlaceholderTitle(firstPrompt)
+	var saved core.Session
+	changed := false
+	if err := s.modify(ctx, id, func(sess *core.Session) {
+		if sess.Title != placeholder {
+			return
+		}
+		sess.Title = title
+		saved = *sess
+		changed = true
+	}); err != nil {
+		return err
+	}
+	if changed {
+		s.d.Bus.Publish(event.SessionUpdated{Base: event.Base{SessionID: id, RootID: id}, Info: saved})
+	}
+	return nil
 }
 
 // PlaceholderTitle is the title a session gets until GenerateTitle

@@ -23,6 +23,10 @@ type Turn struct {
 	Events []core.StreamEvent
 	Err    error // yielded after Events
 	Hang   bool  // after Events, block until ctx is done, then yield ctx.Err()
+	// Gate, when set, blocks Stream before it yields anything, until Gate
+	// is closed or ctx is done. It lets a test start a call, act while it
+	// is blocked, then release it deterministically.
+	Gate <-chan struct{}
 }
 
 // Text returns a Turn that streams a single StreamText event followed by a
@@ -97,11 +101,20 @@ func (c *Client) Stream(ctx context.Context, req core.LLMRequest) iter.Seq2[core
 	}
 }
 
-// streamTurn yields turn's events, applying the default Usage to any
-// zero-Usage StreamFinish, then its Err (if any), then, if Hang is set,
-// blocks until ctx is done and yields ctx.Err(). It checks ctx before each
-// event and stops promptly if yield returns false.
+// streamTurn waits on turn.Gate (if set), then yields turn's events,
+// applying the default Usage to any zero-Usage StreamFinish, then its Err
+// (if any), then, if Hang is set, blocks until ctx is done and yields
+// ctx.Err(). It checks ctx before each event and stops promptly if yield
+// returns false.
 func streamTurn(ctx context.Context, turn Turn, yield func(core.StreamEvent, error) bool) {
+	if turn.Gate != nil {
+		select {
+		case <-turn.Gate:
+		case <-ctx.Done():
+			yield(core.StreamEvent{}, ctx.Err())
+			return
+		}
+	}
 	for _, ev := range turn.Events {
 		if err := ctx.Err(); err != nil {
 			yield(core.StreamEvent{}, err)

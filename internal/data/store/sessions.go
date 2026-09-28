@@ -95,6 +95,42 @@ func (s *Store) ListSessions(ctx context.Context, parent core.SessionID, limit i
 	return sessions, nil
 }
 
+// ListRootsByCwd returns root sessions (parent_id = "") whose cwd matches
+// cwd exactly, ordered newest updated_at first (then id descending),
+// limited to limit rows unless limit <= 0. Callers canonicalize cwd (see
+// pathid.Key) before calling.
+func (s *Store) ListRootsByCwd(ctx context.Context, cwd string, limit int) ([]core.Session, error) {
+	query := `
+		SELECT id, parent_id, title, agent, model, cwd, created_at, updated_at
+		FROM sessions WHERE parent_id = '' AND cwd = ?
+		ORDER BY updated_at DESC, id DESC
+	`
+	args := []any{cwd}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: listing sessions for cwd %q: %w", cwd, err)
+	}
+	defer rows.Close()
+
+	var sessions []core.Session
+	for rows.Next() {
+		sess, err := scanSessionRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("store: listing sessions for cwd %q: %w", cwd, err)
+		}
+		sessions = append(sessions, sess)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: listing sessions for cwd %q: %w", cwd, err)
+	}
+	return sessions, nil
+}
+
 // sessionScanner is the subset of *sql.Row and *sql.Rows that scanSessionRow
 // needs, so it can share scanning logic between GetSession's single row and
 // ListSessions' rows.

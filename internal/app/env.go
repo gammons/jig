@@ -11,6 +11,7 @@ import (
 	"github.com/gammons/jig/internal/data/config"
 	"github.com/gammons/jig/internal/data/fsroot"
 	"github.com/gammons/jig/internal/data/paths"
+	"github.com/gammons/jig/internal/pathid"
 	"github.com/gammons/jig/internal/service/agents"
 )
 
@@ -49,11 +50,16 @@ func loadEnv(cwd string, getenv func(string) string) (env, error) {
 	return env{paths: p, workDir: workDir, gitRoot: gitRoot, loaded: loaded, getenv: getenv}, nil
 }
 
-// resolveWorkDir returns cwd as an absolute path, defaulting to the
-// process's working directory, and checks that it is a directory.
+// resolveWorkDir returns cwd as an absolute, canonical path (see
+// pathid.Key), defaulting to the process's working directory, and checks
+// that it is a directory.
 func resolveWorkDir(cwd string) (string, error) {
 	if cwd == "" {
-		return os.Getwd()
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		return pathid.Key(wd), nil
 	}
 	abs, err := filepath.Abs(cwd)
 	if err != nil {
@@ -66,7 +72,7 @@ func resolveWorkDir(cwd string) (string, error) {
 	if !info.IsDir() {
 		return "", fmt.Errorf("--cwd: %s is not a directory", abs)
 	}
-	return abs, nil
+	return pathid.Key(abs), nil
 }
 
 // validateModels checks that default_model and small_model, when set,

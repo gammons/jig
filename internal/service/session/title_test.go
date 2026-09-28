@@ -47,9 +47,9 @@ func TestTitle_TrimsAndCaps(t *testing.T) {
 			f := newFixture(t, defaultCfg())
 			small := llmtest.New(llmtest.Text(tc.reply))
 			f.llms.clients[smallModel] = small
-			sess := f.withPlaceholder("placeholder")
-
 			prompt := strings.Repeat("p", 3000)
+			sess := f.withPlaceholder(PlaceholderTitle(prompt))
+
 			if err := f.svc.GenerateTitle(context.Background(), sess.ID, prompt); err != nil {
 				t.Fatal(err)
 			}

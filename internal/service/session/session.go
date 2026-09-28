@@ -6,23 +6,27 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
 	"github.com/gammons/jig/internal/ids"
+	"github.com/gammons/jig/internal/pathid"
 	"github.com/gammons/jig/internal/service/agent"
 )
 
-// Store persists sessions and messages.
+// Store persists sessions, messages, and todos.
 type Store interface {
 	CreateSession(ctx context.Context, sess core.Session) error
 	UpdateSession(ctx context.Context, sess core.Session) error
 	GetSession(ctx context.Context, id core.SessionID) (core.Session, error)
 	ListSessions(ctx context.Context, parent core.SessionID, limit int) ([]core.Session, error)
+	ListRootsByCwd(ctx context.Context, cwd string, limit int) ([]core.Session, error)
 	SaveMessage(ctx context.Context, m core.Message) error
 	ListMessages(ctx context.Context, id core.SessionID) ([]core.Message, error)
+	ListTodos(ctx context.Context, id core.SessionID) ([]core.Todo, error)
 	// IsNotFound reports whether err means the requested session does
 	// not exist.
 	IsNotFound(err error) bool
@@ -146,9 +150,74 @@ func (s *Service) List(ctx context.Context, limit int) ([]core.Session, error) {
 	return s.d.Store.ListSessions(ctx, "", limit)
 }
 
+// ListForCwd returns root sessions whose Cwd matches pathid.Key(cwd),
+// newest first, at most limit (all if <= 0).
+func (s *Service) ListForCwd(ctx context.Context, cwd string, limit int) ([]core.Session, error) {
+	return s.d.Store.ListRootsByCwd(ctx, pathid.Key(cwd), limit)
+}
+
 // Messages returns every message in id, oldest first.
 func (s *Service) Messages(ctx context.Context, id core.SessionID) ([]core.Message, error) {
 	return s.d.Store.ListMessages(ctx, id)
+}
+
+// Todos returns id's current todo list.
+func (s *Service) Todos(ctx context.Context, id core.SessionID) ([]core.Todo, error) {
+	return s.d.Store.ListTodos(ctx, id)
+}
+
+// Rename sets id's title to title, trimmed and capped at 50 runes. An
+// empty (after trimming) title is an error. It publishes
+// event.SessionUpdated after a successful save.
+func (s *Service) Rename(ctx context.Context, id core.SessionID, title string) error {
+	title = capTitle(strings.TrimSpace(title))
+	if title == "" {
+		return errors.New("session: title must not be empty")
+	}
+	var saved core.Session
+	if err := s.modify(ctx, id, func(sess *core.Session) {
+		sess.Title = title
+		saved = *sess
+	}); err != nil {
+		return err
+	}
+	s.d.Bus.Publish(event.SessionUpdated{Base: event.Base{SessionID: id, RootID: id}, Info: saved})
+	return nil
+}
+
+// Configure sets id's agent and/or model, leaving a field unchanged when
+// the corresponding argument is "". agent must name a known agent; model
+// must parse via core.ParseModelRef. With both "" it is a no-op: no store
+// write, no event. Otherwise it publishes event.SessionUpdated after a
+// successful save.
+func (s *Service) Configure(ctx context.Context, id core.SessionID, agentName, model string) error {
+	if agentName == "" && model == "" {
+		return nil
+	}
+	if agentName != "" {
+		if _, ok := s.d.Agents.Get(agentName); !ok {
+			return fmt.Errorf("session: agent %q not found", agentName)
+		}
+	}
+	if model != "" {
+		if _, err := core.ParseModelRef(model); err != nil {
+			return err
+		}
+	}
+	var saved core.Session
+	if err := s.modify(ctx, id, func(sess *core.Session) {
+		if agentName != "" {
+			sess.Agent = agentName
+		}
+		if model != "" {
+			sess.Model = model
+		}
+		saved = *sess
+	}); err != nil {
+		return err
+	}
+	s.d.Bus.Publish(event.SessionUpdated{Base: event.Base{SessionID: id, RootID: id}, Info: saved})
+	return nil
 }
 
 // parseOrZero parses a stored "provider/model" string, returning the zero

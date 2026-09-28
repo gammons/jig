@@ -24,13 +24,20 @@ type ChatService interface {
 	Close(ctx context.Context) error
 }
 
-// SessionService is the port the UIs call to browse session history.
+// SessionService is the port the UIs call to browse and manage sessions.
 type SessionService interface {
 	// List returns root sessions (no ParentID), newest first.
 	List(ctx context.Context, limit int) ([]Session, error)
+	// ListForCwd returns root sessions whose Cwd matches pathid.Key(cwd),
+	// newest first.
+	ListForCwd(ctx context.Context, cwd string, limit int) ([]Session, error)
 	Get(ctx context.Context, id SessionID) (Session, error)
 	Messages(ctx context.Context, id SessionID) ([]Message, error)
-	Compact(ctx context.Context, id SessionID) error
+	Todos(ctx context.Context, id SessionID) ([]Todo, error)
+	// Rename sets id's title to the trimmed, capped title. "" is an error.
+	Rename(ctx context.Context, id SessionID, title string) error
+	// Configure sets id's agent and/or model. "" leaves a field unchanged.
+	Configure(ctx context.Context, id SessionID, agent, model string) error
 }
 
 // ReplyKind is a user's decision on a pending permission request.

@@ -22,9 +22,10 @@ that knows the concrete types.
 
 The UIs call services only through three ports in `internal/core/ports.go`:
 `core.ChatService` (implemented by `service/chat`), `core.SessionService`
-(implemented by `service/session`), and `core.PermissionService`
-(implemented by `permission.BusAsker`). `chat.Send` failures caused by
-configuration or input are `*chat.ConfigError` (headless exit 2).
+(implemented by `service/session`, covering listing, `Rename`, and
+`Configure`), and `core.PermissionService` (implemented by
+`permission.BusAsker`). `chat.Send` failures caused by configuration or
+input are `*chat.ConfigError` (headless exit 2).
 
 ```
 cmd/jig/main.go                         entry: os.Exit(app.Run(...))
@@ -164,6 +165,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   styling escapes reach the terminal.
 - `core.Media.Data` is never persisted; only `client/llm` fills it, from
   blobs, for a single request.
+- `GenerateTitle` never overwrites a non-placeholder title.
+- Stored `Session.Cwd` is `pathid.Key(workDir)`.
 
 ## Shared code — check here before writing a helper
 

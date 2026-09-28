@@ -154,6 +154,55 @@ func TestSessions_ListOrderAndLimit(t *testing.T) {
 	}
 }
 
+func TestSessions_ListRootsByCwdFiltersAndOrders(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	base := time.UnixMilli(1_700_000_000_000)
+	mk := func(id, parent, cwd string, updated time.Time) core.Session {
+		return core.Session{
+			ID: core.SessionID(id), ParentID: core.SessionID(parent),
+			Title: id, Agent: "build", Model: "claude", Cwd: cwd,
+			CreatedAt: base, UpdatedAt: updated,
+		}
+	}
+	sessions := []core.Session{
+		mk("ses_a", "", "/w", base),
+		mk("ses_b", "", "/w", base.Add(time.Second)),
+		mk("ses_c", "", "/other", base.Add(2*time.Second)),
+		mk("ses_child", "ses_a", "/w", base.Add(3*time.Second)),
+	}
+	for _, sess := range sessions {
+		if err := s.CreateSession(ctx, sess); err != nil {
+			t.Fatalf("CreateSession %s: %v", sess.ID, err)
+		}
+	}
+
+	got, err := s.ListRootsByCwd(ctx, "/w", 0)
+	if err != nil {
+		t.Fatalf("ListRootsByCwd: %v", err)
+	}
+	if len(got) != 2 || got[0].ID != "ses_b" || got[1].ID != "ses_a" {
+		t.Errorf("ListRootsByCwd(/w) = %+v, want [ses_b, ses_a]", got)
+	}
+
+	limited, err := s.ListRootsByCwd(ctx, "/w", 1)
+	if err != nil {
+		t.Fatalf("ListRootsByCwd limited: %v", err)
+	}
+	if len(limited) != 1 || limited[0].ID != "ses_b" {
+		t.Errorf("ListRootsByCwd(/w, 1) = %+v, want [ses_b]", limited)
+	}
+
+	none, err := s.ListRootsByCwd(ctx, "/nowhere", 0)
+	if err != nil {
+		t.Fatalf("ListRootsByCwd none: %v", err)
+	}
+	if len(none) != 0 {
+		t.Errorf("ListRootsByCwd(/nowhere) = %+v, want empty", none)
+	}
+}
+
 func TestSessions_GetMissingIsErrNotFound(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
