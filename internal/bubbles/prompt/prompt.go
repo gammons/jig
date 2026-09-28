@@ -6,6 +6,7 @@ package prompt
 
 import (
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"charm.land/bubbles/v2/key"
@@ -226,8 +227,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleKey dispatches a key press: '@' emits MentionMsg without
-// inserting; enter submits (unless blank); shift+enter/alt+enter insert a
+// atWordStart reports whether the cursor is at the start of the input or
+// right after whitespace (a line start included), where '@' mentions a
+// file; anywhere else (user@example.com, foo@types) it is a literal.
+func atWordStart(ta textarea.Model) bool {
+	line, col := currentLineRunes(ta), ta.Column()
+	return col <= 0 || col > len(line) || unicode.IsSpace(line[col-1])
+}
+
+// handleKey dispatches a key press: '@' at a word start (atWordStart)
+// emits MentionMsg without inserting, elsewhere it types itself; enter submits (unless blank); shift+enter/alt+enter insert a
 // literal newline; ctrl+e opens the editor; ↑/↓ on the first/last line
 // walk history. Everything else is classified (see classify) and either
 // forwarded to the textarea as usual, guarded against splitting a chip
@@ -235,7 +244,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 // (classBack/classForward/classOther, via handleDeleteKey).
 func (m Model) handleKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
 	switch {
-	case k.String() == "@":
+	case k.String() == "@" && atWordStart(m.ta):
 		return m, func() tea.Msg { return MentionMsg{} }
 	case key.Matches(k, m.keys.Submit):
 		return m.submit()

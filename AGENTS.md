@@ -418,7 +418,9 @@ Each has one key handler that runs its fixed R21 keys first, then
 
 - INSERT (`mode_insert.go`, `insertKeys`): the prompt has focus. `enter`
   sends (or queues during a run), `esc` → NORMAL, `tab`/`shift+tab`
-  cycle primary agents, `@` opens the file picker, `ctrl+d` on an empty prompt quits
+  cycle primary agents, `@` opens the file picker (only at the start
+  of the input or right after whitespace; elsewhere, as in
+  `user@example.com`, it types itself), `ctrl+d` on an empty prompt quits
   when idle (during a run or with a queued send it only hints
   `run in progress · ctrl+c to cancel`). `ctrl+c` is a ladder: cancel
   the run (and drop the queue), else clear the prompt, else quit; for

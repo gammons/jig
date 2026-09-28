@@ -282,6 +282,43 @@ func TestPrompt_AtEmitsMention(t *testing.T) {
 	}
 }
 
+func TestPrompt_AtMidWordIsLiteral(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		before, after string
+		mention       bool
+	}{
+		{"user", "example.com", false}, // an email address
+		{"npm i foo", "types", false},  // mid-word after "foo"
+		{"hi ", "", true},              // at a word start
+		{"line one\n", "", true},       // at the start of a line
+		{"", "", true},                 // at the start of the input
+	} {
+		m := New(nil)
+		m.Focus()
+		m = typeText(m, strings.ReplaceAll(tt.before, "\n", ""))
+		if strings.Contains(tt.before, "\n") {
+			m, _ = m.Update(keyMsg("shift+enter"))
+		}
+		m, cmd := m.Update(keyMsg("@"))
+		var got tea.Msg
+		if cmd != nil {
+			got = cmd()
+		}
+		if _, ok := got.(MentionMsg); ok != tt.mention {
+			t.Errorf("@ after %q: mention = %v, want %v", tt.before, ok, tt.mention)
+		}
+		if tt.mention {
+			continue
+		}
+		m = typeText(m, tt.after)
+		if want := tt.before + "@" + tt.after; m.Value() != want {
+			t.Errorf("Value() = %q, want %q (a literal @)", m.Value(), want)
+		}
+	}
+}
+
 // TestPrompt_GoldenPlaceholder renders at width 80 (a realistic terminal
 // width) so the full placeholder — "Message coder…  (ctrl+p actions · @
 // files)" — fits on one line untouched (review item 3).
