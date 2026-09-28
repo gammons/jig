@@ -9,6 +9,7 @@ import (
 	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/bubbles/coderender"
 	"github.com/gammons/jig/internal/bubbles/mdrender"
+	"github.com/gammons/jig/internal/bubbles/picker"
 )
 
 func TestBuild_MarkdownFromPalette(t *testing.T) {
@@ -105,5 +106,36 @@ func TestBuild_BlocklistFromPalette(t *testing.T) {
 	}
 	if !reflect.DeepEqual(set.Blocklist, want) {
 		t.Errorf("Blocklist = %+v, want %+v", set.Blocklist, want)
+	}
+}
+
+func TestBuild_PickerFromPalette(t *testing.T) {
+	t.Parallel()
+
+	p := Complete(Palette{
+		Name: "test",
+		BaseColors: BaseColors{
+			Primary: "#111111", Accent: "#222222", Warning: "#333333", Error: "#444444",
+			Background: "#555555", Surface: "#666666", SurfaceDark: "#777777",
+			Text: "#888888", TextMuted: "#999999", Border: "#aaaaaa",
+		},
+		SelectionColors: SelectionColors{SearchHighlightBg: "#bbbbbb", SearchHighlightFg: "#cccccc"},
+	})
+
+	set := Build(p, 3)
+
+	want := picker.Styles{
+		Title:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
+		Header:   lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		Text:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
+		Detail:   lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		Match:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.SearchHighlightFg)),
+		Selected: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Disabled: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		Current:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
+		Mark:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+	}
+	if !reflect.DeepEqual(set.Picker, want) {
+		t.Errorf("Picker = %+v, want %+v", set.Picker, want)
 	}
 }

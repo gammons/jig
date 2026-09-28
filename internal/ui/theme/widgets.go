@@ -7,6 +7,7 @@ import (
 	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/bubbles/coderender"
 	"github.com/gammons/jig/internal/bubbles/mdrender"
+	"github.com/gammons/jig/internal/bubbles/picker"
 )
 
 // Set holds a Palette mapped into every widget's Styles type. Version
@@ -17,6 +18,7 @@ type Set struct {
 	Markdown  mdrender.Styles
 	Code      coderender.Styles
 	Blocklist blocklist.Styles
+	Picker    picker.Styles
 	// One field per later widget goes here as each widget's Task adds it.
 }
 
@@ -28,6 +30,7 @@ func Build(p Palette, version int) Set {
 		Markdown:  markdownStyles(p),
 		Code:      codeStyles(p),
 		Blocklist: blocklistStyles(p),
+		Picker:    pickerStyles(p),
 	}
 }
 
@@ -46,6 +49,25 @@ func blocklistStyles(p Palette) blocklist.Styles {
 		Thumb:      lipgloss.Color(p.TextMuted),
 		ScrollBg:   lipgloss.Color(p.Background),
 		Gap:        1,
+	}
+}
+
+// pickerStyles maps p onto picker.Styles: the title bar and current-item
+// marker use Primary, matched runes reuse the palette's search-highlight
+// foreground (bolded, to stand out from a row's own color), the cursor
+// glyph and multi-select mark share Accent, and headers/detail text/
+// disabled items all fall back to TextMuted.
+func pickerStyles(p Palette) picker.Styles {
+	return picker.Styles{
+		Title:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
+		Header:   lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		Text:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
+		Detail:   lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		Match:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.SearchHighlightFg)),
+		Selected: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Disabled: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		Current:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
+		Mark:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
 	}
 }
 

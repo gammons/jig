@@ -99,6 +99,7 @@ internal/bubbles/mdrender/              width-aware Markdown rendering via glamo
 internal/bubbles/coderender/            chroma syntax highlighting + go-udiff unified diffs as styled lines
 internal/bubbles/imgrender/             image protocol detection (R24), bounded decode, fitted half-block / kitty-placeholder / sixel rendering
 internal/bubbles/blocklist/             transcript list: block cursor, per-item render cache, yOffset scrolling, bottom pinning, search
+internal/bubbles/picker/                ctrl+p picker: fuzzy drill-down list, groups, recents, multi-mark, text-input level, preview callback
 internal/golden/                        golden-frame test assertion
 internal/app/                           composition root + CLI
 e2e/                                    end-to-end tests against the built binary
@@ -285,6 +286,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Highlight a search query in styled text without touching escapes | `ansi.Highlight(s, query, on, off)` |
 | SGR on/off strings for a fg/bg pair (e.g. a search highlight) | `ansi.SGR(fg, bg) (on, off)` |
 | A scrolling list of variable-height blocks with a cursor, cache, and search | `blocklist.New(render, opts...)` / `SetItems`, `Upsert`, `SetSearch`, `View` in `internal/bubbles/blocklist` |
+| The ctrl+p picker: fuzzy drill-down list, groups, recents, multi-mark, a text-entry level, a preview callback | `picker.New(load, opts...)` / `Open(root)`, `Close`, `SetRecent`, `SetSize`, `Update`, `View` in `internal/bubbles/picker` |
 | Wrap styled text to a width, hard-breaking long words | `ansi.Wrap(s, width)` (also `ansi.Width`/`Truncate`/`Cut`) |
 | Center a modal box over a dimmed background | `overlay.Center(background, width, height, box, dim)` in `internal/bubbles/overlay` |
 | Overlay a proportional scrollbar gutter onto rendered rows | `scrollbar.Overlay(visible, width, total, yOffset, visibleHeight, bg, trackFg, thumbFg)` / `scrollbar.Visible(total, visibleHeight)` in `internal/bubbles/scrollbar` |
