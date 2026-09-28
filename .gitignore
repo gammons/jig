@@ -4,3 +4,4 @@
 testdata/**/*.actual
 .superpowers/
 .worktrees/
+.jig
