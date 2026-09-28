@@ -280,6 +280,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Service ports the UIs call (`ChatService`, `SessionService`, `PermissionService`) | `internal/core` (`ports.go`) |
 | Fake LLM for service tests | `llmtest.New(llmtest.Text(...), ...)` |
 | Scripted model for e2e tests (tag `jigtest`) | `jigtest.Script` + `writeScript`/`jigtestConfig` in `e2e/harness_test.go` |
+| Drive the real TUI binary under a pseudo-terminal and wait for screen text | `pty.StartWithSize` + `newScreen`/`.read`/`.waitFor(ctx, t, from, text)`/`.mark` in `e2e/tui_test.go` |
 | One-shot, tool-less LLM call returning joined text | `agent.Complete(ctx, llm, system, user)` |
 | Session title placeholder (first line, ≤50 runes) | `session.PlaceholderTitle(text)` |
 | Compare two paths for identity (symlinks, macOS `/var` → `/private/var`) | `pathid.Key(p)` (`EvalSymlinks`, falling back to `Abs`) |
@@ -387,6 +388,64 @@ inject prompt sections):
    verdict from an earlier hook short-circuits later ones.
 3. If it needs to remember state across calls, give it its own mutex —
    it may run concurrently with other tool calls in the same run.
+
+## The TUI
+
+`jig` with no subcommand runs the TUI (`internal/app/tui.go`): it needs a
+terminal on stdin and stdout (else exit 2), shows the trust dialog first
+when the project config has effects, then runs one `ui.App` as a
+bubbletea v2 program. The App reaches services only through `ui.Ports`
+(every call in a `tea.Cmd` from `cmds.go`) and learns about runs from
+the bus (`bridge.go`'s `waitEvent`, re-armed after each event).
+
+**Modes.** The App has three input modes, shown as the status bar badge.
+Each has one key handler that runs its fixed R21 keys first, then
+`Keymap.Lookup(mode, key)`, then falls through to its widget:
+
+- INSERT (`mode_insert.go`, `insertKeys`): the prompt has focus. `enter`
+  sends (or queues during a run), `esc` → NORMAL, `tab`/`shift+tab`
+  cycle primary agents, `@` opens the file picker, `ctrl+d` on an empty
+  prompt quits, `ctrl+c` cancels a run.
+- NORMAL (`mode_normal.go`, `normalKeys`): vim-style navigation of the
+  transcript list (`j k gg G ctrl+d ctrl+u`, `n`/`N` search matches),
+  `enter` toggles the details split (`ctrl+e`/`ctrl+y` scroll it),
+  `q`/`esc` close the split or clear the search, `gp` jumps to the next
+  pending permission, and `a A d D` answer the card on the selected
+  block; `i` (or `a` off a card) → INSERT.
+- PICKER (`mode_picker.go`, `pickerCtl`): the ctrl+p picker overlay owns
+  every key until it closes (`esc`) or yields a `picker.ChosenMsg`.
+
+**Actions.** Every command is an `actions.ID` run by `App.runAction`,
+reached through the picker or a key; see "Adding a picker action" below.
+There are no slash commands.
+
+**Adding a widget.**
+
+1. Create `internal/bubbles/<name>/`. It may import only stdlib,
+   `charm.land/...`, the allowed third-party packages, and the
+   `ansi`/`overlay`/`scrollbar`/`wintree` helpers — never another
+   widget, `core`, `service`, `ui`, `clock`, or `ids`. It takes plain
+   strings and values; the App converts from `core` types.
+2. Construct it with `New(requiredDeps..., opts ...Option)`, where
+   `Option` is `func(*Model)`; give it `WithStyles(Styles)` and
+   `SetStyles(Styles)` if it draws anything, and `WithKeyMap(KeyMap)` if
+   it binds keys. `View()` takes no parameters; no package-level vars;
+   no `func(tea.Msg)` fields. It talks back only by returning Cmds that
+   yield its own message types (e.g. `picker.ChosenMsg`).
+3. Map the palette onto its `Styles`: add a field to `theme.Set`, a
+   `<name>Styles(p Palette)` builder in `internal/ui/theme/widgets.go`
+   (with a `TestBuild_<Name>FromPalette`), and a `SetStyles` line in
+   `pushTheme` (`internal/ui/themestate.go`). Nothing reads a global
+   theme.
+4. Own it in `ui`'s `widgets` struct (`internal/ui/widgets.go`), size it
+   in `relayout`, and sanitize every untrusted string before it reaches
+   the widget (`ansi.Sanitize`/`SanitizeLine`).
+5. Test it through `Update` (behavior) and with golden frames at fixed
+   sizes with pinned `Styles` (`golden.Assert(t, name, m.View())`,
+   `t.Parallel()`, files in `testdata/golden/`; regenerate with
+   `JIG_UPDATE_GOLDEN=1`), plus a `SetStyles` test. App-level behavior is
+   tested with `newTestApp`; the whole binary under a pseudo-terminal in
+   `e2e/tui_test.go` (`screen.waitFor` on ansi-stripped output).
 
 ## Adding a picker action
 

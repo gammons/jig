@@ -14,6 +14,7 @@ require (
 	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/charmbracelet/x/term v0.2.2
+	github.com/creack/pty v1.1.24
 	github.com/sahilm/fuzzy v0.1.3
 	golang.org/x/image v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
