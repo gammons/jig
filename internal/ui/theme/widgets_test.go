@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/bubbles/coderender"
 	"github.com/gammons/jig/internal/bubbles/mdrender"
 )
@@ -74,5 +75,35 @@ func TestBuild_CodeFromPalette(t *testing.T) {
 	}
 	if !reflect.DeepEqual(set.Code, want) {
 		t.Errorf("Code = %+v, want %+v", set.Code, want)
+	}
+}
+
+func TestBuild_BlocklistFromPalette(t *testing.T) {
+	t.Parallel()
+
+	p := Complete(Palette{
+		Name: "test",
+		BaseColors: BaseColors{
+			Primary: "#111111", Accent: "#222222", Warning: "#333333", Error: "#444444",
+			Background: "#555555", Surface: "#666666", SurfaceDark: "#777777",
+			Text: "#888888", TextMuted: "#999999", Border: "#aaaaaa",
+		},
+		SelectionColors: SelectionColors{SearchHighlightBg: "#bbbbbb", SearchHighlightFg: "#cccccc"},
+	})
+
+	set := Build(p, 3)
+
+	want := blocklist.Styles{
+		Bar:        lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		SelectedBg: lipgloss.NewStyle().Background(lipgloss.Color(p.SelectionBgFocused)),
+		MatchOn:    "\x1b[38;2;204;204;204;48;2;187;187;187m",
+		MatchOff:   "\x1b[39;49m",
+		Track:      lipgloss.Color(p.Border),
+		Thumb:      lipgloss.Color(p.TextMuted),
+		ScrollBg:   lipgloss.Color(p.Background),
+		Gap:        1,
+	}
+	if !reflect.DeepEqual(set.Blocklist, want) {
+		t.Errorf("Blocklist = %+v, want %+v", set.Blocklist, want)
 	}
 }

@@ -3,6 +3,8 @@ package theme
 import (
 	"charm.land/lipgloss/v2"
 
+	"github.com/gammons/jig/internal/bubbles/ansi"
+	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/bubbles/coderender"
 	"github.com/gammons/jig/internal/bubbles/mdrender"
 )
@@ -11,9 +13,10 @@ import (
 // identifies the shape of Set so callers that cache a Set (or derive
 // further styles from it) can detect a stale copy after an upgrade.
 type Set struct {
-	Version  int
-	Markdown mdrender.Styles
-	Code     coderender.Styles
+	Version   int
+	Markdown  mdrender.Styles
+	Code      coderender.Styles
+	Blocklist blocklist.Styles
 	// One field per later widget goes here as each widget's Task adds it.
 }
 
@@ -21,9 +24,28 @@ type Set struct {
 // index) color string into a color.Color via lipgloss.Color.
 func Build(p Palette, version int) Set {
 	return Set{
-		Version:  version,
-		Markdown: markdownStyles(p),
-		Code:     codeStyles(p),
+		Version:   version,
+		Markdown:  markdownStyles(p),
+		Code:      codeStyles(p),
+		Blocklist: blocklistStyles(p),
+	}
+}
+
+// blocklistStyles maps p onto blocklist.Styles: the selection bar uses
+// Accent over the focused-selection tint, search matches use the palette's
+// search highlight pair, and the scrollbar draws its track in Border and
+// its thumb in TextMuted over the pane Background.
+func blocklistStyles(p Palette) blocklist.Styles {
+	on, off := ansi.SGR(lipgloss.Color(p.SearchHighlightFg), lipgloss.Color(p.SearchHighlightBg))
+	return blocklist.Styles{
+		Bar:        lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		SelectedBg: lipgloss.NewStyle().Background(lipgloss.Color(p.SelectionBgFocused)),
+		MatchOn:    on,
+		MatchOff:   off,
+		Track:      lipgloss.Color(p.Border),
+		Thumb:      lipgloss.Color(p.TextMuted),
+		ScrollBg:   lipgloss.Color(p.Background),
+		Gap:        1,
 	}
 }
 

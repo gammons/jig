@@ -98,6 +98,7 @@ internal/bubbles/wintree/               window split tree, pure geometry (ported
 internal/bubbles/mdrender/              width-aware Markdown rendering via glamour, one TermRenderer cached per width
 internal/bubbles/coderender/            chroma syntax highlighting + go-udiff unified diffs as styled lines
 internal/bubbles/imgrender/             image protocol detection (R24), bounded decode, fitted half-block / kitty-placeholder / sixel rendering
+internal/bubbles/blocklist/             transcript list: block cursor, per-item render cache, yOffset scrolling, bottom pinning, search
 internal/golden/                        golden-frame test assertion
 internal/app/                           composition root + CLI
 e2e/                                    end-to-end tests against the built binary
@@ -282,6 +283,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Make untrusted text (model/tool/file/store) safe to render | `ansi.Sanitize(s)` in `internal/bubbles/ansi` (keeps `\n`, `\t`) |
 | Same, for single-line contexts (titles, paths, list rows) | `ansi.SanitizeLine(s)` (`\n`/`\t` → space) |
 | Highlight a search query in styled text without touching escapes | `ansi.Highlight(s, query, on, off)` |
+| SGR on/off strings for a fg/bg pair (e.g. a search highlight) | `ansi.SGR(fg, bg) (on, off)` |
+| A scrolling list of variable-height blocks with a cursor, cache, and search | `blocklist.New(render, opts...)` / `SetItems`, `Upsert`, `SetSearch`, `View` in `internal/bubbles/blocklist` |
 | Wrap styled text to a width, hard-breaking long words | `ansi.Wrap(s, width)` (also `ansi.Width`/`Truncate`/`Cut`) |
 | Center a modal box over a dimmed background | `overlay.Center(background, width, height, box, dim)` in `internal/bubbles/overlay` |
 | Overlay a proportional scrollbar gutter onto rendered rows | `scrollbar.Overlay(visible, width, total, yOffset, visibleHeight, bg, trackFg, thumbFg)` / `scrollbar.Visible(total, visibleHeight)` in `internal/bubbles/scrollbar` |
@@ -290,6 +293,23 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Syntax-highlight source code / render a styled unified diff | `coderender.Highlight(path, code, st)` / `coderender.Diff(path, before, after, context, st)`, `coderender.DiffText(before, after, context)` in `internal/bubbles/coderender` |
 | Pick the terminal image protocol / decode untrusted image bytes (bomb-guarded) / render an image into a cell box | `imgrender.Detect(env, terminalName)` / `imgrender.Decode(data)` / `imgrender.New(p, WithCellSize(w, h), WithTmux(on)).Render(key, img, maxCols, maxRows)` (send `Result.Upload` / `Place(res, x, y)` via `tea.Raw`) in `internal/bubbles/imgrender` |
 | Map a theme `Palette` into every widget's `Styles` | `theme.Build(p, version) theme.Set` |
+
+## Performance budgets
+
+Binding: if a benchmark misses its budget, fix the algorithm; never raise
+the budget. Run with `go test -run XXX -bench . -benchmem <pkg>`.
+
+| Benchmark (`internal/bubbles/blocklist`, 2,000 items of 1–12 lines, 120×40) | Budget | Measured (AMD Ryzen AI 9 HX 370) |
+|---|---|---|
+| `BenchmarkBlocklist_View2000` — warm cache, `View` after one `j` | < 2 ms/op | 0.18 ms/op |
+| `BenchmarkBlocklist_Update2000` — `Upsert` of the last item (streaming) + `View` | < 3 ms/op | 0.44 ms/op |
+| `BenchmarkBlocklist_Load2000` — `SetItems` + first `View` | < 250 ms/op | 31 ms/op |
+
+The blocklist renders only new, changed, or restyled items (cache key:
+ID, Version, width, stylesVersion); a warm `View` renders nothing and
+touches only the visible rows. After each `View`, the lines of items
+entirely outside `[yOffset−2h, yOffset+3h)` are evicted; heights and
+search-match results stay, so offsets never need a re-render.
 
 ## Adding a tool, transform, or hook
 
