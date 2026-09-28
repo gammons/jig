@@ -15,7 +15,7 @@ func modelsCmd(args []string, std Stdio, getenv func(string) string) int {
 	if err != nil {
 		return exitConfig
 	}
-	e, err := loadEnv("", getenv)
+	e, err := loadEnv("", getenv, staticTrust(false))
 	if err != nil {
 		fmt.Fprintln(std.Err, err)
 		return exitConfig

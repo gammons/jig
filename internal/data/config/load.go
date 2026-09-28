@@ -21,13 +21,20 @@ const configFileName = "config.toml"
 // separate layers rather than merged: Global (the single global file) and
 // Project (every .jig/config.toml root-to-leaf, closer file winning within
 // the layer). Callers combine them with Merge once they are ready to
-// (Task 15 inserts trust filtering in between).
+// (internal/app filters an untrusted Project through trust.Restrict first).
 type Loaded struct {
 	Global  core.Config // the global file only
 	Project core.Config // every .jig/config.toml, root->leaf, closer wins
 
 	GlobalFiles  []string // files actually read for Global (0 or 1 entries)
 	ProjectFiles []string // files actually read for Project, in merge order
+}
+
+// Options controls Load.
+type Options struct {
+	// SubstituteProject expands "{env:}"/"{file:}" tokens in project
+	// files. Set it only once the project is trusted.
+	SubstituteProject bool
 }
 
 // Load discovers jig's TOML config files: p.ConfigDir/config.toml (the
@@ -38,12 +45,18 @@ type Loaded struct {
 // merge rules per key, and Merge for combining the two layers. A missing
 // file is skipped. A TOML syntax error returns an error naming the
 // offending file and line.
-func Load(p paths.Paths, workDir string, getenv func(string) string) (Loaded, error) {
-	global, globalFiles, err := loadLayer(p, []string{globalConfigFile(p)}, getenv)
+//
+// The global file's "{env:}"/"{file:}" tokens are always substituted; the
+// project files' only when o.SubstituteProject is set, so an untrusted
+// project can't pull a secret into its layer. Leaving them literal does
+// not change the files' bytes, so a trust hash over them is the same
+// either way.
+func Load(p paths.Paths, workDir string, getenv func(string) string, o Options) (Loaded, error) {
+	global, globalFiles, err := loadLayer(p, []string{globalConfigFile(p)}, getenv, true)
 	if err != nil {
 		return Loaded{}, err
 	}
-	project, projectFiles, err := loadLayer(p, projectConfigFiles(p, workDir), getenv)
+	project, projectFiles, err := loadLayer(p, projectConfigFiles(p, workDir), getenv, o.SubstituteProject)
 	if err != nil {
 		return Loaded{}, err
 	}
@@ -57,11 +70,12 @@ func Load(p paths.Paths, workDir string, getenv func(string) string) (Loaded, er
 
 // loadLayer folds every file in files (skipping missing ones) into a
 // single core.Config, in order, and reports which files it actually read.
-func loadLayer(p paths.Paths, files []string, getenv func(string) string) (core.Config, []string, error) {
+// subst says whether to substitute "{env:}"/"{file:}" tokens.
+func loadLayer(p paths.Paths, files []string, getenv func(string) string, subst bool) (core.Config, []string, error) {
 	var st state
 	var read []string
 	for _, path := range files {
-		dto, md, ok, err := decodeFile(path, p.Home, getenv)
+		dto, md, ok, err := decodeFile(path, p.Home, getenv, subst)
 		if err != nil {
 			return core.Config{}, nil, err
 		}
@@ -94,9 +108,10 @@ func projectConfigFiles(p paths.Paths, workDir string) []string {
 }
 
 // decodeFile reads path, substitutes "{env:}"/"{file:}" tokens in every
-// string, and decodes the result into a tomlFile. ok is false (with a nil
-// error) if path does not exist.
-func decodeFile(path, home string, getenv func(string) string) (tomlFile, toml.MetaData, bool, error) {
+// string (only if subst; otherwise they stay literal), and decodes
+// the result into a tomlFile. ok is false (with a nil error) if path does
+// not exist.
+func decodeFile(path, home string, getenv func(string) string, subst bool) (tomlFile, toml.MetaData, bool, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -110,10 +125,12 @@ func decodeFile(path, home string, getenv func(string) string) (tomlFile, toml.M
 		return tomlFile{}, toml.MetaData{}, false, fmt.Errorf("config: %s: %w", path, err)
 	}
 
-	dir := filepath.Dir(path)
-	substituted, err := substitute(generic, dir, home, getenv)
-	if err != nil {
-		return tomlFile{}, toml.MetaData{}, false, err
+	var substituted any = generic
+	if subst {
+		substituted, err = substitute(generic, filepath.Dir(path), home, getenv)
+		if err != nil {
+			return tomlFile{}, toml.MetaData{}, false, err
+		}
 	}
 
 	var buf bytes.Buffer

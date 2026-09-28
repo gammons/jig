@@ -16,7 +16,7 @@ func sessionsCmd(ctx context.Context, args []string, std Stdio, getenv func(stri
 		fmt.Fprintln(std.Err, "usage: jig sessions")
 		return exitConfig
 	}
-	e, err := loadEnv("", getenv)
+	e, err := loadEnv("", getenv, staticTrust(false))
 	if err != nil {
 		fmt.Fprintln(std.Err, err)
 		return exitConfig

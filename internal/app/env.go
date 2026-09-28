@@ -7,31 +7,40 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core"
+	"github.com/gammons/jig/internal/data/agentfs"
 	"github.com/gammons/jig/internal/data/config"
 	"github.com/gammons/jig/internal/data/fsroot"
 	"github.com/gammons/jig/internal/data/paths"
+	"github.com/gammons/jig/internal/data/skillfs"
 	"github.com/gammons/jig/internal/pathid"
 	"github.com/gammons/jig/internal/service/agents"
+	"github.com/gammons/jig/internal/service/trust"
 )
 
 // env is everything resolved from the process environment and the
 // config files before any service is built.
 type env struct {
-	paths   paths.Paths
-	workDir string // absolute
-	gitRoot string // "" outside a git repo
-	loaded  config.Loaded
-	merged  core.Config // config.Merge(loaded.Global, loaded.Project), computed once in loadEnv
-	getenv  func(string) string
+	paths      paths.Paths
+	workDir    string // absolute
+	gitRoot    string // "" outside a git repo
+	trust      trustState
+	layers     trust.Layers      // post-decision: the project layers are restricted unless trusted
+	merged     core.Config       // config.Merge(layers.Global, layers.Project), computed once in loadEnv
+	agentWarns []skillfs.Warning // markdown agent discovery warnings, printed by discover
+	getenv     func(string) string
 }
 
 func (e env) cfg() core.Config { return e.merged }
 
 // loadEnv resolves the XDG paths, the absolute work dir (cwd, or the
-// process's working directory if empty), its git root, and the merged
-// config. Every error it returns is a configError.
-func loadEnv(cwd string, getenv func(string) string) (env, error) {
+// process's working directory if empty), its git root, and the config and
+// markdown agent layers. It decides project trust (asking decide when the
+// project config is unknown or changed) before merging, so e.cfg() and
+// e.layers are already the trusted or restricted result. Every error it
+// returns is a configError.
+func loadEnv(cwd string, getenv func(string) string, decide trustDecider) (env, error) {
 	workDir, err := resolveWorkDir(cwd)
 	if err != nil {
 		return env{}, configError{err}
@@ -40,17 +49,49 @@ func loadEnv(cwd string, getenv func(string) string) (env, error) {
 	if err != nil {
 		return env{}, configError{err}
 	}
-	loaded, err := config.Load(p, workDir, getenv)
-	if err != nil {
-		return env{}, configError{err}
-	}
-	// Task 15 inserts trust filtering between Load and Merge here.
-	merged := config.Merge(loaded.Global, loaded.Project)
-	if err := validateModels(merged); err != nil {
-		return env{}, configError{err}
-	}
 	gitRoot, _ := fsroot.GitRoot(workDir)
-	return env{paths: p, workDir: workDir, gitRoot: gitRoot, loaded: loaded, merged: merged, getenv: getenv}, nil
+	e := env{paths: p, workDir: workDir, gitRoot: gitRoot, getenv: getenv}
+	if err := e.resolveLayers(decide, clock.Real()); err != nil {
+		return env{}, configError{err}
+	}
+	e.merged = config.Merge(e.layers.Global, e.layers.Project)
+	if err := validateModels(e.merged); err != nil {
+		return env{}, configError{err}
+	}
+	return e, nil
+}
+
+// resolveLayers loads the config and markdown agent layers, decides
+// trust, and sets e.layers and e.trust. Project config files are loaded
+// without "{env:}"/"{file:}" substitution first and re-loaded with it
+// only once the project is trusted.
+func (e *env) resolveLayers(decide trustDecider, clk clock.Clock) error {
+	loaded, err := config.Load(e.paths, e.workDir, e.getenv, config.Options{})
+	if err != nil {
+		return err
+	}
+	globalDirs, projectDirs := agentfs.Dirs(e.paths, e.gitRoot, e.workDir)
+	globalMD, globalWarns := agentfs.Discover(globalDirs)
+	projectMD, projectWarns := agentfs.Discover(projectDirs)
+	e.agentWarns = append(globalWarns, projectWarns...)
+	l := trust.Layers{Global: loaded.Global, Project: loaded.Project, GlobalMD: globalMD, ProjectMD: projectMD}
+
+	store := trustStore(e.paths.DataDir)
+	st, err := readTrust(store, e.gitRoot, e.workDir, projectFiles(loaded, projectMD), l)
+	if err != nil {
+		return err
+	}
+	if st, err = decideTrust(st, decide, store, clk); err != nil {
+		return err
+	}
+	if st.trusted {
+		if loaded, err = config.Load(e.paths, e.workDir, e.getenv, config.Options{SubstituteProject: true}); err != nil {
+			return err
+		}
+		l.Global, l.Project = loaded.Global, loaded.Project
+	}
+	e.layers, e.trust = applyTrust(l, st)
+	return nil
 }
 
 // resolveWorkDir returns cwd as an absolute, canonical path (see

@@ -22,10 +22,13 @@ func runCmd(ctx context.Context, args []string, std Stdio, getenv func(string) s
 	if err != nil {
 		return exitConfig
 	}
-	e, err := loadEnv(opts.cwd, getenv)
+	e, err := loadEnv(opts.cwd, getenv, staticTrust(opts.trustProject))
 	if err != nil {
 		fmt.Fprintln(std.Err, err)
 		return exitConfig
+	}
+	if e.trust.warn() {
+		fmt.Fprintln(std.Err, untrustedWarning)
 	}
 	warnProviderOptions(std.Err, e.cfg().Providers)
 	rt, err := newRuntime(ctx, e, permission.StaticAsker{Allow: opts.yes}, std.Err)

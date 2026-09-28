@@ -26,7 +26,7 @@ func TestLoad_NoFilesGivesZeroConfig(t *testing.T) {
 	p := paths.Paths{Home: root, ConfigDir: filepath.Join(root, "config")}
 	workDir := filepath.Join(root, "work")
 
-	loaded, err := Load(p, workDir, fakeGetenv(nil))
+	loaded, err := Load(p, workDir, fakeGetenv(nil), Options{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -55,7 +55,7 @@ default_model = "project/model"
 `)
 
 	p := paths.Paths{Home: root, ConfigDir: configDir}
-	loaded, err := Load(p, workDir, fakeGetenv(nil))
+	loaded, err := Load(p, workDir, fakeGetenv(nil), Options{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -91,7 +91,7 @@ max_steps = 12
 `)
 
 	p := paths.Paths{Home: root, ConfigDir: configDir}
-	loaded, err := Load(p, workDir, fakeGetenv(nil))
+	loaded, err := Load(p, workDir, fakeGetenv(nil), Options{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -132,7 +132,7 @@ max_tokens = 2048
 `)
 
 	p := paths.Paths{Home: root, ConfigDir: configDir}
-	loaded, err := Load(p, workDir, fakeGetenv(nil))
+	loaded, err := Load(p, workDir, fakeGetenv(nil), Options{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -180,7 +180,7 @@ hidden = false
 `)
 
 	p := paths.Paths{Home: root, ConfigDir: configDir}
-	loaded, err := Load(p, workDir, fakeGetenv(nil))
+	loaded, err := Load(p, workDir, fakeGetenv(nil), Options{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestLoad_AgentPermissionsMerge(t *testing.T) {
 `)
 
 	p := paths.Paths{Home: root, ConfigDir: configDir}
-	loaded, err := Load(p, workDir, fakeGetenv(nil))
+	loaded, err := Load(p, workDir, fakeGetenv(nil), Options{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -252,7 +252,7 @@ smart = "anthropic/opus"
 `)
 
 	p := paths.Paths{Home: root, ConfigDir: configDir}
-	loaded, err := Load(p, workDir, fakeGetenv(nil))
+	loaded, err := Load(p, workDir, fakeGetenv(nil), Options{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -292,7 +292,7 @@ max_steps = 12
 `)
 
 	p := paths.Paths{Home: root, ConfigDir: filepath.Join(root, "config")}
-	loaded, err := Load(p, sub, fakeGetenv(nil))
+	loaded, err := Load(p, sub, fakeGetenv(nil), Options{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestLoad_PermissionPatternsMerge(t *testing.T) {
 `)
 
 	p := paths.Paths{Home: root, ConfigDir: configDir}
-	loaded, err := Load(p, workDir, fakeGetenv(nil))
+	loaded, err := Load(p, workDir, fakeGetenv(nil), Options{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -369,7 +369,7 @@ instructions = ["/abs/shared.md", "extra.md"]
 `)
 
 	p := paths.Paths{Home: root, ConfigDir: configDir}
-	loaded, err := Load(p, workDir, fakeGetenv(nil))
+	loaded, err := Load(p, workDir, fakeGetenv(nil), Options{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -396,7 +396,7 @@ func TestLoad_NestedProjectDirsCloserWins(t *testing.T) {
 	writeConfigFile(t, filepath.Join(sub, ".jig", "config.toml"), `default_model = "sub/model"`)
 
 	p := paths.Paths{Home: root, ConfigDir: filepath.Join(root, "config")}
-	loaded, err := Load(p, sub, fakeGetenv(nil))
+	loaded, err := Load(p, sub, fakeGetenv(nil), Options{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -428,7 +428,7 @@ description = "reviewer desc"
 `)
 
 	p := paths.Paths{Home: root, ConfigDir: configDir}
-	loaded, err := Load(p, workDir, fakeGetenv(nil))
+	loaded, err := Load(p, workDir, fakeGetenv(nil), Options{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -461,7 +461,7 @@ func TestLoad_LayersSeparated(t *testing.T) {
 	writeConfigFile(t, projectFile, `permissions.bash = "allow"`)
 
 	p := paths.Paths{Home: root, ConfigDir: configDir}
-	loaded, err := Load(p, workDir, fakeGetenv(nil))
+	loaded, err := Load(p, workDir, fakeGetenv(nil), Options{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -491,7 +491,7 @@ image_models = ["custom-vision"]
 `)
 
 	p := paths.Paths{Home: root, ConfigDir: configDir}
-	loaded, err := Load(p, workDir, fakeGetenv(nil))
+	loaded, err := Load(p, workDir, fakeGetenv(nil), Options{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -516,7 +516,7 @@ func TestLoad_SyntaxErrorNamesFile(t *testing.T) {
 	writeConfigFile(t, badFile, "default_model = \n")
 
 	p := paths.Paths{Home: root, ConfigDir: configDir}
-	_, err := Load(p, workDir, fakeGetenv(nil))
+	_, err := Load(p, workDir, fakeGetenv(nil), Options{})
 	if err == nil {
 		t.Fatal("Load: want error for invalid TOML syntax, got nil")
 	}

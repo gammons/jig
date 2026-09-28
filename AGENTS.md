@@ -141,6 +141,12 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   `ask` pattern only where the baseline has no `deny`. A top-level project
   `ask` pattern is also dropped when any global agent denies that tool.
   Trust effects never print secrets (`api_key`/`options` → `(set)`).
+- Trust is decided once in `loadEnv`, before any service is built;
+  `e.cfg()` is already the trusted or restricted merge. Project config
+  files are loaded without `{env:}`/`{file:}` substitution until the
+  project is trusted, and agent sources come from `e.layers` (post-trust),
+  never the raw project layer. The trust hash covers every project config
+  file and every discovered project markdown agent file.
 - Model strings go through `agents.ParseRef`/`Service.ResolveRef`
   (`provider/model` or a `[model_aliases]` name) everywhere: `--model`,
   `default_model`, `small_model`, agent `model` fields, startup

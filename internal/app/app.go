@@ -24,7 +24,7 @@ const (
 const noUIMessage = `the interactive UI is not built yet; use: jig run "prompt"`
 
 const usage = `usage:
-  jig run [--agent A] [--model M] [--yes] [--session ID] [--cwd DIR] <prompt...>
+  jig run [--agent A] [--model M] [--yes] [--trust-project] [--session ID] [--cwd DIR] <prompt...>
   jig models [provider]
   jig sessions
   jig version`

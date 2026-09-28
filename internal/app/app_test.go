@@ -149,7 +149,7 @@ func TestRun_MissingCredentialsExits2(t *testing.T) {
 func TestRun_RelativeCwdResolved(t *testing.T) {
 	env := newTestEnv(t)
 	t.Chdir(filepath.Dir(env.workDir))
-	e, err := loadEnv("work", env.getenv)
+	e, err := loadEnv("work", env.getenv, staticTrust(false))
 	if err != nil {
 		t.Fatalf("loadEnv: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestRun_UnknownModelAliasExits2(t *testing.T) {
 func TestLoadEnv_AcceptsModelAliases(t *testing.T) {
 	env := newTestEnv(t)
 	env.writeConfig(t, "default_model = \"big\"\nsmall_model = \"fast\"\n\n[model_aliases]\nbig = \"anthropic/opus\"\nfast = \"anthropic/haiku\"\n")
-	if _, err := loadEnv(env.workDir, env.getenv); err != nil {
+	if _, err := loadEnv(env.workDir, env.getenv, staticTrust(false)); err != nil {
 		t.Fatalf("loadEnv: %v", err)
 	}
 }
@@ -296,7 +296,7 @@ func TestWarnProviderOptions_SkipsJigtestAndEmpty(t *testing.T) {
 func TestRuntime_PrivateSpillDirRemovedOnClose(t *testing.T) {
 	env := newTestEnv(t)
 	t.Setenv("TMPDIR", t.TempDir())
-	e, err := loadEnv(env.workDir, env.getenv)
+	e, err := loadEnv(env.workDir, env.getenv, staticTrust(false))
 	if err != nil {
 		t.Fatal(err)
 	}

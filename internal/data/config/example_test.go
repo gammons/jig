@@ -23,7 +23,7 @@ func TestLoad_ExampleConfigParses(t *testing.T) {
 	writeConfigFile(t, filepath.Join(configDir, "config.toml"), string(src))
 
 	p := paths.Paths{Home: root, ConfigDir: configDir}
-	loaded, err := Load(p, filepath.Join(root, "work"), fakeGetenv(map[string]string{"ANTHROPIC_API_KEY": "sk-test"}))
+	loaded, err := Load(p, filepath.Join(root, "work"), fakeGetenv(map[string]string{"ANTHROPIC_API_KEY": "sk-test"}), Options{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}

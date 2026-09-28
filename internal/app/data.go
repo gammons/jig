@@ -11,7 +11,6 @@ import (
 	"github.com/gammons/jig/internal/client/catalog"
 	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core"
-	"github.com/gammons/jig/internal/data/agentfs"
 	"github.com/gammons/jig/internal/data/skillfs"
 	"github.com/gammons/jig/internal/data/store"
 	"github.com/gammons/jig/internal/service/agents"
@@ -53,25 +52,20 @@ type discovered struct {
 	sources agents.Sources
 }
 
-// discover finds skills and markdown agents for e, writing any warnings
-// to errw.
+// discover finds skills for e and assembles the agent sources from e's
+// post-trust layers, writing skill and markdown agent warnings to errw.
 func discover(e env, errw io.Writer) discovered {
 	skills, warns := skillfs.Discover(skillfs.Dirs(e.paths, e.gitRoot, e.workDir, e.cfg().SkillPaths))
 	printWarnings(errw, warns)
-
-	globalDirs, projectDirs := agentfs.Dirs(e.paths, e.gitRoot, e.workDir)
-	globalMD, warns := agentfs.Discover(globalDirs)
-	printWarnings(errw, warns)
-	projectMD, warns := agentfs.Discover(projectDirs)
-	printWarnings(errw, warns)
+	printWarnings(errw, e.agentWarns)
 
 	return discovered{
 		skills: skills,
 		sources: agents.Sources{
-			GlobalTOML:  e.loaded.Global.Agents,
-			GlobalMD:    globalMD,
-			ProjectTOML: e.loaded.Project.Agents,
-			ProjectMD:   projectMD,
+			GlobalTOML:  e.layers.Global.Agents,
+			GlobalMD:    e.layers.GlobalMD,
+			ProjectTOML: e.layers.Project.Agents,
+			ProjectMD:   e.layers.ProjectMD,
 		},
 	}
 }
