@@ -96,6 +96,7 @@ internal/bubbles/overlay/               center a box over a dimmed background (p
 internal/bubbles/scrollbar/             1-column proportional scrollbar gutter (ported from slk)
 internal/bubbles/wintree/               window split tree, pure geometry (ported from slk)
 internal/bubbles/mdrender/              width-aware Markdown rendering via glamour, one TermRenderer cached per width
+internal/bubbles/coderender/            chroma syntax highlighting + go-udiff unified diffs as styled lines
 internal/golden/                        golden-frame test assertion
 internal/app/                           composition root + CLI
 e2e/                                    end-to-end tests against the built binary
@@ -283,6 +284,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Overlay a proportional scrollbar gutter onto rendered rows | `scrollbar.Overlay(visible, width, total, yOffset, visibleHeight, bg, trackFg, thumbFg)` / `scrollbar.Visible(total, visibleHeight)` in `internal/bubbles/scrollbar` |
 | Vim-style window split tree (layout, split/close/navigate) | `wintree.New()` / `(*Tree).Split`, `.Close`, `.Only`, `.Cycle`, `.NavigateDir`, `.SetFixed`, `.Layout`, `.ComputeRects` in `internal/bubbles/wintree` |
 | Render Markdown to width-wrapped terminal lines | `mdrender.New(opts...)` / `(*Renderer).Render(md, width)`, `.SetStyles(Styles)` in `internal/bubbles/mdrender` |
+| Syntax-highlight source code / render a styled unified diff | `coderender.Highlight(path, code, st)` / `coderender.Diff(path, before, after, context, st)`, `coderender.DiffText(before, after, context)` in `internal/bubbles/coderender` |
 | Map a theme `Palette` into every widget's `Styles` | `theme.Build(p, version) theme.Set` |
 
 ## Adding a tool, transform, or hook
