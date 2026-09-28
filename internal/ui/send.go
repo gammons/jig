@@ -85,7 +85,7 @@ func lastN(s []string, n int) []string {
 // ctrl+c presses do nothing, so a double tap can't quit.
 const cancelGrace = time.Second
 
-// runHint is the hint INSERT's ctrl+d shows instead of quitting mid-run.
+// runHint is the hint ctrl+d shows instead of quitting mid-run.
 const runHint = "run in progress · ctrl+c to cancel"
 
 // ctrlC is INSERT's ctrl+c ladder: clear a queued send and cancel the run
@@ -130,8 +130,8 @@ func (s sender) inRun() bool {
 	return s.a.sess.queued || s.a.sess.run.busy()
 }
 
-// ctrlD is INSERT's ctrl+d on an empty prompt: quit when idle; during a
-// run, a hint instead.
+// ctrlD is ctrl+d in any mode (in INSERT, on an empty prompt): quit when
+// idle; during a run, a hint instead.
 func (s sender) ctrlD() tea.Cmd {
 	if s.inRun() {
 		s.a.view.hint = runHint

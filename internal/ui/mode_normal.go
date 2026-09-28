@@ -67,7 +67,7 @@ func (h normalKeys) handle(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "q", "esc":
 		return h.closeOrClear()
-	case "j", "k", "G", "ctrl+d", "ctrl+u", "n", "N":
+	case "j", "k", "G", "ctrl+u", "n", "N": // ctrl+d quits (App.onKey)
 		return h.navigate(k)
 	default:
 		if id, ok := a.opts.Keymap.Lookup(normalMode, key); ok {

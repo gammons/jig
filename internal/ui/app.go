@@ -199,7 +199,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View renders the frame: the regions per the layout, and the picker
 // composited over them while it is open.
 func (a *App) View() tea.View {
-	v := tea.View{AltScreen: true}
+	v := tea.View{AltScreen: true, WindowTitle: a.windowTitle()}
 	if a.width <= 0 || a.height <= 0 {
 		return v
 	}
@@ -219,19 +219,6 @@ func (a *App) View() tea.View {
 		v.Content = overlay.Center(v.Content, a.width, a.height, a.w.picker.View(), overlayDim)
 	}
 	return v
-}
-
-// onKey routes a key press to the current mode's handler.
-func (a *App) onKey(k tea.KeyPressMsg) tea.Cmd {
-	switch a.mode {
-	case modeNormal:
-		return normalKeys{a}.handle(k)
-	case modePicker:
-		var cmd tea.Cmd
-		a.w.picker, cmd = a.w.picker.Update(k)
-		return cmd
-	}
-	return insertKeys{a}.handle(k)
 }
 
 // onEvent reconciles one bus event and re-arms the bridge.

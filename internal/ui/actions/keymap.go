@@ -35,11 +35,12 @@ func isMode(mode string) bool {
 }
 
 // isFixed reports whether key is one of mode's R21 fixed keys, which its
-// mode handler runs before any Keymap lookup, so a config binding for it
-// could never fire. Keep in sync with insertKeys/normalKeys in ui.
+// mode handler (or, for ctrl+z and ctrl+d, App.onKey in every mode) runs
+// before any Keymap lookup, so a config binding for it could never fire.
+// Keep in sync with App.onKey and insertKeys/normalKeys in ui.
 func isFixed(mode, key string) bool {
 	switch key {
-	case "enter", "esc", "tab", "shift+tab", "ctrl+c", "ctrl+d":
+	case "enter", "esc", "tab", "shift+tab", "ctrl+c", "ctrl+d", "ctrl+z":
 		return true
 	}
 	if mode == "insert" {

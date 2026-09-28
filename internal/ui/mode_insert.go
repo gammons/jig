@@ -19,17 +19,13 @@ func (h insertKeys) handle(k tea.KeyPressMsg) tea.Cmd {
 	switch key {
 	case "ctrl+c":
 		return a.sender().ctrlC()
-	case "ctrl+d":
-		if a.w.prompt.Value() == "" {
-			return a.sender().ctrlD()
-		}
 	case "esc":
 		return a.setMode(modeNormal)
 	case "tab":
 		return a.cycleAgent(1)
 	case "shift+tab":
 		return a.cycleAgent(-1)
-	case "enter", "shift+enter", "alt+enter", "@", "up", "down":
+	case "enter", "shift+enter", "alt+enter", "@", "up", "down", "ctrl+d": // ctrl+d: App.onKey quits on an empty prompt; else forward-delete
 	default:
 		if id, ok := a.opts.Keymap.Lookup(insertMode, key); ok {
 			return a.runAction(id)

@@ -419,22 +419,24 @@ bubbletea v2 program. The App reaches services only through `ui.Ports`
 the bus (`bridge.go`'s `waitEvent`, re-armed after each event).
 
 **Modes.** The App has three input modes, shown as the status bar badge.
-Each has one key handler that runs its fixed R21 keys first, then
+Before any mode handler, `App.onKey` runs two keys fixed in every mode:
+`ctrl+z` suspends (`tea.Suspend`), and `ctrl+d` quits when idle (during
+a run or with a queued send it only hints `run in progress · ctrl+c to
+cancel`) — in INSERT only on an empty prompt, else it deletes forward.
+Each mode has one key handler that runs its fixed R21 keys first, then
 `Keymap.Lookup(mode, key)`, then falls through to its widget:
 
 - INSERT (`mode_insert.go`, `insertKeys`): the prompt has focus. `enter`
   sends (or queues during a run), `esc` → NORMAL, `tab`/`shift+tab`
   cycle primary agents, `@` opens the file picker (only at the start
   of the input or right after whitespace; elsewhere, as in
-  `user@example.com`, it types itself), `ctrl+d` on an empty prompt quits
-  when idle (during a run or with a queued send it only hints
-  `run in progress · ctrl+c to cancel`). `ctrl+c` is a ladder: cancel
+  `user@example.com`, it types itself). `ctrl+c` is a ladder: cancel
   the run (and drop the queue), else clear the prompt, else quit; for
   1 s after a press that cancelled a run (`cancelGrace`, App clock),
   further presses do nothing.
 - NORMAL (`mode_normal.go`, `normalKeys`): `ctrl+c` only cancels a
   run (never clears or quits), starting the same `cancelGrace`; vim-style navigation of the
-  transcript list (`j k gg G ctrl+d ctrl+u`, `n`/`N` search matches),
+  transcript list (`j k gg G ctrl+u`, `n`/`N` search matches),
   `enter` toggles the details split (`ctrl+e`/`ctrl+y` scroll it),
   `q`/`esc` close the split or clear the search, `gp` jumps to the next
   pending permission, and `a A d D` answer the card on the selected
@@ -443,7 +445,7 @@ Each has one key handler that runs its fixed R21 keys first, then
   request switching the App to NORMAL, or the selection moving onto it: its keys do nothing and its legend shows
   `…` until it arms (`permCtl.guard`).
 - PICKER (`mode_picker.go`, `pickerCtl`): the ctrl+p picker overlay owns
-  every key until it closes (`esc`) or yields a `picker.ChosenMsg`.
+  every key but `ctrl+z`/`ctrl+d` until it closes (`esc`) or yields a `picker.ChosenMsg`.
 
 **Actions.** Every command is an `actions.ID` run by `App.runAction`,
 reached through the picker or a key; see "Adding a picker action" below.

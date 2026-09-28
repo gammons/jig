@@ -346,6 +346,7 @@ type testApp struct {
 	deferred []deferredMsg
 	returns  []sendDoneMsg
 	quit     bool
+	suspends int
 }
 
 // newTestApp builds an App over fakes with a fake clock, runs Init, and
@@ -418,6 +419,8 @@ func (ta *testApp) run(cmd tea.Cmd) {
 		ta.returns = append(ta.returns, msg)
 	case tea.QuitMsg:
 		ta.quit = true
+	case tea.SuspendMsg:
+		ta.suspends++
 	case tea.RawMsg:
 		ta.raws = append(ta.raws, fmt.Sprint(msg.Msg))
 	default:

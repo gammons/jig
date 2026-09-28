@@ -616,6 +616,72 @@ func TestApp_CtrlDQuitsOnlyOnEmptyPrompt(t *testing.T) {
 	}
 }
 
+func TestApp_CtrlDQuitsInNormal(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.key("esc")
+	ta.key("ctrl+d")
+	if !ta.quit {
+		t.Error("ctrl+d in NORMAL did not quit")
+	}
+}
+
+func TestApp_CtrlDQuitsInPicker(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.key("ctrl+p")
+	if ta.app.mode != modePicker {
+		t.Fatal("test setup: ctrl+p did not open the picker")
+	}
+	ta.key("ctrl+d")
+	if !ta.quit {
+		t.Error("ctrl+d in the picker did not quit")
+	}
+}
+
+func TestApp_CtrlDInNormalDuringRunHints(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("go")
+	ta.key("esc")
+	ta.key("ctrl+d")
+	if ta.quit {
+		t.Fatal("ctrl+d in NORMAL quit during a run")
+	}
+	if got := ta.app.statusState().Hint; got != runHint {
+		t.Errorf("hint = %q, want %q", got, runHint)
+	}
+}
+
+func TestApp_CtrlZSuspendsInEveryMode(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.typeText("draft")
+	ta.key("ctrl+z") // INSERT, with text in the prompt
+	ta.key("esc")
+	ta.key("ctrl+z") // NORMAL
+	ta.key("ctrl+p")
+	ta.key("ctrl+z") // PICKER
+	if ta.suspends != 3 {
+		t.Errorf("suspends = %d, want 3 (INSERT, NORMAL, PICKER)", ta.suspends)
+	}
+	if ta.app.w.prompt.Value() != "draft" {
+		t.Errorf("prompt = %q after ctrl+z, want it kept", ta.app.w.prompt.Value())
+	}
+}
+
+func TestApp_WindowTitle(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	if got := ta.app.View().WindowTitle; got != "jig" {
+		t.Errorf("WindowTitle with no session = %q, want %q", got, "jig")
+	}
+	ta.send(resumeMsg{info: core.Session{ID: "ses_1", Agent: "build", Title: "Fix\x1b[31m the bug"}})
+	if got := ta.app.View().WindowTitle; got != "Fix the bug" {
+		t.Errorf("WindowTitle = %q, want the sanitized session title", got)
+	}
+}
+
 func TestApp_StreamingCoalescesTo80ms(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)

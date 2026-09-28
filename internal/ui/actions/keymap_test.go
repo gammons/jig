@@ -90,6 +90,7 @@ func TestResolve_FixedKeysWarnAndSkip(t *testing.T) {
 		"normal.j":      "app.quit",
 		"normal.gp":     "app.quit",
 		"normal.a":      "view.sidebar",
+		"normal.ctrl+z": "app.quit",
 		"insert.ctrl+e": "view.sidebar", // remappable in INSERT
 		"normal.x":      "view.sidebar",
 	}
@@ -98,6 +99,7 @@ func TestResolve_FixedKeysWarnAndSkip(t *testing.T) {
 		`warning: keybinds."insert.ctrl+c": ctrl+c is fixed in insert mode and cannot be remapped`,
 		`warning: keybinds."insert.enter": enter is fixed in insert mode and cannot be remapped`,
 		`warning: keybinds."normal.a": a is fixed in normal mode and cannot be remapped`,
+		`warning: keybinds."normal.ctrl+z": ctrl+z is fixed in normal mode and cannot be remapped`,
 		`warning: keybinds."normal.gp": gp is fixed in normal mode and cannot be remapped`,
 		`warning: keybinds."normal.j": j is fixed in normal mode and cannot be remapped`,
 	}
