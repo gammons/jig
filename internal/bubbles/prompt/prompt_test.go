@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/gammons/jig/internal/golden"
 )
@@ -38,6 +39,10 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl}
 	case "@":
 		return tea.KeyPressMsg{Code: '@', Text: "@"}
+	case "left":
+		return tea.KeyPressMsg{Code: tea.KeyLeft}
+	case "delete":
+		return tea.KeyPressMsg{Code: tea.KeyDelete}
 	}
 	r := []rune(k)[0]
 	return tea.KeyPressMsg{Code: r, Text: k}
@@ -126,7 +131,89 @@ func TestPrompt_GrowsToEightLines(t *testing.T) {
 	for range 7 {
 		m, _ = m.Update(keyMsg("shift+enter"))
 	}
-	check("12 lines requested", 10) // clamped to 8 content lines + 2 border
+	check("12 lines requested", 10) // the visible viewport clamps to 8 content lines + 2 border
+}
+
+// TestPrompt_NeverDropsPastHeightCap covers the review's critical #1: past
+// the visible cap, content must keep growing (and stay fully present in
+// Value/View, scrolled into view), never be dropped or merged.
+func TestPrompt_NeverDropsPastHeightCap(t *testing.T) {
+	t.Parallel()
+
+	m := New(nil)
+	m.Focus()
+	m.SetWidth(40)
+
+	for range 14 {
+		m, _ = m.Update(keyMsg("shift+enter"))
+	}
+	m = typeText(m, "last")
+
+	lines := strings.Split(m.Value(), "\n")
+	if len(lines) != 15 {
+		t.Fatalf("Value() has %d lines, want 15 (no lines dropped or merged): %q", len(lines), m.Value())
+	}
+	for i, l := range lines {
+		if i < 14 && l != "" {
+			t.Errorf("line %d = %q, want empty (only the last line was typed into)", i, l)
+		}
+	}
+	if lines[14] != "last" {
+		t.Errorf("last line = %q, want %q", lines[14], "last")
+	}
+
+	if got := m.ta.Height(); got != maxContentLines {
+		t.Errorf("ta.Height() = %d, want the visible cap %d", got, maxContentLines)
+	}
+	if got, want := m.Height(), maxContentLines+2; got != want {
+		t.Errorf("Height() = %d, want %d (%d content lines + border)", got, want, maxContentLines)
+	}
+	if !strings.Contains(m.View(), "last") {
+		t.Errorf("cursor line not scrolled into view:\n%s", m.View())
+	}
+}
+
+// TestPrompt_PasteAtCapNeverDropped covers the review's critical #1 for a
+// single paste (not incremental typing): content already at the visible
+// cap must not cause a subsequent paste to be silently discarded.
+func TestPrompt_PasteAtCapNeverDropped(t *testing.T) {
+	t.Parallel()
+
+	m := New(nil)
+	m.Focus()
+	m.SetWidth(80)
+	for range 10 {
+		m, _ = m.Update(keyMsg("shift+enter"))
+	}
+
+	paste := strings.Repeat("q", 70)
+	m, _ = m.Update(tea.PasteMsg{Content: paste})
+	if got := m.Value(); !strings.Contains(got, paste) {
+		t.Errorf("paste at the height cap was dropped: Value() = %q", got)
+	}
+}
+
+// TestPrompt_BlurredIgnoresInput covers the review's item 4: Paste and
+// KeyPressMsg must be no-ops while the prompt is blurred.
+func TestPrompt_BlurredIgnoresInput(t *testing.T) {
+	t.Parallel()
+
+	m := New(nil) // starts blurred; Focus is never called
+	m, cmd := m.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	if cmd != nil {
+		t.Errorf("KeyPressMsg while blurred: got a cmd, want none")
+	}
+	if got := m.Value(); got != "" {
+		t.Errorf("KeyPressMsg while blurred: Value() = %q, want empty", got)
+	}
+
+	m, cmd = m.Update(tea.PasteMsg{Content: "pasted text"})
+	if cmd != nil {
+		t.Errorf("PasteMsg while blurred: got a cmd, want none")
+	}
+	if got := m.Value(); got != "" {
+		t.Errorf("PasteMsg while blurred: Value() = %q, want empty", got)
+	}
 }
 
 func TestPrompt_EditorRoundTrip(t *testing.T) {
@@ -164,13 +251,20 @@ func TestPrompt_AtEmitsMention(t *testing.T) {
 	}
 }
 
+// TestPrompt_GoldenPlaceholder renders at width 80 (a realistic terminal
+// width) so the full placeholder — "Message coder…  (ctrl+p actions · @
+// files)" — fits on one line untouched (review item 3).
 func TestPrompt_GoldenPlaceholder(t *testing.T) {
 	t.Parallel()
 
 	m := New(nil, WithStyles(pinnedStyles()))
 	m.SetAgent("coder")
-	m.SetWidth(40)
-	golden.Assert(t, "prompt_placeholder", m.View())
+	m.SetWidth(80)
+	view := m.View()
+	if !strings.Contains(xansi.Strip(view), "Message coder…  (ctrl+p actions · @ files)") {
+		t.Errorf("View() does not contain the full placeholder at width 80:\n%s", view)
+	}
+	golden.Assert(t, "prompt_placeholder", view)
 }
 
 func TestPrompt_GoldenQueued(t *testing.T) {
@@ -178,7 +272,7 @@ func TestPrompt_GoldenQueued(t *testing.T) {
 
 	m := New(nil, WithStyles(pinnedStyles()))
 	m.SetAgent("coder")
-	m.SetWidth(40)
+	m.SetWidth(80)
 	m.SetQueued(true)
 	golden.Assert(t, "prompt_queued", m.View())
 }
@@ -191,4 +285,29 @@ func TestPrompt_GoldenChip(t *testing.T) {
 	m.Focus()
 	m, _ = m.Update(tea.PasteMsg{Content: strings.Repeat("z", 600)})
 	golden.Assert(t, "prompt_chip", m.View())
+}
+
+// TestPrompt_PlaceholderTruncatesNarrow covers review item 3's other half:
+// a width too narrow for the full placeholder truncates gracefully to one
+// line ending in "…", rather than bubbles/textarea's own multi-line
+// wrapping silently cutting it off with no ellipsis.
+func TestPrompt_PlaceholderTruncatesNarrow(t *testing.T) {
+	t.Parallel()
+
+	m := New(nil, WithStyles(pinnedStyles()))
+	m.SetAgent("coder")
+	m.SetWidth(20)
+	view := m.View()
+
+	lines := strings.Split(view, "\n")
+	if len(lines) != 3 { // top border + 1 content line + bottom border
+		t.Fatalf("View() has %d lines, want 3 (placeholder must stay on one line):\n%s", len(lines), view)
+	}
+	if !strings.Contains(xansi.Strip(lines[1]), "…") {
+		t.Errorf("content line does not end in an ellipsis: %q", lines[1])
+	}
+	if strings.Contains(xansi.Strip(view), "files)") {
+		t.Errorf("full placeholder text leaked through at a too-narrow width:\n%s", view)
+	}
+	golden.Assert(t, "prompt_placeholder_narrow", view)
 }
