@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -52,12 +53,12 @@ func header(parts ...string) string {
 // port error never panics: it becomes a readable, sanitized line in the
 // content instead (or, for edit, falls back to the bare diff already
 // shown).
-func buildDetails(b transcript.Block, width, height int, r *renderer, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
+func buildDetails(ctx context.Context, b transcript.Block, width, height int, r *renderer, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
 	switch b.Kind {
 	case transcript.KindTool:
-		return buildToolDetails(b, width, height, r, p, img)
+		return buildToolDetails(ctx, b, width, height, r, p, img)
 	case transcript.KindSubagent:
-		return buildSubagentDetails(b, p)
+		return buildSubagentDetails(ctx, b, p)
 	case transcript.KindText, transcript.KindReasoning, transcript.KindUser:
 		return buildTextDetails(b, r, width), nil
 	default:
@@ -66,19 +67,19 @@ func buildDetails(b transcript.Block, width, height int, r *renderer, p Ports, i
 }
 
 // buildToolDetails dispatches a Tool block by its call name (spec §5.4).
-func buildToolDetails(b transcript.Block, width, height int, r *renderer, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
+func buildToolDetails(ctx context.Context, b transcript.Block, width, height int, r *renderer, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
 	if b.Call == nil {
 		return details.Content{}, nil
 	}
 	switch b.Call.Name {
 	case "edit":
-		return buildEditDetails(b, r, p)
+		return buildEditDetails(ctx, b, r, p)
 	case "write":
 		return buildWriteDetails(b, r), nil
 	case "read":
-		return buildReadDetails(b, width, height, r, p, img)
+		return buildReadDetails(ctx, b, width, height, r, p, img)
 	case "bash":
-		return buildBashDetails(b, width, height, p, img)
+		return buildBashDetails(ctx, b, width, height, p, img)
 	case "glob":
 		return buildSearchDetails("glob", b), nil
 	case "grep":
@@ -98,7 +99,7 @@ type editInput struct {
 // buildEditDetails shows a bare old_string→new_string diff immediately,
 // then a Cmd rebuilds it with 3 lines of surrounding file context (R23)
 // once Project.ReadFile resolves. An unreadable file keeps the bare diff.
-func buildEditDetails(b transcript.Block, r *renderer, p Ports) (details.Content, tea.Cmd) {
+func buildEditDetails(ctx context.Context, b transcript.Block, r *renderer, p Ports) (details.Content, tea.Cmd) {
 	var in editInput
 	_ = json.Unmarshal(b.Call.Input, &in)
 	base := filepath.Base(in.Path)
@@ -108,7 +109,7 @@ func buildEditDetails(b transcript.Block, r *renderer, p Ports) (details.Content
 	content := details.Content{Header: editHeader(base, hunks), Lines: lines}
 
 	blockID, path := b.ID, in.Path
-	cmd := readFileCmd(p, path, func(data []byte, err error) tea.Msg {
+	cmd := readFileCmd(ctx, p, path, func(data []byte, err error) tea.Msg {
 		if err != nil {
 			return detailsMsg{Block: blockID, Content: content}
 		}
@@ -146,7 +147,7 @@ func buildWriteDetails(b transcript.Block, r *renderer) details.Content {
 
 // buildReadDetails shows a text read's numbered, highlighted lines, or,
 // for an image read, defers to buildImageDetails.
-func buildReadDetails(b transcript.Block, width, height int, r *renderer, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
+func buildReadDetails(ctx context.Context, b transcript.Block, width, height int, r *renderer, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
 	var in struct {
 		Path string `json:"path"`
 	}
@@ -157,7 +158,7 @@ func buildReadDetails(b transcript.Block, width, height int, r *renderer, p Port
 		return details.Content{Header: header("read", base)}, nil
 	}
 	if !b.Result.IsError && len(b.Result.Media) > 0 {
-		return buildImageDetails(b.ID, "read", base, b.Result.Media[0].Ref, width, height, p, img)
+		return buildImageDetails(ctx, b.ID, "read", base, b.Result.Media[0].Ref, width, height, p, img)
 	}
 	if b.Result.IsError {
 		return details.Content{Header: header("read", base), Lines: sanitizedLines(b.Result.Output)}, nil
@@ -201,7 +202,7 @@ const spillPrefix = "[output truncated; full output: "
 // output, and "exit N", naming the spill file when the output was
 // truncated to it. An agent-browser screenshot result shows the image
 // instead, like a read.
-func buildBashDetails(b transcript.Block, width, height int, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
+func buildBashDetails(ctx context.Context, b transcript.Block, width, height int, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
 	var in struct {
 		Command string `json:"command"`
 	}
@@ -210,7 +211,7 @@ func buildBashDetails(b transcript.Block, width, height int, p Ports, img *imgre
 	hdr := header("bash", truncateRunes(cmd, bashCmdRunes))
 
 	if b.Result != nil && len(b.Result.Media) > 0 {
-		return buildImageDetails(b.ID, "bash", "screenshot", b.Result.Media[0].Ref, width, height, p, img)
+		return buildImageDetails(ctx, b.ID, "bash", "screenshot", b.Result.Media[0].Ref, width, height, p, img)
 	}
 
 	lines := []string{"$ " + cmd, ""}
@@ -281,11 +282,11 @@ func buildSearchDetails(name string, b transcript.Block) details.Content {
 // width×(height-2), keyed by ref so re-renders of the same image reuse its
 // protocol state (e.g. a kitty image id). A port or decode error becomes a
 // sanitized line instead of an image.
-func buildImageDetails(block transcript.BlockID, kind, subject, ref string, width, height int, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
+func buildImageDetails(ctx context.Context, block transcript.BlockID, kind, subject, ref string, width, height int, p Ports, img *imgrender.Renderer) (details.Content, tea.Cmd) {
 	hdr := header(kind, subject, "image")
 	content := details.Content{Header: hdr}
 
-	cmd := openBlobCmd(p, ref, func(data []byte, _ string, err error) tea.Msg {
+	cmd := openBlobCmd(ctx, p, ref, func(data []byte, _ string, err error) tea.Msg {
 		if err != nil {
 			return detailsMsg{Block: block, Content: errorContent(hdr, "could not open image", err)}
 		}
@@ -302,7 +303,7 @@ func buildImageDetails(block transcript.BlockID, kind, subject, ref string, widt
 // buildSubagentDetails shows the running task's agent and description
 // immediately, then a Cmd loads the child session's messages and renders
 // its tool one-liners (toolLine) followed by its final text.
-func buildSubagentDetails(b transcript.Block, p Ports) (details.Content, tea.Cmd) {
+func buildSubagentDetails(ctx context.Context, b transcript.Block, p Ports) (details.Content, tea.Cmd) {
 	sub := b.Sub
 	if sub == nil {
 		return details.Content{}, nil
@@ -314,7 +315,7 @@ func buildSubagentDetails(b transcript.Block, p Ports) (details.Content, tea.Cmd
 	}
 
 	block, child := b.ID, sub.Child
-	cmd := sessionMessagesCmd(p, child, func(msgs []core.Message, err error) tea.Msg {
+	cmd := sessionMessagesCmd(ctx, p, child, func(msgs []core.Message, err error) tea.Msg {
 		if err != nil {
 			return detailsMsg{Block: block, Content: errorContent(hdr, "could not load subagent", err)}
 		}

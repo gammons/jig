@@ -87,6 +87,7 @@ internal/service/task/                  task tool (subagents)
 internal/service/session/               sessions, history, compaction, titles
 internal/service/chat/                  ChatService facade the UIs call
 internal/service/media/                 image decode/scale/re-encode into blobs
+internal/ui/                            (Plan 2) the TUI App: bus bridge, wintree layout, modes, send/queue/cancel, streaming reconciliation
 internal/ui/plain/                      headless renderer (io.Writer)
 internal/ui/transcript/                 (Plan 2) transcript projection, core-only
 internal/ui/theme/                      theme palettes + Complete/Custom (ported from slk); Set/Build maps a Palette into every widget's Styles
@@ -232,6 +233,15 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   styling escapes reach the terminal. This includes `ui/plain`'s output
   (streamed text via `Sanitize`, stderr lines via `SanitizeLine`) and
   `internal/app`'s warnings, errors, and listings (via `printLine`).
+- `ui.App` is the only owner of widget state; widgets communicate by
+  returning Cmds that yield their own message types; the App reconciles.
+  Every port call the App makes runs inside a `tea.Cmd` (`internal/ui/cmds.go`)
+  under the App's base context, which is cancelled when it quits.
+- The App calls `transcript.Projection.Load` only while no run is in
+  flight (a mid-step `Load` drops unsaved blocks); a send shows its user
+  block through `AddUser` instead.
+- Keys fixed by R21 are handled by the mode handlers before
+  `Keymap.Lookup`, so a `[keybinds]` entry can never override them.
 - Only `imgrender` produces kitty placeholder cells and raw image payloads;
   `ui` sends payloads with `tea.Raw`, never inside `View`.
 - `core.Media.Data` is never persisted; only `client/llm` fills it, from
@@ -282,6 +292,9 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Resolve a model string (ref or alias) | `agents.ParseRef(s, cfg.ModelAliases)` / `(*agents.Service).ResolveRef(s)` |
 | Session events/messages → display blocks | `transcript.New(root)`, `Load`, `Apply` |
 | Golden-frame assertion | `golden.Assert(t, name, got)`; update with `JIG_UPDATE_GOLDEN=1` |
+| Drive a `ui.App` in tests: fake ports, fake clock, Cmds run synchronously, ticks collected (not slept) | `newTestApp(t, opts...)` / `.send`, `.key`, `.typeText`, `.event`, `.fire` in `internal/ui/apptest_test.go` |
+| Clip/pad a styled string to exactly w×h cells | `fit(s, w, h)` in `internal/ui/layout.go` |
+| Changed-file paths resolved against the workdir and de-duplicated | `normalizeChanges(workDir, projection.ChangedFiles())` in `internal/ui/sidebar.go` |
 | Make untrusted text (model/tool/file/store) safe to render | `ansi.Sanitize(s)` in `internal/bubbles/ansi` (keeps `\n`, `\t`) |
 | Same, for single-line contexts (titles, paths, list rows) | `ansi.SanitizeLine(s)` (`\n`/`\t` → space) |
 | Highlight a search query in styled text without touching escapes | `ansi.Highlight(s, query, on, off)` |
@@ -309,6 +322,16 @@ the budget. Run with `go test -run XXX -bench . -benchmem <pkg>`.
 | `BenchmarkBlocklist_View2000` — warm cache, `View` after one `j` | < 2 ms/op | 0.18 ms/op |
 | `BenchmarkBlocklist_Update2000` — `Upsert` of the last item (streaming) + `View` | < 3 ms/op | 0.44 ms/op |
 | `BenchmarkBlocklist_Load2000` — `SetItems` + first `View` | < 250 ms/op | 31 ms/op |
+
+| Benchmark (`internal/ui`, a resumed 2,000-block session through the real `mdrender`, 150×40) | Budget | Measured (AMD Ryzen AI 9 HX 370) |
+|---|---|---|
+| `BenchmarkApp_Resize2000` — a burst of 3 width changes, the debounce, then `View` (every block re-rendered once at the new width) | < 1.5 s/op | 1.0 s/op |
+
+The App applies a width change to the transcript list 50 ms after the
+last one of a burst (`resizeDebounce`, keyed by a generation counter),
+so a drag-resize re-renders every block once, not once per step; a
+height change applies at once (it re-renders nothing). Streaming deltas
+only mark blocks dirty; one `streamTick` every 80 ms upserts them all.
 
 The blocklist renders only new, changed, or restyled items (cache key:
 ID, Version, width, stylesVersion); a warm `View` renders nothing and

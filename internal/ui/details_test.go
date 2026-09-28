@@ -119,7 +119,7 @@ func TestDetails_EditWithContext(t *testing.T) {
 		"a.go": []byte("line one\nbar\nline three\n"),
 	}}}
 
-	_, cmd := buildDetails(b, 80, 24, r, p, nil)
+	_, cmd := buildDetails(context.Background(), b, 80, 24, r, p, nil)
 	if cmd == nil {
 		t.Fatal("buildDetails: cmd = nil, want a Cmd to read the file for context")
 	}
@@ -141,7 +141,7 @@ func TestDetails_EditFileUnreadableFallsBack(t *testing.T) {
 	b := editBlock("a.go", "foo", "bar")
 	p := Ports{Project: fakeProject{err: errors.New("permission denied")}}
 
-	content, cmd := buildDetails(b, 80, 24, r, p, nil)
+	content, cmd := buildDetails(context.Background(), b, 80, 24, r, p, nil)
 	if cmd == nil {
 		t.Fatal("buildDetails: cmd = nil, want a Cmd")
 	}
@@ -180,7 +180,7 @@ func TestDetails_ReadImageCmd(t *testing.T) {
 	p := Ports{Blobs: fakeBlobs{data: map[string][]byte{"sha-1": buf.Bytes()}}}
 	img := imgrender.New(imgrender.Blocks)
 
-	_, cmd := buildDetails(b, 80, 24, r, p, img)
+	_, cmd := buildDetails(context.Background(), b, 80, 24, r, p, img)
 	if cmd == nil {
 		t.Fatal("buildDetails: cmd = nil, want a Cmd to open and render the image")
 	}
@@ -209,7 +209,7 @@ func TestDetails_BashSpillPath(t *testing.T) {
 			Output: "[output truncated; full output: /tmp/spill.log]\nhi\n[exit code 0]",
 		},
 	}
-	content, cmd := buildDetails(b, 80, 24, r, Ports{}, nil)
+	content, cmd := buildDetails(context.Background(), b, 80, 24, r, Ports{}, nil)
 	if cmd != nil {
 		t.Fatal("buildDetails: cmd != nil, want a synchronous bash result (no port call)")
 	}
@@ -246,7 +246,7 @@ func TestDetails_SubagentSummary(t *testing.T) {
 	}
 	p := Ports{Sessions: fakeSessions{msgs: map[core.SessionID][]core.Message{child: msgs}}}
 
-	_, cmd := buildDetails(b, 80, 24, testRenderer(), p, nil)
+	_, cmd := buildDetails(context.Background(), b, 80, 24, testRenderer(), p, nil)
 	if cmd == nil {
 		t.Fatal("buildDetails: cmd = nil, want a Cmd to load the child's messages")
 	}
@@ -270,7 +270,7 @@ func TestDetails_SanitizesFileContent(t *testing.T) {
 	hostile := "line one\n\x1b]52;c;aGk=\x07bar\nline three\n"
 	p := Ports{Project: fakeProject{files: map[string][]byte{"a.go": []byte(hostile)}}}
 
-	_, cmd := buildDetails(b, 80, 24, r, p, nil)
+	_, cmd := buildDetails(context.Background(), b, 80, 24, r, p, nil)
 	msg, ok := cmd().(detailsMsg)
 	if !ok {
 		t.Fatalf("cmd() = %T, want detailsMsg", cmd())
@@ -301,7 +301,7 @@ func TestDetails_HeaderSanitizesHostilePath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			content, _ := buildDetails(tt.block, 80, 24, r, Ports{}, nil)
+			content, _ := buildDetails(context.Background(), tt.block, 80, 24, r, Ports{}, nil)
 			if strings.ContainsRune(content.Header, '\x1b') {
 				t.Errorf("Header = %q, want no ESC byte", content.Header)
 			}
@@ -333,7 +333,7 @@ func TestDetails_EditBareDiffWhenNewStringNotUnique(t *testing.T) {
 			b := editBlock("a.go", "foo", "bar")
 			p := Ports{Project: fakeProject{files: map[string][]byte{"a.go": []byte(tt.file)}}}
 
-			content, cmd := buildDetails(b, 80, 24, r, p, nil)
+			content, cmd := buildDetails(context.Background(), b, 80, 24, r, p, nil)
 			msg, ok := cmd().(detailsMsg)
 			if !ok {
 				t.Fatalf("cmd() = %T, want detailsMsg", cmd())
@@ -363,7 +363,7 @@ func TestDetails_BashExitLineNotDuplicated(t *testing.T) {
 			Output: "boom\n[exit code 2]",
 		},
 	}
-	content, cmd := buildDetails(b, 80, 24, testRenderer(), Ports{}, nil)
+	content, cmd := buildDetails(context.Background(), b, 80, 24, testRenderer(), Ports{}, nil)
 	if cmd != nil {
 		t.Fatal("buildDetails: cmd != nil, want a synchronous bash result (no port call)")
 	}
