@@ -101,10 +101,16 @@ func (s *Store) load() (map[string]Grant, error) {
 
 // Hash returns a sha256 hex digest over files, sorted by path, so the
 // result doesn't depend on the caller's order. Each file contributes
-// path + "\n" + strconv.Itoa(len(content)) + "\n" + content: the length
-// prefix keeps the encoding unambiguous, so no two different file sets can
-// produce the same byte stream. Hash(nil) is "", not the hash of an empty
-// stream, so "no files" is distinguishable from "one empty file".
+// strconv.Itoa(len(path)) + "\n" + path + strconv.Itoa(len(content)) +
+// "\n" + content. Both the path and the content are length-prefixed:
+// project filenames are attacker-controlled (a repo can contain a
+// filename with an embedded newline and digits), so prefixing only the
+// content's length would let a crafted path forge the boundary between
+// one file's record and the next, making two different file sets hash
+// equal. Length-prefixing the path too fixes exactly how many bytes are
+// path before the content-length digits appear, closing that gap.
+// Hash(nil) is "", not the hash of an empty stream, so "no files" is
+// distinguishable from "one empty file".
 func Hash(files []string) (string, error) {
 	if len(files) == 0 {
 		return "", nil
@@ -119,7 +125,7 @@ func Hash(files []string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("trustfs: reading %s: %w", path, err)
 		}
-		fmt.Fprintf(h, "%s\n%s\n", path, strconv.Itoa(len(content)))
+		fmt.Fprintf(h, "%s\n%s%s\n", strconv.Itoa(len(path)), path, strconv.Itoa(len(content)))
 		h.Write(content)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil

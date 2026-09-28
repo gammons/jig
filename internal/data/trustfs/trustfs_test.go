@@ -68,6 +68,88 @@ func TestHash_OrderIndependentAndContentSensitive(t *testing.T) {
 	}
 }
 
+// TestHash_PathNewlineCannotForgeBoundary constructs two different file
+// sets whose old-format streams (path + "\n" + len(content) + "\n" +
+// content, with no length prefix on the path) would coincide byte-for-byte:
+//
+//	Set A: file p1 (path ".../z", content "")     old-encode: p1 + "\n0\n"
+//	       file p2 (path ".../zz", content "x")   old-encode: p2 + "\n1\nx"
+//	       concatenated: p1 + "\n0\n" + p2 + "\n1\nx"
+//
+//	Set B: one file, path = p1 + "\n0\n" + p2, content "x"
+//	       old-encode: (p1+"\n0\n"+p2) + "\n1\nx"
+//
+// Both streams are the literal byte string p1+"\n0\n"+p2+"\n1\nx": set B's
+// crafted path swallows set A's first file's own "\n0\n" boundary and its
+// second file's path, forging the exact bytes set A would have produced.
+// With the path length-prefixed, the two sets must hash differently.
+func TestHash_PathNewlineCannotForgeBoundary(t *testing.T) {
+	dir := t.TempDir()
+	p1 := filepath.Join(dir, "z")
+	p2 := filepath.Join(dir, "zz")
+
+	if err := os.WriteFile(p1, nil, 0o600); err != nil {
+		t.Fatalf("WriteFile p1: %v", err)
+	}
+	if err := os.WriteFile(p2, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile p2: %v", err)
+	}
+
+	setHash, err := Hash([]string{p2, p1})
+	if err != nil {
+		t.Fatalf("Hash(set A): %v", err)
+	}
+
+	pathB := p1 + "\n0\n" + p2
+	if err := os.MkdirAll(filepath.Dir(pathB), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(pathB, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile pathB: %v", err)
+	}
+
+	singleHash, err := Hash([]string{pathB})
+	if err != nil {
+		t.Fatalf("Hash(set B): %v", err)
+	}
+
+	if setHash == singleHash {
+		t.Errorf("Hash collided across different file sets via a forged path boundary: both = %q", setHash)
+	}
+}
+
+// TestHash_DuplicatePath checks that a repeated path is deterministic (not,
+// say, deduplicated non-deterministically by map iteration) and that
+// listing a file twice contributes it twice, producing a different hash
+// than listing it once.
+func TestHash_DuplicatePath(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "f.txt")
+	if err := os.WriteFile(p, []byte("content"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	single, err := Hash([]string{p})
+	if err != nil {
+		t.Fatalf("Hash([p]): %v", err)
+	}
+	dup1, err := Hash([]string{p, p})
+	if err != nil {
+		t.Fatalf("Hash([p,p]) (1st): %v", err)
+	}
+	dup2, err := Hash([]string{p, p})
+	if err != nil {
+		t.Fatalf("Hash([p,p]) (2nd): %v", err)
+	}
+
+	if dup1 != dup2 {
+		t.Errorf("Hash([p,p]) is not deterministic: %q vs %q", dup1, dup2)
+	}
+	if dup1 == single {
+		t.Errorf("Hash([p,p]) = %q, want it to differ from Hash([p]) = %q", dup1, single)
+	}
+}
+
 func TestStore_PutGet(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "trust.json")
