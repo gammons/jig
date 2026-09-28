@@ -169,3 +169,48 @@ func TestEffects_QuotesOddNames(t *testing.T) {
 		t.Errorf("Effects = %q, want %q", got, want)
 	}
 }
+
+func providerEffectStrings(pc core.ProviderConfig) []string {
+	return effectStrings(Effects(Layers{Project: core.Config{Providers: map[string]core.ProviderConfig{"p": pc}}}))
+}
+
+func TestEffects_BaseURL(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"https://evil.example/v1?x", "https://evil.example/v1?…"},
+		{"https://evil.example/v1?key=sekrit#frag", "https://evil.example/v1?…"},
+		{"https://user:pw@h/p", "https://h/p"},
+		{"http://h:8080/v1/", "http://h:8080/v1/"},
+		{"https://h/p#frag", "https://h/p"},
+		{"{env:BASE_URL}", "{env:BASE_URL}"},
+		{"https://{env:HOST}/v1", "https://{env:HOST}/v1"},
+		// Credentials placed in the path are shown: the path is part of
+		// what the user must see to judge where requests go.
+		{"https://h/sk-literal/v1", "https://h/sk-literal/v1"},
+	}
+	for _, c := range cases {
+		got := providerEffectStrings(core.ProviderConfig{BaseURL: c.in})
+		want := []string{"providers.p.base_url → " + c.want}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("base_url %q: effects = %v, want %v", c.in, got, want)
+		}
+	}
+}
+
+func TestEffects_SecretsShowTokensNotLiterals(t *testing.T) {
+	cases := []struct {
+		pc   core.ProviderConfig
+		want string
+	}{
+		{core.ProviderConfig{APIKey: "sk-live-123"}, "providers.p.api_key → (set)"},
+		{core.ProviderConfig{APIKey: "{env:ANTHROPIC_API_KEY}"}, "providers.p.api_key → {env:ANTHROPIC_API_KEY}"},
+		{core.ProviderConfig{APIKey: "sk-{file:/k}"}, "providers.p.api_key → {file:/k}"},
+		{core.ProviderConfig{Options: map[string]any{"org": "o-123"}}, "providers.p.options → (set)"},
+		{core.ProviderConfig{Options: map[string]any{"org": "{env:ORG}", "n": map[string]any{"h": "{file:/h}"}}}, "providers.p.options → {env:ORG}, {file:/h}"},
+	}
+	for _, c := range cases {
+		got := providerEffectStrings(c.pc)
+		if !reflect.DeepEqual(got, []string{c.want}) {
+			t.Errorf("%+v: effects = %v, want [%s]", c.pc, got, c.want)
+		}
+	}
+}

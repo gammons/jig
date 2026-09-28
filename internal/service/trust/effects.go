@@ -2,6 +2,8 @@ package trust
 
 import (
 	"net/url"
+	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,7 +14,8 @@ import (
 // Effect is one thing a project layer changes: a config Key, its Value
 // (empty for keys named without a value, such as an agent's prompt), and
 // the declaring file in Source ("" for config.toml keys). Values never
-// carry secrets: API keys and provider options are "(set)".
+// carry secrets: API keys and provider options are "(set)" (or their raw
+// "{env:…}"/"{file:…}" tokens), and a base_url loses userinfo and query.
 type Effect struct{ Key, Value, Source string }
 
 // String renders e for display, e.g. "permissions.bash → allow",
@@ -99,13 +102,15 @@ func configEffects(out []Effect, p core.Config) []Effect {
 	return permEffects(out, "permissions.", p.Permissions, "")
 }
 
-// providerEffects describes a provider's fields without printing secrets:
-// api_key and options are "(set)", and a base_url carrying userinfo or a
-// query (or not parsing at all) is "(set)" too.
+// providerEffects describes a provider's fields without printing secrets.
+// Effects are computed from unsubstituted project text, so a
+// "{env:…}"/"{file:…}" token is a name, not a secret, and is shown raw:
+// api_key and options print their tokens, or "(set)" for a literal. A
+// base_url prints as scheme://host[:port]/path (see safeURL).
 func providerEffects(out []Effect, prefix string, pc core.ProviderConfig) []Effect {
 	out = scalar(out, prefix+"type", pc.Type)
 	if pc.APIKey != "" {
-		out = append(out, Effect{Key: prefix + "api_key", Value: "(set)"})
+		out = append(out, Effect{Key: prefix + "api_key", Value: secretValue(tokensIn(nil, pc.APIKey))})
 	}
 	if pc.BaseURL != "" {
 		out = append(out, Effect{Key: prefix + "base_url", Value: safeURL(pc.BaseURL)})
@@ -114,7 +119,7 @@ func providerEffects(out []Effect, prefix string, pc core.ProviderConfig) []Effe
 		out = append(out, Effect{Key: prefix + "models", Value: list(pc.Models)})
 	}
 	if pc.Options != nil {
-		out = append(out, Effect{Key: prefix + "options", Value: "(set)"})
+		out = append(out, Effect{Key: prefix + "options", Value: secretValue(optionTokens(nil, pc.Options))})
 	}
 	if pc.ImageModels != nil {
 		out = append(out, Effect{Key: prefix + "image_models", Value: list(pc.ImageModels)})
@@ -122,12 +127,69 @@ func providerEffects(out []Effect, prefix string, pc core.ProviderConfig) []Effe
 	return out
 }
 
-func safeURL(s string) string {
-	u, err := url.Parse(s)
-	if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+// tokenRE matches "{env:VAR}" and "{file:path}" substitution tokens (the
+// same syntax internal/data/config substitutes).
+const tokenRE = `\{(env|file):[^}]*\}`
+
+// tokensIn appends every substitution token in s to dst.
+func tokensIn(dst []string, s string) []string {
+	return append(dst, regexp.MustCompile(tokenRE).FindAllString(s, -1)...)
+}
+
+// optionTokens appends the tokens in every string reachable from v (maps
+// and slices are walked) to dst.
+func optionTokens(dst []string, v any) []string {
+	switch v := v.(type) {
+	case string:
+		return tokensIn(dst, v)
+	case map[string]any:
+		for _, e := range v {
+			dst = optionTokens(dst, e)
+		}
+	case []any:
+		for _, e := range v {
+			dst = optionTokens(dst, e)
+		}
+	}
+	return dst
+}
+
+// secretValue renders a secret-bearing value by its tokens (sorted,
+// de-duplicated), or "(set)" when it holds none: literal text is never
+// printed, since it may be the secret itself.
+func secretValue(tokens []string) string {
+	if len(tokens) == 0 {
 		return "(set)"
 	}
-	return s
+	sort.Strings(tokens)
+	return strings.Join(slices.Compact(tokens), ", ")
+}
+
+// safeURL renders s as scheme://host[:port]/path, dropping userinfo and
+// the fragment, and replacing any query with "?…"; tokens anywhere in the
+// kept parts are shown raw. Credentials placed in the path are shown: the
+// path is part of where requests go. A value that does not parse as
+// scheme://host (e.g. a bare "{env:BASE_URL}") prints like a secret: its
+// tokens, or "(set)".
+func safeURL(s string) string {
+	re := regexp.MustCompile(tokenRE)
+	tokens := re.FindAllString(s, -1)
+	ph := func(i int) string { return "jigtoken" + strconv.Itoa(i) + "x" }
+	i := 0
+	masked := re.ReplaceAllStringFunc(s, func(string) string { i++; return ph(i - 1) })
+
+	u, err := url.Parse(masked)
+	if err != nil || u.Opaque != "" || u.Scheme == "" || u.Host == "" {
+		return secretValue(tokens)
+	}
+	out := u.Scheme + "://" + u.Host + u.EscapedPath()
+	if u.RawQuery != "" || u.ForceQuery {
+		out += "?…"
+	}
+	for i, tok := range tokens {
+		out = strings.ReplaceAll(out, ph(i), tok)
+	}
+	return out
 }
 
 // agentEffects describes every agent in m. Only markdown agents

@@ -143,7 +143,10 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   merge; `permission.Tighten` never keeps an `allow` pattern, and keeps an
   `ask` pattern only where the baseline has no `deny`. A top-level project
   `ask` pattern is also dropped when any global agent denies that tool.
-  Trust effects never print secrets (`api_key`/`options` → `(set)`).
+  Trust effects never print secrets: a literal `api_key`/`options` →
+  `(set)`, a `{env:}`/`{file:}` token prints raw (it is a name, not a
+  secret), and `base_url` prints as `scheme://host[:port]/path` with
+  userinfo dropped and any query shown as `?…`.
 - Trust is decided once in `loadEnv`, before any service is built;
   `e.cfg()` is already the trusted or restricted merge. Project config
   files are loaded without `{env:}`/`{file:}` substitution until the
