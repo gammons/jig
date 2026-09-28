@@ -15,6 +15,7 @@ import (
 func pinnedStyles() Styles {
 	return Styles{
 		Border:      lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")),
+		FocusBorder: lipgloss.NewStyle().Foreground(lipgloss.Color("#5fafff")),
 		Title:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ffaf00")),
 		Text:        lipgloss.NewStyle().Foreground(lipgloss.Color("#e0e0e0")),
 		Placeholder: lipgloss.NewStyle().Foreground(lipgloss.Color("#606060")),
@@ -221,6 +222,48 @@ func TestPrompt_PasteAtCapNeverDropped(t *testing.T) {
 	m, _ = m.Update(tea.PasteMsg{Content: paste})
 	if got := m.Value(); !strings.Contains(got, paste) {
 		t.Errorf("paste at the height cap was dropped: Value() = %q", got)
+	}
+}
+
+func TestPrompt_PadsContentInsideBorder(t *testing.T) {
+	t.Parallel()
+
+	m := New(nil)
+	m.SetWidth(20)
+	m.Focus()
+	m = typeText(m, "hi")
+	rows := strings.Split(xansi.Strip(m.View()), "\n")
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows, want 3: %q", len(rows), rows)
+	}
+	for i, r := range rows {
+		if w := xansi.StringWidth(r); w != 20 {
+			t.Errorf("row %d width = %d, want 20: %q", i, w, r)
+		}
+	}
+	if !strings.HasPrefix(rows[1], "│ hi") || !strings.HasSuffix(rows[1], " │") {
+		t.Errorf("content row = %q, want one space of padding inside each side", rows[1])
+	}
+}
+
+func TestPrompt_FocusedUsesFocusBorder(t *testing.T) {
+	t.Parallel()
+
+	st := pinnedStyles()
+	m := New(nil, WithStyles(st))
+	m.SetWidth(20)
+	corner := func(s lipgloss.Style) string { return s.Render("╭") }
+
+	if got := m.View(); !strings.HasPrefix(got, corner(st.Border)) {
+		t.Errorf("blurred View() = %q, want it to start with Border %q", got, corner(st.Border))
+	}
+	m.Focus()
+	if got := m.View(); !strings.HasPrefix(got, corner(st.FocusBorder)) {
+		t.Errorf("focused View() = %q, want it to start with FocusBorder %q", got, corner(st.FocusBorder))
+	}
+	m.Blur()
+	if got := m.View(); !strings.HasPrefix(got, corner(st.Border)) {
+		t.Errorf("re-blurred View() = %q, want it to start with Border %q", got, corner(st.Border))
 	}
 }
 

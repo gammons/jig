@@ -24,6 +24,10 @@ const (
 	maxContentLines = 8
 )
 
+// padX is the number of blank columns between each side border and the
+// text, so the input doesn't sit flush against the border.
+const padX = 1
+
 // EditFunc opens $EDITOR (or similar) over text. It must yield an
 // EditedMsg via its returned Cmd; the widget never does I/O itself.
 type EditFunc func(text string) tea.Cmd
@@ -48,6 +52,7 @@ type MentionMsg struct{}
 // Styles holds the prompt's look.
 type Styles struct {
 	Border      lipgloss.Style // border line color
+	FocusBorder lipgloss.Style // border line color while focused (INSERT mode)
 	Title       lipgloss.Style // border title text (e.g. "⏳ queued")
 	Text        lipgloss.Style // typed/pasted text
 	Placeholder lipgloss.Style // placeholder text
@@ -57,6 +62,7 @@ type Styles struct {
 func DefaultStyles() Styles {
 	return Styles{
 		Border:      lipgloss.NewStyle(),
+		FocusBorder: lipgloss.NewStyle(),
 		Title:       lipgloss.NewStyle().Bold(true),
 		Text:        lipgloss.NewStyle(),
 		Placeholder: lipgloss.NewStyle().Faint(true),
@@ -130,10 +136,11 @@ func (m *Model) SetStyles(st Styles) {
 	m.ta.SetStyles(taStyles(st))
 }
 
-// SetWidth sets the outer width, including the border.
+// SetWidth sets the outer width, including the border and the padX
+// columns of padding inside each side.
 func (m *Model) SetWidth(w int) {
 	m.width = w
-	m.ta.SetWidth(w - 2)
+	m.ta.SetWidth(w - 2 - 2*padX)
 	m.syncPlaceholder()
 }
 
@@ -354,25 +361,30 @@ func (m Model) handleEdited(msg EditedMsg) (Model, tea.Cmd) {
 }
 
 // View renders the bordered box: the top border carries the "⏳ queued"
-// title when queued.
+// title when queued, and the border uses FocusBorder while focused.
 func (m Model) View() string {
 	w := m.width
 	if w <= 0 {
-		w = m.ta.Width() + 2
+		w = m.ta.Width() + 2 + 2*padX
 	}
 	b := lipgloss.RoundedBorder()
 	title := ""
 	if m.queued {
 		title = "⏳ queued"
 	}
+	bs := m.styles.Border
+	if m.ta.Focused() {
+		bs = m.styles.FocusBorder
+	}
 
 	lines := strings.Split(m.ta.View(), "\n")
 	rows := make([]string, 0, len(lines)+2)
-	rows = append(rows, borderRow(w, b.TopLeft, b.Top, b.TopRight, title, m.styles.Border, m.styles.Title))
+	rows = append(rows, borderRow(w, b.TopLeft, b.Top, b.TopRight, title, bs, m.styles.Title))
+	pad := strings.Repeat(" ", padX)
 	for _, l := range lines {
-		rows = append(rows, m.styles.Border.Render(b.Left)+l+m.styles.Border.Render(b.Right))
+		rows = append(rows, bs.Render(b.Left)+pad+l+pad+bs.Render(b.Right))
 	}
-	rows = append(rows, borderRow(w, b.BottomLeft, b.Bottom, b.BottomRight, "", m.styles.Border, m.styles.Title))
+	rows = append(rows, borderRow(w, b.BottomLeft, b.Bottom, b.BottomRight, "", bs, m.styles.Title))
 	return strings.Join(rows, "\n")
 }
 

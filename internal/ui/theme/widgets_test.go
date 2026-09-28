@@ -195,6 +195,7 @@ func TestBuild_PromptFromPalette(t *testing.T) {
 
 	want := prompt.Styles{
 		Border:      lipgloss.NewStyle().Foreground(lipgloss.Color(p.Border)),
+		FocusBorder: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
 		Title:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Warning)),
 		Text:        lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
 		Placeholder: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),

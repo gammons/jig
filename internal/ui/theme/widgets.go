@@ -128,13 +128,15 @@ func cardStyles(p Palette) permcard.Styles {
 }
 
 // promptStyles maps p onto prompt.Styles: the border uses the palette's
-// border color, the border title (used for "⏳ queued") uses Warning to
+// border color, switching to Primary while focused (INSERT mode) so the
+// active input stands out, the border title (used for "⏳ queued") uses Warning to
 // stand out as a state indicator (the same role Warning plays for code in
 // markdownStyles), and text/placeholder mirror the message pane's text
 // and its muted, faint variant.
 func promptStyles(p Palette) prompt.Styles {
 	return prompt.Styles{
 		Border:      lipgloss.NewStyle().Foreground(lipgloss.Color(p.Border)),
+		FocusBorder: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
 		Title:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Warning)),
 		Text:        lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
 		Placeholder: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
