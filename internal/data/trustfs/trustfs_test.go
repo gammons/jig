@@ -1,6 +1,7 @@
 package trustfs
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,6 +151,16 @@ func TestHash_DuplicatePath(t *testing.T) {
 	}
 }
 
+// granted is Get that fails the test on error.
+func granted(t *testing.T, s *Store, project, hash string) bool {
+	t.Helper()
+	ok, err := s.Get(project, hash)
+	if err != nil {
+		t.Fatalf("Get(%s, %s): %v", project, hash, err)
+	}
+	return ok
+}
+
 func TestStore_PutGet(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "trust.json")
@@ -165,34 +176,11 @@ func TestStore_PutGet(t *testing.T) {
 		t.Fatalf("Put proj two: %v", err)
 	}
 
-	got1, ok, err := s.Get("/proj/one")
-	if err != nil {
-		t.Fatalf("Get proj one: %v", err)
+	if !granted(t, s, "/proj/one", "hash-1") || !granted(t, s, "/proj/two", "hash-2") {
+		t.Error("a granted hash is not reported as granted")
 	}
-	if !ok {
-		t.Fatal("Get proj one: ok = false, want true")
-	}
-	if got1 != g1 {
-		t.Errorf("Get proj one = %+v, want %+v", got1, g1)
-	}
-
-	got2, ok, err := s.Get("/proj/two")
-	if err != nil {
-		t.Fatalf("Get proj two: %v", err)
-	}
-	if !ok {
-		t.Fatal("Get proj two: ok = false, want true")
-	}
-	if got2 != g2 {
-		t.Errorf("Get proj two = %+v, want %+v", got2, g2)
-	}
-
-	_, ok, err = s.Get("/proj/missing")
-	if err != nil {
-		t.Fatalf("Get proj missing: %v", err)
-	}
-	if ok {
-		t.Error("Get proj missing: ok = true, want false")
+	if granted(t, s, "/proj/one", "hash-2") || granted(t, s, "/proj/missing", "hash-1") {
+		t.Error("an ungranted project/hash is reported as granted")
 	}
 
 	info, err := os.Stat(path)
@@ -204,20 +192,67 @@ func TestStore_PutGet(t *testing.T) {
 	}
 }
 
-func TestStore_MissingFileIsNotFound(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "trust.json")
-	s := New(path)
+// TestStore_KeepsSeveralHashesPerProject pins that monorepo subdirs with
+// different project configs (different hashes under one git root) don't
+// revoke each other's grants.
+func TestStore_KeepsSeveralHashesPerProject(t *testing.T) {
+	s := New(filepath.Join(t.TempDir(), "trust.json"))
+	for _, h := range []string{"pkg-a", "pkg-b"} {
+		if err := s.Put("/repo", Grant{Hash: h}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !granted(t, s, "/repo", "pkg-a") || !granted(t, s, "/repo", "pkg-b") {
+		t.Error("granting pkg-b revoked pkg-a, want both trusted")
+	}
+}
 
-	g, ok, err := s.Get("/proj/one")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
+func TestStore_EvictsOldestPastLimit(t *testing.T) {
+	s := New(filepath.Join(t.TempDir(), "trust.json"))
+	for i := 0; i <= maxHashes; i++ {
+		if err := s.Put("/repo", Grant{Hash: fmt.Sprint("h", i)}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if ok {
+	// Re-granting h1 moves it to the front, so h2 is now the oldest.
+	if err := s.Put("/repo", Grant{Hash: "h1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Put("/repo", Grant{Hash: "new"}); err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range map[int]bool{0: false, 1: true, 2: false, 3: true, maxHashes: true} {
+		if got := granted(t, s, "/repo", fmt.Sprint("h", i)); got != want {
+			t.Errorf("h%d granted = %v, want %v", i, got, want)
+		}
+	}
+	if !granted(t, s, "/repo", "new") {
+		t.Error("newest hash not granted")
+	}
+}
+
+func TestStore_ReadsOldSingleGrantFormat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trust.json")
+	old := `{"/repo":{"hash":"old-hash","grantedAt":"2026-01-02T03:04:05Z"}}`
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := New(path)
+	if !granted(t, s, "/repo", "old-hash") {
+		t.Fatal("old-format grant not recognized")
+	}
+	if err := s.Put("/repo", Grant{Hash: "new-hash"}); err != nil {
+		t.Fatal(err)
+	}
+	if !granted(t, s, "/repo", "old-hash") || !granted(t, s, "/repo", "new-hash") {
+		t.Error("after Put, want both the migrated and the new hash granted")
+	}
+}
+
+func TestStore_MissingFileIsNotFound(t *testing.T) {
+	s := New(filepath.Join(t.TempDir(), "trust.json"))
+	if granted(t, s, "/proj/one", "h") {
 		t.Error("Get: ok = true, want false")
-	}
-	if g != (Grant{}) {
-		t.Errorf("Get: g = %+v, want zero value", g)
 	}
 }
 
@@ -229,7 +264,7 @@ func TestStore_CorruptFileIsError(t *testing.T) {
 	}
 	s := New(path)
 
-	_, _, err := s.Get("/proj/one")
+	_, err := s.Get("/proj/one", "h")
 	if err == nil {
 		t.Fatal("Get: want error for corrupt JSON, got nil")
 	}

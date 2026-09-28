@@ -20,7 +20,7 @@ const untrustedWarning = "warning: project config not trusted; loosening setting
 type trustState struct {
 	project string         // pathid.Key(gitRoot or workDir)
 	hash    string         // trustfs.Hash(project config files + project agent files); "" = no project config
-	trusted bool           // a grant for hash is stored (or was just given)
+	trusted bool           // hash is among the project's stored grants (or was just granted)
 	effects []trust.Effect // everything the project layer would change
 	dropped []trust.Effect // what Restrict removed (empty when trusted)
 }
@@ -95,11 +95,9 @@ func readTrust(store *trustfs.Store, project string, loaded config.Loaded, l tru
 	if hash == "" {
 		return st, nil
 	}
-	g, ok, err := store.Get(project)
-	if err != nil {
+	if st.trusted, err = store.Get(project, hash); err != nil {
 		return trustState{}, err
 	}
-	st.trusted = ok && g.Hash == hash
 	return st, nil
 }
 

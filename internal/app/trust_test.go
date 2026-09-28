@@ -259,3 +259,34 @@ func TestLoadEnv_ChangeBeforeTrustedReloadRestricts(t *testing.T) {
 		t.Errorf("next load: calls %d, trusted %v; want the new config to need a decision", d.calls, e.trust.trusted)
 	}
 }
+
+// TestLoadEnv_MonorepoSubdirsKeepSeparateGrants pins F7: two subdirs of
+// one git root with different project configs are both trusted after one
+// grant each, instead of each grant revoking the other's.
+func TestLoadEnv_MonorepoSubdirsKeepSeparateGrants(t *testing.T) {
+	env := newTestEnv(t)
+	root := env.workDir
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env.writeProject(t, "a/.jig/config.toml", "[permissions]\nwrite = \"allow\"\n")
+	env.writeProject(t, "b/.jig/config.toml", "[permissions]\nedit = \"allow\"\n")
+
+	grant := &countingDecider{grant: true}
+	for _, sub := range []string{"a", "b"} {
+		env.workDir = filepath.Join(root, sub)
+		if e := mustLoadEnv(t, env, grant.decide); !e.trust.trusted {
+			t.Fatalf("%s: not trusted after grant", sub)
+		}
+	}
+	d := &countingDecider{grant: false}
+	for _, sub := range []string{"a", "b"} {
+		env.workDir = filepath.Join(root, sub)
+		if e := mustLoadEnv(t, env, d.decide); !e.trust.trusted {
+			t.Errorf("%s: untrusted on reload, want its grant kept", sub)
+		}
+	}
+	if d.calls != 0 {
+		t.Errorf("decider called %d times on reload, want 0", d.calls)
+	}
+}

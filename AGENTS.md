@@ -161,7 +161,10 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   project layer. The trust hash (`trustfs.HashOptional`) covers every
   project config file, agent file, and in-tree `{file:}` include (a
   missing include hashes as absent). After the trusted re-load the hash
-  is recomputed; a mismatch makes the run untrusted.
+  is recomputed; a mismatch makes the run untrusted. Grants are keyed by
+  git root (or workdir) and hold a set of accepted hashes (most recent
+  first, at most 16), so monorepo subdirs with different configs keep
+  their own grants; `trustfs.Store.Get(project, hash)` checks membership.
 - Model strings go through `agents.ParseRef`/`Service.ResolveRef`
   (`provider/model` or a `[model_aliases]` name) everywhere: `--model`,
   `default_model`, `small_model`, agent `model` fields, startup
