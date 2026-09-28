@@ -220,6 +220,9 @@ func TestApp_RunFailureBeforeEventIsNotUndone(t *testing.T) {
 	if ta.app.sess.run.running {
 		t.Error("still running after the run's RunFailed")
 	}
+	if h := ta.app.statusState().Hint; !strings.Contains(h, "provider exploded") {
+		t.Errorf("hint = %q, want the run error", h)
+	}
 }
 
 func TestApp_AdoptsRootFromSendResult(t *testing.T) {
@@ -311,6 +314,9 @@ func TestApp_FailedSendLeavesNoGhost(t *testing.T) {
 	}
 	if v := ta.app.w.prompt.Value(); v != "hello" {
 		t.Errorf("prompt = %q, want the text back to retry", v)
+	}
+	if h := ta.app.statusState().Hint; !strings.Contains(h, "unknown model") {
+		t.Errorf("hint = %q, want the send error", h)
 	}
 	ta.key("enter")
 	ta.event(event.SessionCreated{Base: rootBase(), Info: core.Session{ID: "ses_1"}})

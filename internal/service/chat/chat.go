@@ -121,7 +121,9 @@ func (s *Service) Send(ctx context.Context, req core.SendRequest) (core.SendResu
 		return core.SendResult{}, err
 	}
 	if err := s.commit(ctx, &p, req.Text); err != nil {
-		return core.SendResult{SessionID: p.sess.ID}, err
+		// Nothing was stored and no run started, so the caller must not
+		// treat this as a session it can retry a run in or wait on.
+		return core.SendResult{}, err
 	}
 	s.markAttachmentsRead(p)
 

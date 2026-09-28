@@ -138,6 +138,13 @@ func (s sender) done(msg sendDoneMsg) tea.Cmd {
 	run := a.sess.run
 	settled, dirty := a.sess.endSend(ran)
 	a.flush(dirty)
+	if ran && msg.err != nil && !errors.Is(msg.err, context.Canceled) {
+		// The run started (its user message is stored) but failed; the
+		// projection's own RunFailed notice covers the transcript, but the
+		// status hint would otherwise stay empty since this path never
+		// reaches undo below.
+		a.view.hint = "send: " + ansi.SanitizeLine(msg.err.Error())
+	}
 	if !ran && msg.err != nil {
 		s.undo(run.userID, run.text, msg.err)
 		return nil

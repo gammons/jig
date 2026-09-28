@@ -382,6 +382,26 @@ func TestSend_RunErrorReturnsSessionAndBumpsUpdatedAt(t *testing.T) {
 	}
 }
 
+func TestSend_CommitFailureReturnsEmptySendResult(t *testing.T) {
+	f := newFixture(t, llmtest.New(llmtest.Text("hi")), llmtest.New())
+	first, err := f.svc.Send(context.Background(), core.SendRequest{Text: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), closeTimeout)
+	defer cancel()
+	if err := f.svc.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	res, err := f.svc.Send(context.Background(), core.SendRequest{SessionID: first.SessionID, Text: "two"})
+	if !errors.Is(err, ErrClosed) {
+		t.Fatalf("err = %v, want ErrClosed", err)
+	}
+	if res.SessionID != "" {
+		t.Errorf("SessionID = %q, want empty (nothing was stored or run)", res.SessionID)
+	}
+}
+
 func TestClose_IdempotentAndRejectsSend(t *testing.T) {
 	f := newFixture(t, llmtest.New(), llmtest.New())
 	f.close()
