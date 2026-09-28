@@ -75,13 +75,45 @@ func TestDetails_SetContentResetsScroll(t *testing.T) {
 func TestDetails_BodyOrigin(t *testing.T) {
 	t.Parallel()
 	m := New()
-	if x, y := m.BodyOrigin(); x != 0 || y != 0 {
-		t.Fatalf("BodyOrigin before SetSize = (%d,%d), want (0,0)", x, y)
+	if x, y, ok := m.BodyOrigin(); ok || x != 0 || y != 0 {
+		t.Fatalf("BodyOrigin before SetSize = (%d,%d,%v), want (0,0,false)", x, y, ok)
 	}
 
 	m.SetSize(30, 8)
-	if x, y := m.BodyOrigin(); x != 0 || y != 2 {
-		t.Fatalf("BodyOrigin = (%d,%d), want (0,2) (header row + border row)", x, y)
+	if x, y, ok := m.BodyOrigin(); !ok || x != 0 || y != 2 {
+		t.Fatalf("BodyOrigin = (%d,%d,%v), want (0,2,true) (header row + border row)", x, y, ok)
+	}
+}
+
+// TestDetails_BodyOriginNoBodyRow covers panes too short to have a body
+// row: h=1 (header only) and h=2 (header + border, no body), where a
+// caller must not place a sixel at BodyOrigin's (x, y). h=3 is the
+// smallest pane with one body row, where BodyOrigin must report ok.
+func TestDetails_BodyOriginNoBodyRow(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		h    int
+		want bool
+	}{
+		{h: 1, want: false},
+		{h: 2, want: false},
+		{h: 3, want: true},
+	}
+	for _, tt := range tests {
+		m := New()
+		m.SetSize(20, tt.h)
+		if _, _, ok := m.BodyOrigin(); ok != tt.want {
+			t.Errorf("h=%d: BodyOrigin ok = %v, want %v", tt.h, ok, tt.want)
+		}
+	}
+}
+
+func TestDetails_BodyOriginZeroWidth(t *testing.T) {
+	t.Parallel()
+	m := New()
+	m.SetSize(0, 8)
+	if x, y, ok := m.BodyOrigin(); ok || x != 0 || y != 0 {
+		t.Fatalf("BodyOrigin at w=0 = (%d,%d,%v), want (0,0,false)", x, y, ok)
 	}
 }
 
@@ -99,6 +131,24 @@ func TestDetails_ViewExactSize(t *testing.T) {
 	for i, r := range rows {
 		if w := lipgloss.Width(r); w != 20 {
 			t.Fatalf("row %d width = %d, want 20 (%q)", i, w, r)
+		}
+	}
+}
+
+func TestDetails_ViewZeroWidth(t *testing.T) {
+	t.Parallel()
+	m := New()
+	m.SetSize(0, 4)
+	m.SetContent(Content{Header: "h", Lines: lines(2)})
+
+	got := m.View()
+	rows := splitLines(got)
+	if len(rows) != 4 {
+		t.Fatalf("View at w=0 produced %d rows, want 4 (exactly w×h)", len(rows))
+	}
+	for i, r := range rows {
+		if r != "" {
+			t.Fatalf("row %d = %q, want \"\" (zero cells wide)", i, r)
 		}
 	}
 }

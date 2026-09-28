@@ -87,21 +87,27 @@ func (m Model) maxScroll() int {
 }
 
 // BodyOrigin is the cell offset of the first body line inside the pane
-// (the App uses it to place a sixel image over the body).
-func (m Model) BodyOrigin() (x, y int) {
-	if m.w <= 0 || m.h <= 0 {
-		return 0, 0
+// (the App uses it to place a sixel image over the body). ok is false
+// when the pane has no body row to place anything in (too short, or
+// zero-width), so a caller must not place a sixel at the returned (x, y).
+func (m Model) BodyOrigin() (x, y int, ok bool) {
+	if m.w <= 0 || m.bodyHeight() <= 0 {
+		return 0, 0, false
 	}
-	return 0, 2
+	return 0, 2, true
 }
 
 // View renders the header line, a border rule, and the body: exactly w×h
 // cells. Body lines are cut or padded to width with ansi.Cut, which is
 // escape- and wide-rune-aware, so a line carrying SGR or a kitty
-// placeholder cell is never cut mid-escape.
+// placeholder cell is never cut mid-escape. With w<=0 (and h>0) it still
+// returns exactly h rows, each zero cells wide.
 func (m Model) View() string {
-	if m.w <= 0 || m.h <= 0 {
+	if m.h <= 0 {
 		return ""
+	}
+	if m.w <= 0 {
+		return strings.Repeat("\n", m.h-1)
 	}
 	lines := make([]string, 0, m.h)
 	lines = append(lines, m.headerLine())
