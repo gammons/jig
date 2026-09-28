@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"slices"
 	"strconv"
 
 	"github.com/gammons/jig/internal/core"
@@ -15,23 +16,27 @@ type Projection struct {
 	open    map[core.MessageID]*Block // the text/reasoning block each message's deltas append to
 	parts   map[core.MessageID]int    // next "m/<msg>/<n>" ordinal per message
 	notices int                       // next "n/<k>" ordinal; never reset, so notice IDs never repeat
-	owner   map[core.SessionID]BlockID
-	pending []PendingPermission // request order
+	users   int                       // next "u/pending/<k>" ordinal; never reset
+	tree    lineage                   // live: survives Load
+	perms   permissions               // live: survives Load
 	derived derived
-}
-
-// derived holds state computed from tool results rather than shown as
-// blocks: changed files (R16) and the last browser URL.
-type derived struct {
-	changed []FileChange
-	url     string
 }
 
 // New returns an empty projection of root's transcript.
 func New(root core.SessionID) *Projection {
-	p := &Projection{root: root}
+	p := &Projection{root: root, tree: newLineage()}
 	p.reset()
 	return p
+}
+
+// AddUser appends a block for a user message the caller just sent, which
+// no event announces, and returns its ID, "u/pending/<k>". k counts from 0
+// and is never reused. The next Load replaces it with the stored message.
+func (p *Projection) AddUser(text string, attachments []string) BlockID {
+	id := BlockID("u/pending/" + strconv.Itoa(p.users))
+	p.users++
+	p.list.add(&Block{ID: id, Kind: KindUser, Text: text, Attachments: slices.Clone(attachments)})
+	return id
 }
 
 // Blocks returns a copy of every block, in display order.
@@ -54,20 +59,24 @@ func (p *Projection) ChangedFiles() []FileChange {
 
 // Pending returns the unresolved permission requests, in request order.
 func (p *Projection) Pending() []PendingPermission {
-	return append([]PendingPermission(nil), p.pending...)
+	out := append([]PendingPermission(nil), p.perms.pending...)
+	for i := range out {
+		out[i].Call = cloneCall(out[i].Call)
+	}
+	return out
 }
 
 // LastBrowserURL returns the URL of the root session's most recent
 // agent-browser navigation, or "".
 func (p *Projection) LastBrowserURL() string { return p.derived.url }
 
-// reset clears everything but the notice counter.
+// reset clears the state Load rebuilds from stored messages. The counters
+// and the live-run state (the descendant lineage and unresolved permission
+// requests, which stored messages don't record) survive.
 func (p *Projection) reset() {
 	p.list = blockList{index: make(map[BlockID]int)}
 	p.open = make(map[core.MessageID]*Block)
 	p.parts = make(map[core.MessageID]int)
-	p.owner = make(map[core.SessionID]BlockID)
-	p.pending = nil
 	p.derived = derived{}
 }
 

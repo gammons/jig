@@ -10,9 +10,18 @@ import (
 // Apply folds one live event into the projection and returns the IDs of
 // the blocks it changed, in block order, or nil if none. Events from other
 // roots are ignored; events from descendant sessions go to applyDescendant.
+// Spawns and permission events are handled the same from any session.
 func (p *Projection) Apply(ev event.Event) []BlockID {
 	if ev.Root() != p.root {
 		return nil
+	}
+	switch e := ev.(type) {
+	case event.SubagentSpawned:
+		return p.tree.spawn(&p.list, p.root, e)
+	case event.PermissionRequested:
+		return p.perms.request(&p.list, &p.tree, p.root, e)
+	case event.PermissionResolved:
+		return p.perms.resolve(&p.list, e.RequestID)
 	}
 	if ev.Session() != p.root {
 		return p.applyDescendant(ev)
@@ -38,11 +47,11 @@ func (p *Projection) Apply(ev event.Event) []BlockID {
 }
 
 // applyDescendant handles an event from a session under root. Descendant
-// events never create blocks; they update the subagent block that
-// p.owner[ev.Session()] names. Nothing fills owner yet, so every
-// descendant event is ignored.
-func (p *Projection) applyDescendant(event.Event) []BlockID {
-	return nil
+// events never create blocks; their tool calls update the subagent block
+// that owns the session. Events from sessions with no known owner are
+// ignored.
+func (p *Projection) applyDescendant(ev event.Event) []BlockID {
+	return p.tree.descendant(&p.list, ev)
 }
 
 // delta appends text to msg's open block of kind, or opens a new one when
@@ -79,13 +88,15 @@ func (p *Projection) startTool(msg core.MessageID, call core.ToolCall) []BlockID
 	return []BlockID{b.ID}
 }
 
-// finishTool records r on its call's block.
+// finishTool records r on its call's block and observes it for derived
+// state.
 func (p *Projection) finishTool(r core.ToolResult) []BlockID {
 	b, ok := p.list.get(BlockID(r.CallID))
 	if !ok {
 		return nil
 	}
 	b.finish(r)
+	p.derived.observe(b)
 	b.Version++
 	return []BlockID{b.ID}
 }

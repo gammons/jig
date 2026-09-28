@@ -10,6 +10,11 @@ import (
 // session's stored history in order. A block whose ID existed before Load
 // gets a Version above its old one, so caches keyed by (ID, Version) never
 // serve a stale rendering; notice IDs keep counting across loads.
+//
+// State that stored messages don't record survives: the owners of live
+// descendant sessions (joined by the children loaded subagent blocks name)
+// and unresolved permission requests, which are shown again on their
+// blocks.
 func (p *Projection) Load(msgs []core.Message) {
 	old := make(map[BlockID]int, len(p.list.blocks))
 	for _, b := range p.list.blocks {
@@ -23,6 +28,8 @@ func (p *Projection) Load(msgs []core.Message) {
 		}
 		p.loadAssistant(m)
 	}
+	p.tree.seed(&p.list)
+	p.perms.reattach(&p.list)
 	for _, b := range p.list.blocks {
 		if v, ok := old[b.ID]; ok {
 			b.Version = v + 1
@@ -70,6 +77,7 @@ func (p *Projection) loadAssistant(m core.Message) {
 			}
 			if b, ok := p.list.get(BlockID(part.Result.CallID)); ok {
 				b.finish(*part.Result)
+				p.derived.observe(b)
 			}
 		}
 	}
