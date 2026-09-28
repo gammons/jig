@@ -65,3 +65,19 @@ func TestSkillsPath_TrimsOutput(t *testing.T) {
 		t.Errorf("SkillsPath() = %q, want %q", got, "/skills/dir")
 	}
 }
+
+// TestSkillsPath_OutputTooLarge guards against a misbehaving binary
+// exhausting memory: SkillsPath must fail rather than buffer unbounded
+// output within SkillsTimeout.
+func TestSkillsPath_OutputTooLarge(t *testing.T) {
+	dir := t.TempDir()
+	bin := writeScript(t, dir, "agent-browser", "head -c 1048576 /dev/zero | tr '\\0' a\n")
+
+	_, err := SkillsPath(context.Background(), bin)
+	if err == nil {
+		t.Fatal("SkillsPath: want an error for oversized output, got nil")
+	}
+	if !errors.Is(err, ErrOutputTooLarge) {
+		t.Errorf("SkillsPath err = %v, want it to wrap ErrOutputTooLarge", err)
+	}
+}

@@ -209,3 +209,54 @@ func TestBrowser_UntrustedProjectIgnored(t *testing.T) {
 		t.Errorf("warns = %v, want none", warns)
 	}
 }
+
+// TestNormalizeSkillsDir_R14 pins R14: when the printed dir itself holds a
+// SKILL.md (rather than a subdirectory of it), skillfs would scan dir's
+// children instead of finding it, so dir's parent is used instead.
+func TestNormalizeSkillsDir_R14(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "agent-browser")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: x\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := normalizeSkillsDir(skillDir); got != dir {
+		t.Errorf("normalizeSkillsDir(%q) = %q, want parent %q", skillDir, got, dir)
+	}
+}
+
+// TestNormalizeSkillsDir_NoSkillMD is the normal case: dir holds skill
+// subdirectories, not a SKILL.md of its own, so it is returned unchanged.
+func TestNormalizeSkillsDir_NoSkillMD(t *testing.T) {
+	dir := t.TempDir()
+	if got := normalizeSkillsDir(dir); got != dir {
+		t.Errorf("normalizeSkillsDir(%q) = %q, want it unchanged", dir, got)
+	}
+}
+
+// TestNormalizeSkillsDir_RelativePath pins the safe behavior for a
+// relative path: os.Stat resolves it against the process's cwd, and since
+// that (almost certainly) does not hold "<relative>/SKILL.md", the path
+// is returned unchanged rather than misinterpreted.
+func TestNormalizeSkillsDir_RelativePath(t *testing.T) {
+	rel := "relative/skills/dir/that/does/not/exist"
+	if got := normalizeSkillsDir(rel); got != rel {
+		t.Errorf("normalizeSkillsDir(%q) = %q, want it unchanged", rel, got)
+	}
+}
+
+// TestNormalizeSkillsDir_EmbeddedNewline pins the safe behavior for
+// garbage output containing an embedded newline: os.Stat fails to find
+// "<dir>/SKILL.md" for such a path, so it passes through unchanged rather
+// than being split or otherwise reinterpreted. Whatever later tries to use
+// it as a skills dir (skillfs.Discover) will just find no such directory.
+func TestNormalizeSkillsDir_EmbeddedNewline(t *testing.T) {
+	dir := t.TempDir()
+	garbage := dir + "\nunexpected extra line"
+	if got := normalizeSkillsDir(garbage); got != garbage {
+		t.Errorf("normalizeSkillsDir(%q) = %q, want it unchanged", garbage, got)
+	}
+}
