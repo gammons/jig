@@ -13,7 +13,7 @@ type RenderStyles struct {
 	Denied lipgloss.Style // a denied tool/subagent
 	Warn   lipgloss.Style // a tool/subagent awaiting permission
 	Dim    lipgloss.Style // cancelled/pending states, notices, reasoning
-	User   lipgloss.Style // the "› you" user block prefix
+	User   lipgloss.Style // the "›" user block prefix
 }
 
 // renderStyles maps p onto RenderStyles: OK reuses Accent (the palette's
