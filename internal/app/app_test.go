@@ -11,6 +11,7 @@ import (
 
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/data/store"
+	"github.com/gammons/jig/internal/pathid"
 	"github.com/gammons/jig/internal/service/permission"
 )
 
@@ -153,8 +154,8 @@ func TestRun_RelativeCwdResolved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadEnv: %v", err)
 	}
-	if e.workDir != env.workDir {
-		t.Errorf("workDir = %q, want %q", e.workDir, env.workDir)
+	if want := pathid.Key(env.workDir); e.workDir != want {
+		t.Errorf("workDir = %q, want %q", e.workDir, want)
 	}
 }
 
