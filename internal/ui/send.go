@@ -44,6 +44,9 @@ func (s sender) send(text string) tea.Cmd {
 	if req.SessionID == "" {
 		req.Agent, req.Model = a.sess.info.Agent, a.sess.info.Model
 	}
+	// A sent path is consumed: a later message repeating its "@<path>"
+	// token (by coincidence, or by re-typing it) must not re-attach it.
+	a.sess.attach = nil
 	id := a.sess.proj.AddUser(text, req.Attachments)
 	a.flush(a.sess.withDirty([]transcript.BlockID{id}))
 	ctx, cancel := context.WithCancel(a.ctx)

@@ -106,6 +106,18 @@ func TestPicker_RootListsActionsWithKeysAndRecent(t *testing.T) {
 	}
 }
 
+func TestKeysDetail_SanitizesKeys(t *testing.T) {
+	t.Parallel()
+	// actions.Resolve already rejects an unprintable config key (see
+	// TestResolve_RejectsUnprintableKey), but keysDetail sanitizes on
+	// its own too: a key string always reaches the picker's Detail
+	// (rootItems/keyItems) sanitized, regardless of where it came from.
+	got := keysDetail([]string{"ctrl+p", "\x1b]52;c;evil\x07", "y"})
+	if strings.ContainsRune(got, '\x1b') || strings.ContainsRune(got, '\x07') {
+		t.Errorf("keysDetail = %q, want no control runes", got)
+	}
+}
+
 func TestPicker_HelpKeysListsEveryActionReadOnly(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
@@ -323,6 +335,45 @@ func TestApp_ThemePreviewEscRestores(t *testing.T) {
 	}
 }
 
+// lineContaining returns the first line of s containing substr.
+func lineContaining(s, substr string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if strings.Contains(line, substr) {
+			return line
+		}
+	}
+	return ""
+}
+
+func TestPicker_ThemesStartOnCurrentNoPreviewFlash(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	origVersion := ta.app.theme.version
+	ta.key("ctrl+p")
+	ta.typeText("switch theme")
+	ta.key("enter")
+	// Opening the level must not itself preview the first (alphabetical)
+	// palette: only moving the highlight away from the current one does.
+	if ta.app.theme.version != origVersion || ta.app.theme.current.Name != "Dark" {
+		t.Fatalf("theme = %q version = %d, want Dark unchanged at version %d",
+			ta.app.theme.current.Name, ta.app.theme.version, origVersion)
+	}
+	line := lineContaining(xansi.Strip(ta.view()), "Dark")
+	if !strings.Contains(line, "❯") {
+		t.Errorf("current theme's row = %q, want the cursor already on it", line)
+	}
+
+	// Moving away previews; moving back restores exactly.
+	ta.key("down")
+	if ta.app.theme.current.Name == "Dark" {
+		t.Fatal("moving the highlight did not preview a different theme")
+	}
+	ta.key("up")
+	if got := ta.app.theme.current.Name; got != "Dark" {
+		t.Errorf("theme after moving back = %q, want Dark", got)
+	}
+}
+
 func TestApp_ThemeChoosePersists(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
@@ -357,6 +408,33 @@ func TestPicker_RenameCallsPort(t *testing.T) {
 	want := []renameCall{{ID: "ses_r", Title: "Old name"}}
 	if !slices.Equal(ta.sessions.renames, want) {
 		t.Errorf("renames = %+v, want %+v", ta.sessions.renames, want)
+	}
+}
+
+func TestPicker_KeyRunActionsAreRecorded(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.key("ctrl+b") // remappable (view.sidebar), bound in both modes
+	want := []string{"view.sidebar"}
+	if got := ta.prefs.Get().Recent; !slices.Equal(got, want) {
+		t.Fatalf("Recent after ctrl+b = %v, want %v", got, want)
+	}
+
+	ta.key("esc")
+	ta.key("?") // remappable (help.keys), opens the keys level
+	want = []string{"help.keys", "view.sidebar"}
+	if got := ta.prefs.Get().Recent; !slices.Equal(got, want) {
+		t.Fatalf("Recent after ? = %v, want %v", got, want)
+	}
+	ta.key("esc")
+
+	// Opening the picker itself (ctrl+p/ctrl+t) is not an action a user
+	// chose from it — it never appears in the root list — so it must not
+	// occupy a recent slot.
+	ta.key("ctrl+p")
+	ta.key("esc")
+	if got := ta.prefs.Get().Recent; !slices.Equal(got, want) {
+		t.Errorf("Recent after ctrl+p = %v, want unchanged %v", got, want)
 	}
 }
 

@@ -116,11 +116,13 @@ func (p pickerCtl) chosen(msg picker.ChosenMsg) tea.Cmd {
 	cmds := []tea.Cmd{p.closed()}
 	switch msg.Level.ID {
 	case levelRoot:
+		// a.runAction records id as recent itself, whether it got here
+		// from this choice or from a key.
 		id := actions.ID(first)
 		if strings.HasPrefix(first, "transcript.") {
 			cmds = append(cmds, a.setMode(modeNormal))
 		}
-		return tea.Batch(append(cmds, a.runAction(id), p.remember(id))...)
+		return tea.Batch(append(cmds, a.runAction(id))...)
 	case levelSessions:
 		cmds = append(cmds, p.resume(core.SessionID(first)))
 	case levelModels:
@@ -237,12 +239,12 @@ func (p pickerCtl) resume(id core.SessionID) tea.Cmd {
 }
 
 // freshSession is a new session state for id, keeping old's cached
-// catalog, agent and model, and recorded attachments.
+// catalog, agent, and model. Recorded attachments don't carry over: a
+// path picked for the old session must not attach to the new one.
 func freshSession(old *sessionState, id core.SessionID) *sessionState {
 	s := newSessionState(id, old.clk)
 	s.cat = old.cat
 	s.info.Agent, s.info.Model = old.info.Agent, old.info.Model
-	s.attach = old.attach
 	return s
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/gammons/jig/internal/core/ext"
 )
@@ -31,6 +32,19 @@ func DefaultBindings() []ext.Keybind {
 // target.
 func isMode(mode string) bool {
 	return mode == "insert" || mode == "normal"
+}
+
+// isPrintableKey reports whether every rune of key is printable: a
+// config-supplied key name is shown verbatim in the picker (a key's
+// detail), so a control rune (e.g. an escape sequence) must never reach
+// Resolve's output.
+func isPrintableKey(key string) bool {
+	for _, r := range key {
+		if !unicode.IsPrint(r) {
+			return false
+		}
+	}
+	return true
 }
 
 // Keymap resolves a mode and key to the action ID bound there.
@@ -96,6 +110,13 @@ func Resolve(binds []ext.Keybind, config map[string]string, c *Catalogue) (Keyma
 		}
 		if _, ok := c.Get(ID(v)); !ok {
 			warnings = append(warnings, fmt.Sprintf("warning: keybinds.%q: unknown action %q", k, v))
+			continue
+		}
+		if !isPrintableKey(key) {
+			// A config key is shown as a picker item's detail
+			// (rootItems/keyItems); a control or non-printable rune
+			// there could otherwise smuggle terminal escapes.
+			warnings = append(warnings, fmt.Sprintf("warning: keybinds.%q: key contains a non-printable character", k))
 			continue
 		}
 		km.set(mode, key, ID(v))

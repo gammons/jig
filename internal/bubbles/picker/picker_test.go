@@ -353,16 +353,48 @@ func TestPicker_PreviewOnMove(t *testing.T) {
 	m.SetSize(100, 40)
 	m = open(t, m, Level{ID: "root", Title: "Root"})
 
-	if !slices.Equal(previewed, []string{"a"}) {
-		t.Fatalf("preview after load = %v, want [a] (the initial selection)", previewed)
+	// The level's initial highlight is not previewed: it's whatever's
+	// already applied (or, absent a Current item, just the first row),
+	// not something the user asked to see a preview of.
+	if len(previewed) != 0 {
+		t.Fatalf("preview after load = %v, want none", previewed)
 	}
 
 	m, _ = m.Update(keyMsg("down")) // -> b
 	m, _ = m.Update(keyMsg("down")) // -> c
 	m, _ = m.Update(keyMsg("down")) // already on c: no movement, no new preview
 
-	if !slices.Equal(previewed, []string{"a", "b", "c"}) {
-		t.Fatalf("preview calls = %v, want [a b c] (once per highlighted item)", previewed)
+	if !slices.Equal(previewed, []string{"b", "c"}) {
+		t.Fatalf("preview calls = %v, want [b c] (once per highlight change)", previewed)
+	}
+}
+
+func TestPicker_PreviewStartsOnCurrentNoInitialFire(t *testing.T) {
+	t.Parallel()
+	items := []Item{{ID: "a", Title: "a"}, {ID: "b", Title: "b", Current: true}, {ID: "c", Title: "c"}}
+	var previewed []string
+	preview := func(_ Level, it Item) tea.Cmd {
+		previewed = append(previewed, it.ID)
+		return nil
+	}
+	m := New(loadFunc(map[string][]Item{"root": items}), WithPreview(preview))
+	m.SetSize(100, 40)
+	m = open(t, m, Level{ID: "root", Title: "Root"})
+
+	if got, ok := m.stack[0].current(); !ok || got.ID != "b" {
+		t.Fatalf("initial selection = %+v, %v, want the Current item b", got, ok)
+	}
+	if len(previewed) != 0 {
+		t.Fatalf("preview after load = %v, want none", previewed)
+	}
+
+	m, _ = m.Update(keyMsg("down")) // -> c
+	if !slices.Equal(previewed, []string{"c"}) {
+		t.Fatalf("preview calls = %v, want [c]", previewed)
+	}
+	m, _ = m.Update(keyMsg("up")) // back to b
+	if !slices.Equal(previewed, []string{"c", "b"}) {
+		t.Fatalf("preview calls = %v, want [c b]", previewed)
 	}
 }
 

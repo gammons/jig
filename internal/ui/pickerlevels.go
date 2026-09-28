@@ -130,7 +130,7 @@ func rootItems(c *actions.Catalogue, km actions.Keymap, mode string, info core.S
 		}
 		it := picker.Item{
 			ID: string(act.ID), Title: ansi.SanitizeLine(act.Title), Group: act.Group,
-			Detail: strings.Join(km.Keys(mode, act.ID), " "),
+			Detail: keysDetail(km.Keys(mode, act.ID)),
 		}
 		if lvl, ok := drillLevel(act.ID, info.Title); ok {
 			it.Drill = &lvl
@@ -143,6 +143,16 @@ func rootItems(c *actions.Catalogue, km actions.Keymap, mode string, info core.S
 	return out
 }
 
+// keysDetail joins keys (bound key strings, which name a config-supplied
+// [keybinds] key and so are untrusted) into one sanitized detail string.
+func keysDetail(keys []string) string {
+	sanitized := make([]string, len(keys))
+	for i, k := range keys {
+		sanitized[i] = ansi.SanitizeLine(k)
+	}
+	return strings.Join(sanitized, " ")
+}
+
 // keyItems lists every action with its keys in both modes, read-only.
 func keyItems(c *actions.Catalogue, km actions.Keymap) []picker.Item {
 	if c == nil {
@@ -153,7 +163,7 @@ func keyItems(c *actions.Catalogue, km actions.Keymap) []picker.Item {
 		var parts []string
 		for _, mode := range []string{insertMode, normalMode} {
 			if keys := km.Keys(mode, act.ID); len(keys) > 0 {
-				parts = append(parts, mode+": "+strings.Join(keys, " "))
+				parts = append(parts, mode+": "+keysDetail(keys))
 			}
 		}
 		out = append(out, picker.Item{

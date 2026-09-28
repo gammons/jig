@@ -34,6 +34,16 @@ func firstItemRow(rows []row) int {
 	return -1
 }
 
+// currentRow returns the index of the row whose item is Current, or -1.
+func currentRow(rows []row) int {
+	for i, r := range rows {
+		if r.kind == rowItem && r.item.Current {
+			return i
+		}
+	}
+	return -1
+}
+
 // moveRow returns the nearest item row from cur in direction dir (+1/-1),
 // skipping headers. It returns cur unchanged when there is no item row in
 // that direction (no wrapping).

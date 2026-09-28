@@ -203,8 +203,10 @@ func (f frame) current() (Item, bool) {
 	return Item{}, false
 }
 
-// rebuild recomputes rows from items and the input's current value,
-// keeping the selection on the same item ID when it still exists.
+// rebuild recomputes rows from items and the input's current value. With
+// a prior selection, it keeps it on the same item ID when it still
+// exists; otherwise (the level's first rebuild) it starts on the Current
+// item, if any, so opening a level highlights what's already applied.
 func (f *frame) rebuild(recent []string) {
 	prevID, hadSel := f.current()
 	query := f.input.Value()
@@ -221,6 +223,8 @@ func (f *frame) rebuild(recent []string) {
 				break
 			}
 		}
+	} else if i := currentRow(f.rows); i >= 0 {
+		f.cursor = i
 	}
 }
 
@@ -252,7 +256,23 @@ func (m Model) onItems(msg ItemsMsg) (Model, tea.Cmd) {
 	f.rebuild(m.recent)
 	stack[top] = f
 	m.stack = stack
-	return m, m.previewCmd()
+	// The level's initial highlight (the Current item, if any) is
+	// already what's applied; record it without firing preview, which
+	// fires only once the highlight actually moves.
+	m.markPreviewed()
+	return m, nil
+}
+
+// markPreviewed records the top level's current highlight as already
+// previewed, without calling preview.
+func (m *Model) markPreviewed() {
+	m.previewed = ""
+	if len(m.stack) == 0 {
+		return
+	}
+	if it, ok := m.stack[len(m.stack)-1].current(); ok {
+		m.previewed = m.stack[len(m.stack)-1].level.ID + "\x00" + it.ID
+	}
 }
 
 func (m Model) onKey(k tea.KeyPressMsg) (Model, tea.Cmd) {

@@ -81,6 +81,24 @@ func TestResolve_Warnings(t *testing.T) {
 	}
 }
 
+func TestResolve_RejectsUnprintableKey(t *testing.T) {
+	c := NewCatalogue(nil)
+	config := map[string]string{
+		"normal.\x1b]52;c;x\x07": "view.sidebar",
+	}
+	km, warnings := Resolve(nil, config, c)
+
+	want := []string{
+		`warning: keybinds."normal.\x1b]52;c;x\a": key contains a non-printable character`,
+	}
+	if !reflect.DeepEqual(warnings, want) {
+		t.Errorf("warnings = %v, want %v", warnings, want)
+	}
+	if _, ok := km.Lookup("normal", "\x1b]52;c;x\x07"); ok {
+		t.Error("Lookup: want the unprintable key not applied")
+	}
+}
+
 func TestResolve_BindsLaterWins(t *testing.T) {
 	binds := []ext.Keybind{
 		{Mode: "normal", Key: "g", Command: "goto-top"},

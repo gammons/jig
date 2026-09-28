@@ -11,6 +11,7 @@ import (
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
 	"github.com/gammons/jig/internal/golden"
+	"github.com/gammons/jig/internal/ui/transcript"
 )
 
 // testFiles are a.go … e.go; b.go and d.go are git-modified.
@@ -139,6 +140,44 @@ func TestSend_AttachmentsOnlyForSurvivingTokens(t *testing.T) {
 	blocks := ta.app.sess.proj.Blocks()
 	if len(blocks) != 1 || !slices.Equal(blocks[0].Attachments, []string{"b.go"}) {
 		t.Errorf("user block attachments = %+v, want b.go", blocks)
+	}
+}
+
+func TestSend_AttachmentsClearedAfterSend(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, testFiles())
+	ta.key("@")
+	ta.key("tab") // b.go
+	ta.key("enter")
+	if v := ta.app.w.prompt.Value(); v != "@b.go " {
+		t.Fatalf("prompt = %q, want the mention", v)
+	}
+	ta.sendAndAdopt("") // sends the prefilled "@b.go "
+	ta.event(event.RunFinished{Base: rootBase(), MessageID: "m1"})
+	ta.returnSend()
+	if len(ta.chat.sends) != 1 || !slices.Equal(ta.chat.sends[0].Attachments, []string{"b.go"}) {
+		t.Fatalf("first send = %+v, want b.go attached", ta.chat.sends[0])
+	}
+
+	// A later message that happens to still contain the "@b.go" token
+	// must not re-attach it: a picked path is consumed by the send it
+	// was picked for, not remembered indefinitely.
+	ta.send(tea.PasteMsg{Content: "see @b.go again"})
+	ta.key("enter")
+	if len(ta.chat.sends) != 2 {
+		t.Fatalf("%d sends, want 2", len(ta.chat.sends))
+	}
+	if got := ta.chat.sends[1].Attachments; got != nil {
+		t.Errorf("second send attachments = %v, want none", got)
+	}
+	var users []transcript.Block
+	for _, b := range ta.app.sess.proj.Blocks() {
+		if b.Kind == transcript.KindUser {
+			users = append(users, b)
+		}
+	}
+	if len(users) != 2 || users[1].Attachments != nil {
+		t.Errorf("user blocks = %+v, want the second with no attachments", users)
 	}
 }
 

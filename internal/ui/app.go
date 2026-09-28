@@ -410,8 +410,22 @@ func (a *App) cycleAgent(delta int) tea.Cmd {
 	return configureCmd(a.ctx, a.ports, a.sess.info.ID, a.sess.info.Agent, "")
 }
 
-// runAction runs a remappable action bound to a key.
+// runAction runs a remappable action bound to a key or chosen from the
+// picker's root list, then records it as recent (spec §6.4) — except
+// picker.open, which never appears in that list and would otherwise fill
+// it with nothing but itself every time ctrl+p is pressed.
 func (a *App) runAction(id actions.ID) tea.Cmd {
+	cmd := dispatchAction(a, id)
+	if id == actions.PickerOpen {
+		return cmd
+	}
+	return tea.Batch(cmd, pickerCtl{a}.remember(id))
+}
+
+// dispatchAction is runAction's switch, split out so every case funnels
+// through runAction's single remember call above, whether reached by a
+// key (via Keymap.Lookup) or a picker choice (pickerCtl.chosen).
+func dispatchAction(a *App, id actions.ID) tea.Cmd {
 	switch id {
 	case actions.ViewSidebar:
 		show := !a.lay.SideVisible
