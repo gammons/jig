@@ -15,7 +15,19 @@ import (
 type Layers struct {
 	Global, Project     core.Config
 	GlobalMD, ProjectMD map[string]core.AgentConfig
+
+	// ProjectTokens are project permission actions whose value is an
+	// unsubstituted "{env:}"/"{file:}" token: not part of Project (a token
+	// isn't a valid action), but listed in Effects and always dropped by
+	// Restrict.
+	ProjectTokens []TokenAction
 }
+
+// TokenAction is a project permission action left as a literal token:
+// [permissions] (Agent "") or [agents.<Agent>.permissions], for Tool, as
+// the Default (Pattern "") or for Pattern. Token is the raw value from
+// the file, never a resolved one.
+type TokenAction struct{ Agent, Tool, Pattern, Token string }
 
 // Restrict returns l with Project and ProjectMD reduced to what an
 // untrusted project may apply (spec §8.3 + R7), and the effects dropped
@@ -30,6 +42,8 @@ type Layers struct {
 //     under every agent's own rules at runtime, an ask pattern is also
 //     dropped when any global agent (built-in, Global.Agents, GlobalMD)
 //     has a deny for that tool: a more specific ask would out-rank it.
+//   - ProjectTokens are always dropped: their values are unknown until
+//     the project is trusted.
 //   - Each project agent's permissions go through Tighten against
 //     Effective(agentGlobal, Overlay(Global.Permissions, keptTopLevel)),
 //     where agentGlobal is the built-in overlaid with the global TOML and
@@ -48,6 +62,7 @@ func Restrict(l Layers) (Layers, []Effect) {
 	mergedCfg := permission.Overlay(l.Global.Permissions, out.Project.Permissions)
 	out.Project.Agents, drop.Project.Agents = restrictAgents(l, l.Project.Agents, mergedCfg, nil)
 	out.ProjectMD, drop.ProjectMD = restrictAgents(l, l.ProjectMD, mergedCfg, out.Project.Agents)
+	drop.ProjectTokens = l.ProjectTokens
 
 	return out, Effects(drop)
 }

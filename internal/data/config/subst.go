@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -139,37 +140,56 @@ func fileRefs(out []string, v any, dir, home string) []string {
 	return out
 }
 
-// dropTokenActions removes, from a file's generic map, every permission
-// action (top-level [permissions] and [agents.<name>.permissions], bare or
-// per pattern) that holds a "{env:}"/"{file:}" token. It is used when
-// tokens are left literal: a literal token can't be a valid action, so
-// the entry is treated as unset. It mutates m.
-func dropTokenActions(m map[string]any) {
-	dropTokenRules(m["permissions"])
+// TokenAction is a project permission action whose value holds a
+// "{env:}"/"{file:}" token that was left unsubstituted: under
+// [permissions] (Agent "") or [agents.<Agent>.permissions], for Tool, as
+// the Default (Pattern "") or for Pattern. Token is the raw value.
+type TokenAction struct{ Agent, Tool, Pattern, Token string }
+
+// takeTokenActions removes, from a file's generic map, every permission
+// action (top-level and per agent, bare or per pattern) that holds a
+// token, and returns them. It is used when tokens are left literal: a
+// literal token can't be a valid action, so the entry is not applied, but
+// the caller can still show it. It mutates m.
+func takeTokenActions(m map[string]any) []TokenAction {
+	out := takeTokenRules(nil, "", m["permissions"])
 	agents, _ := m["agents"].(map[string]any)
-	for _, a := range agents {
+	for name, a := range agents {
 		if am, ok := a.(map[string]any); ok {
-			dropTokenRules(am["permissions"])
+			out = takeTokenRules(out, name, am["permissions"])
 		}
 	}
+	return out
 }
 
-func dropTokenRules(v any) {
+func compareTokenActions(a, b TokenAction) int {
+	return cmp.Or(
+		strings.Compare(a.Agent, b.Agent),
+		strings.Compare(a.Tool, b.Tool),
+		strings.Compare(a.Pattern, b.Pattern),
+		strings.Compare(a.Token, b.Token),
+	)
+}
+
+func takeTokenRules(out []TokenAction, agent string, v any) []TokenAction {
 	rules, _ := v.(map[string]any)
 	for tool, r := range rules {
 		switch rv := r.(type) {
 		case string:
 			if tokenPattern().MatchString(rv) {
+				out = append(out, TokenAction{Agent: agent, Tool: tool, Token: rv})
 				delete(rules, tool)
 			}
 		case map[string]any:
 			for pattern, a := range rv {
 				if s, ok := a.(string); ok && tokenPattern().MatchString(s) {
+					out = append(out, TokenAction{Agent: agent, Tool: tool, Pattern: pattern, Token: s})
 					delete(rv, pattern)
 				}
 			}
 		}
 	}
+	return out
 }
 
 func trimOneTrailingNewline(s string) string {

@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -163,7 +164,16 @@ func TestLoadEnv_FileIncludeChangeReprompts(t *testing.T) {
 	env.writeProject(t, ".jig/mode", "ask\n")
 
 	d = &countingDecider{grant: true}
-	e := mustLoadEnv(t, env, d.decide)
+	var seen []string
+	e := mustLoadEnv(t, env, func(st trustState) (bool, error) {
+		for _, ef := range st.effects {
+			seen = append(seen, ef.String())
+		}
+		return d.decide(st)
+	})
+	if want := "permissions.bash → {file:mode}"; !slices.Contains(seen, want) {
+		t.Errorf("decider saw effects %q, want %q", seen, want)
+	}
 	if d.calls != 1 || !e.trust.trusted || e.trust.hash == missing {
 		t.Fatalf("grant: calls %d, trusted %v, hash changed %v; want 1, true, true", d.calls, e.trust.trusted, e.trust.hash != missing)
 	}
@@ -183,6 +193,26 @@ func TestLoadEnv_FileIncludeChangeReprompts(t *testing.T) {
 	}
 	if got := e.cfg().Permissions["bash"].Default; got == core.Allow {
 		t.Error("untrusted bash = allow from the changed include")
+	}
+	if !e.trust.warn() {
+		t.Errorf("warn() = false with dropped %v, want the token entry dropped", e.trust.dropped)
+	}
+}
+
+func TestLoadEnv_TokenOnlyPermissionWarnsWhenUntrusted(t *testing.T) {
+	env := newTestEnv(t)
+	env.writeProject(t, ".jig/config.toml", "[agents.build.permissions]\nbash = { \"git *\" = \"{env:MODE}\" }\n")
+	e := mustLoadEnv(t, env, (&countingDecider{}).decide)
+	want := []string{`agents.build permissions.bash "git *" → {env:MODE}`}
+	var got []string
+	for _, ef := range e.trust.dropped {
+		got = append(got, ef.String())
+	}
+	if !slices.Equal(got, want) || !e.trust.warn() {
+		t.Errorf("dropped = %q (warn %v), want %q and a warning", got, e.trust.warn(), want)
+	}
+	if e.layers.ProjectTokens != nil {
+		t.Errorf("layers.ProjectTokens = %v, want nil after Restrict", e.layers.ProjectTokens)
 	}
 }
 

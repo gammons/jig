@@ -103,6 +103,19 @@ func readTrust(store *trustfs.Store, project string, loaded config.Loaded, l tru
 	return st, nil
 }
 
+// tokenActions converts config's token-valued permission actions for
+// trust.Layers.
+func tokenActions(in []config.TokenAction) []trust.TokenAction {
+	out := make([]trust.TokenAction, 0, len(in))
+	for _, t := range in {
+		out = append(out, trust.TokenAction(t))
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // decideTrust asks decide about an untrusted, non-empty project and
 // persists a grant.
 func decideTrust(st trustState, decide trustDecider, store *trustfs.Store, clk clock.Clock) (trustState, error) {

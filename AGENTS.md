@@ -144,7 +144,9 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 - Trust is decided once in `loadEnv`, before any service is built;
   `e.cfg()` is already the trusted or restricted merge. Project config
   files are loaded without `{env:}`/`{file:}` substitution until the
-  project is trusted (a permission action holding a token is then unset),
+  project is trusted (a permission action holding a token is then not
+  applied, but is listed in the trust effects by its raw token and counts
+  as dropped),
   and agent sources come from `e.layers` (post-trust), never the raw
   project layer. The trust hash (`trustfs.HashOptional`) covers every
   project config file, agent file, and in-tree `{file:}` include (a

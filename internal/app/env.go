@@ -74,7 +74,10 @@ func (e *env) resolveLayers(decide trustDecider, clk clock.Clock) error {
 	globalMD, globalWarns := agentfs.Discover(globalDirs)
 	projectMD, projectWarns := agentfs.Discover(projectDirs)
 	e.agentWarns = append(globalWarns, projectWarns...)
-	l := trust.Layers{Global: loaded.Global, Project: loaded.Project, GlobalMD: globalMD, ProjectMD: projectMD}
+	l := trust.Layers{
+		Global: loaded.Global, Project: loaded.Project, GlobalMD: globalMD, ProjectMD: projectMD,
+		ProjectTokens: tokenActions(loaded.ProjectTokenActions),
+	}
 
 	store := trustStore(e.paths.DataDir)
 	st, err := readTrust(store, trustProject(e.gitRoot, e.workDir), loaded, l)
@@ -110,7 +113,7 @@ func (e *env) reloadTrusted(l trust.Layers, st trustState) (trust.Layers, trustS
 		st.trusted = false
 		return l, st, nil
 	}
-	l.Global, l.Project = loaded.Global, loaded.Project
+	l.Global, l.Project, l.ProjectTokens = loaded.Global, loaded.Project, nil
 	return l, st, nil
 }
 

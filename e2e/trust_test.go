@@ -80,3 +80,17 @@ func TestE2E_TrustProjectFlag(t *testing.T) {
 	wantWarning(t, stderr, true)
 	wantFile(t, env, "z.txt", false)
 }
+
+// A permission whose value is a {file:} token can't be applied untrusted;
+// it still counts as dropped, so the warning prints (once).
+func TestE2E_UntrustedTokenPermissionWarns(t *testing.T) {
+	env := newEnv(t)
+	writeFile(t, filepath.Join(env.work, ".jig", "mode"), "allow\n")
+	writeFile(t, filepath.Join(env.work, ".jig", "config.toml"), "[permissions]\nwrite = \"{file:mode}\"\n")
+	setupWrite(t, env, "x.txt")
+
+	stdout, stderr, code := runPrompt(t, env, "write x")
+	wantCode(t, code, 0, stdout, stderr)
+	wantWarning(t, stderr, true)
+	wantFile(t, env, "x.txt", false)
+}

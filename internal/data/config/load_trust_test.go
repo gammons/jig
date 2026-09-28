@@ -3,6 +3,7 @@ package config
 import (
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/gammons/jig/internal/core"
@@ -85,7 +86,8 @@ prompt = "{file:../prompt.md}"
 }
 
 // A token in a permission action can't be validated unsubstituted, so the
-// untrusted pass treats that entry as unset rather than failing the load.
+// untrusted pass leaves that entry out of Project (rather than failing the
+// load) and reports it in ProjectTokenActions.
 func TestLoad_UnsubstitutedPermissionTokenIsUnset(t *testing.T) {
 	root := t.TempDir()
 	workDir := filepath.Join(root, "work")
@@ -119,6 +121,15 @@ edit = "{file:mode}"
 	if _, ok := off.Project.Agents["build"].Permissions["edit"]; ok {
 		t.Errorf("off: build edit = %+v, want unset", off.Project.Agents["build"].Permissions["edit"])
 	}
+	wantTokens := []TokenAction{
+		{Tool: "bash", Token: "{file:mode}"},
+		{Tool: "write", Pattern: "*.go", Token: "{env:MODE}"},
+		{Agent: "build", Tool: "edit", Token: "{file:mode}"},
+	}
+	slices.SortFunc(wantTokens, compareTokenActions)
+	if !reflect.DeepEqual(off.ProjectTokenActions, wantTokens) {
+		t.Errorf("off: ProjectTokenActions = %v, want %v", off.ProjectTokenActions, wantTokens)
+	}
 	if len(off.ProjectFileRefs) != 1 {
 		t.Errorf("off: ProjectFileRefs = %v, want the mode file", off.ProjectFileRefs)
 	}
@@ -126,6 +137,9 @@ edit = "{file:mode}"
 	on, err := Load(p, workDir, getenv, Options{SubstituteProject: true})
 	if err != nil {
 		t.Fatalf("Load(on): %v", err)
+	}
+	if on.ProjectTokenActions != nil {
+		t.Errorf("on: ProjectTokenActions = %v, want nil", on.ProjectTokenActions)
 	}
 	if on.Project.Permissions["bash"].Default != core.Allow || on.Project.Permissions["write"].Patterns["*.go"] != core.Allow {
 		t.Errorf("on: permissions = %+v, want substituted allows", on.Project.Permissions)

@@ -34,6 +34,13 @@ type Loaded struct {
 	// token in the project files, sorted and deduplicated, collected
 	// whether or not they were substituted. The files are not read.
 	ProjectFileRefs []string
+
+	// ProjectTokenActions are the project permission actions whose value
+	// is a "{env:}"/"{file:}" token, when project substitution is off:
+	// they are left out of Project (a literal token isn't a valid action)
+	// and listed here, sorted by Agent, Tool, Pattern, then Token, so
+	// callers can show them. Empty when SubstituteProject is set.
+	ProjectTokenActions []TokenAction
 }
 
 // Options controls Load.
@@ -67,20 +74,23 @@ func Load(p paths.Paths, workDir string, getenv func(string) string, o Options) 
 		return Loaded{}, err
 	}
 	slices.Sort(project.refs)
+	slices.SortFunc(project.tokens, compareTokenActions)
 	return Loaded{
-		Global:          global.cfg,
-		Project:         project.cfg,
-		GlobalFiles:     global.read,
-		ProjectFiles:    project.read,
-		ProjectFileRefs: slices.Compact(project.refs),
+		Global:              global.cfg,
+		Project:             project.cfg,
+		GlobalFiles:         global.read,
+		ProjectFiles:        project.read,
+		ProjectFileRefs:     slices.Compact(project.refs),
+		ProjectTokenActions: project.tokens,
 	}, nil
 }
 
 // layer is one loadLayer result.
 type layer struct {
-	cfg  core.Config
-	read []string // files actually read
-	refs []string // resolved "{file:...}" token paths, unsorted
+	cfg    core.Config
+	read   []string // files actually read
+	refs   []string // resolved "{file:...}" token paths, unsorted
+	tokens []TokenAction
 }
 
 // loadLayer folds every file in files (skipping missing ones) into a
@@ -101,6 +111,7 @@ func loadLayer(p paths.Paths, files []string, getenv func(string) string, subst 
 		st.apply(d.dto, d.md, path, filepath.Dir(path), p.Home)
 		out.read = append(out.read, path)
 		out.refs = append(out.refs, d.refs...)
+		out.tokens = append(out.tokens, d.tokens...)
 	}
 	out.cfg = st.cfg
 	return out, nil
@@ -108,9 +119,10 @@ func loadLayer(p paths.Paths, files []string, getenv func(string) string, subst 
 
 // decoded is one decodeFile result.
 type decoded struct {
-	dto  tomlFile
-	md   toml.MetaData
-	refs []string // resolved "{file:...}" token paths
+	dto    tomlFile
+	md     toml.MetaData
+	refs   []string      // resolved "{file:...}" token paths
+	tokens []TokenAction // permission actions left as literal tokens
 }
 
 // globalConfigFile is the single global config file.
@@ -134,7 +146,7 @@ func projectConfigFiles(p paths.Paths, workDir string) []string {
 
 // decodeFile reads path, substitutes "{env:}"/"{file:}" tokens in every
 // string (only if subst; otherwise they stay literal, except that a
-// permission action holding one is dropped, see dropTokenActions), and decodes
+// permission action holding one is taken out, see takeTokenActions), and decodes
 // the result into a tomlFile, also collecting its "{file:...}" paths. ok
 // is false (with a nil error) if path does not exist.
 func decodeFile(path, home string, getenv func(string) string, subst bool) (decoded, bool, error) {
@@ -153,6 +165,7 @@ func decodeFile(path, home string, getenv func(string) string, subst bool) (deco
 
 	dir := filepath.Dir(path)
 	refs := fileRefs(nil, generic, dir, home)
+	var tokens []TokenAction
 	var substituted any = generic
 	if subst {
 		substituted, err = substitute(generic, dir, home, getenv)
@@ -160,7 +173,7 @@ func decodeFile(path, home string, getenv func(string) string, subst bool) (deco
 			return decoded{}, false, err
 		}
 	} else {
-		dropTokenActions(generic)
+		tokens = takeTokenActions(generic)
 	}
 
 	var buf bytes.Buffer
@@ -173,5 +186,5 @@ func decodeFile(path, home string, getenv func(string) string, subst bool) (deco
 	if err != nil {
 		return decoded{}, false, fmt.Errorf("config: %s: %w", path, err)
 	}
-	return decoded{dto: dto, md: md, refs: refs}, true, nil
+	return decoded{dto: dto, md: md, refs: refs, tokens: tokens}, true, nil
 }

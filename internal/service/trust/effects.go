@@ -62,6 +62,7 @@ func Effects(l Layers) []Effect {
 	out = configEffects(out, l.Project)
 	out = agentEffects(out, l.Project.Agents, false)
 	out = agentEffects(out, l.ProjectMD, true)
+	out = tokenEffects(out, l.ProjectTokens)
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if a.Key != b.Key {
@@ -182,6 +183,22 @@ func permEffects(out []Effect, prefix string, rules core.PermissionRules, src st
 		for p, a := range r.Patterns {
 			out = append(out, Effect{Key: key + " " + strconv.Quote(p), Value: string(a), Source: src})
 		}
+	}
+	return out
+}
+
+// tokenEffects describes each token-valued permission action by its raw
+// token, keyed like permEffects.
+func tokenEffects(out []Effect, tokens []TokenAction) []Effect {
+	for _, t := range tokens {
+		key := "permissions." + seg(t.Tool)
+		if t.Agent != "" {
+			key = "agents." + seg(t.Agent) + " " + key
+		}
+		if t.Pattern != "" {
+			key += " " + strconv.Quote(t.Pattern)
+		}
+		out = append(out, Effect{Key: key, Value: t.Token})
 	}
 	return out
 }
