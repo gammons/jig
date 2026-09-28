@@ -8,6 +8,7 @@ import (
 	"github.com/gammons/jig/internal/bubbles/coderender"
 	"github.com/gammons/jig/internal/bubbles/mdrender"
 	"github.com/gammons/jig/internal/bubbles/picker"
+	"github.com/gammons/jig/internal/bubbles/prompt"
 )
 
 // Set holds a Palette mapped into every widget's Styles type. Version
@@ -19,6 +20,7 @@ type Set struct {
 	Code      coderender.Styles
 	Blocklist blocklist.Styles
 	Picker    picker.Styles
+	Prompt    prompt.Styles
 	// One field per later widget goes here as each widget's Task adds it.
 }
 
@@ -31,6 +33,21 @@ func Build(p Palette, version int) Set {
 		Code:      codeStyles(p),
 		Blocklist: blocklistStyles(p),
 		Picker:    pickerStyles(p),
+		Prompt:    promptStyles(p),
+	}
+}
+
+// promptStyles maps p onto prompt.Styles: the border uses the palette's
+// border color, the border title (used for "⏳ queued") uses Warning to
+// stand out as a state indicator (the same role Warning plays for code in
+// markdownStyles), and text/placeholder mirror the message pane's text
+// and its muted, faint variant.
+func promptStyles(p Palette) prompt.Styles {
+	return prompt.Styles{
+		Border:      lipgloss.NewStyle().Foreground(lipgloss.Color(p.Border)),
+		Title:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Warning)),
+		Text:        lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
+		Placeholder: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 	}
 }
 
