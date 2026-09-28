@@ -6,7 +6,9 @@ import (
 	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/bubbles/coderender"
+	"github.com/gammons/jig/internal/bubbles/details"
 	"github.com/gammons/jig/internal/bubbles/mdrender"
+	"github.com/gammons/jig/internal/bubbles/permcard"
 	"github.com/gammons/jig/internal/bubbles/picker"
 	"github.com/gammons/jig/internal/bubbles/prompt"
 )
@@ -21,6 +23,8 @@ type Set struct {
 	Blocklist blocklist.Styles
 	Picker    picker.Styles
 	Prompt    prompt.Styles
+	Details   details.Styles
+	Card      permcard.Styles
 	// One field per later widget goes here as each widget's Task adds it.
 }
 
@@ -34,6 +38,29 @@ func Build(p Palette, version int) Set {
 		Blocklist: blocklistStyles(p),
 		Picker:    pickerStyles(p),
 		Prompt:    promptStyles(p),
+		Details:   detailsStyles(p),
+		Card:      cardStyles(p),
+	}
+}
+
+// detailsStyles maps p onto details.Styles: the header uses Primary to
+// match the other pane titles (the picker's title bar, the sidebar's
+// section headers), and the separating rule uses the palette's border
+// color.
+func detailsStyles(p Palette) details.Styles {
+	return details.Styles{
+		Header: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
+		Border: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Border)),
+	}
+}
+
+// cardStyles maps p onto permcard.Styles: line 1 uses Warning, the same
+// stand-out color a pending/running state uses elsewhere, and line 2's
+// legend falls back to TextMuted like every other hint/detail text.
+func cardStyles(p Palette) permcard.Styles {
+	return permcard.Styles{
+		Text: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
+		Hint: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 	}
 }
 

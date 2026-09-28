@@ -8,7 +8,9 @@ import (
 
 	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/bubbles/coderender"
+	"github.com/gammons/jig/internal/bubbles/details"
 	"github.com/gammons/jig/internal/bubbles/mdrender"
+	"github.com/gammons/jig/internal/bubbles/permcard"
 	"github.com/gammons/jig/internal/bubbles/picker"
 	"github.com/gammons/jig/internal/bubbles/prompt"
 )
@@ -163,5 +165,51 @@ func TestBuild_PromptFromPalette(t *testing.T) {
 	}
 	if !reflect.DeepEqual(set.Prompt, want) {
 		t.Errorf("Prompt = %+v, want %+v", set.Prompt, want)
+	}
+}
+
+func TestBuild_DetailsFromPalette(t *testing.T) {
+	t.Parallel()
+
+	p := Complete(Palette{
+		Name: "test",
+		BaseColors: BaseColors{
+			Primary: "#111111", Accent: "#222222", Warning: "#333333", Error: "#444444",
+			Background: "#555555", Surface: "#666666", SurfaceDark: "#777777",
+			Text: "#888888", TextMuted: "#999999", Border: "#aaaaaa",
+		},
+	})
+
+	set := Build(p, 3)
+
+	want := details.Styles{
+		Header: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
+		Border: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Border)),
+	}
+	if !reflect.DeepEqual(set.Details, want) {
+		t.Errorf("Details = %+v, want %+v", set.Details, want)
+	}
+}
+
+func TestBuild_CardFromPalette(t *testing.T) {
+	t.Parallel()
+
+	p := Complete(Palette{
+		Name: "test",
+		BaseColors: BaseColors{
+			Primary: "#111111", Accent: "#222222", Warning: "#333333", Error: "#444444",
+			Background: "#555555", Surface: "#666666", SurfaceDark: "#777777",
+			Text: "#888888", TextMuted: "#999999", Border: "#aaaaaa",
+		},
+	})
+
+	set := Build(p, 3)
+
+	want := permcard.Styles{
+		Text: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
+		Hint: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+	}
+	if !reflect.DeepEqual(set.Card, want) {
+		t.Errorf("Card = %+v, want %+v", set.Card, want)
 	}
 }

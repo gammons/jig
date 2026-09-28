@@ -1,0 +1,2 @@
+[1;38;2;255;175;0m⚠ bash wants to run:  git push origin main[m
+[38;2;128;128;128m  a allow · A always (this exact command) · d deny · D deny with message[m
