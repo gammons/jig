@@ -6,13 +6,9 @@
 package trustfs
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
-	"strconv"
 	"sync"
 	"time"
 
@@ -138,58 +134,4 @@ func (s *Store) load() (map[string]projectGrants, error) {
 		return nil, fmt.Errorf("trustfs: parsing %s: %w", s.path, err)
 	}
 	return grants, nil
-}
-
-// Hash returns a sha256 hex digest over files, sorted by path, so the
-// result doesn't depend on the caller's order. Each file contributes
-// strconv.Itoa(len(path)) + "\n" + path + strconv.Itoa(len(content)) +
-// "\n" + content. Both the path and the content are length-prefixed:
-// project filenames are attacker-controlled (a repo can contain a
-// filename with an embedded newline and digits), so prefixing only the
-// content's length would let a crafted path forge the boundary between
-// one file's record and the next, making two different file sets hash
-// equal. Length-prefixing the path too fixes exactly how many bytes are
-// path before the content-length digits appear, closing that gap.
-// Hash(nil) is "", not the hash of an empty stream, so "no files" is
-// distinguishable from "one empty file".
-func Hash(files []string) (string, error) {
-	return HashOptional(files, nil)
-}
-
-// HashOptional is Hash over files plus optional, files that may not exist:
-// a missing optional file contributes strconv.Itoa(len(path)) + "\n" +
-// path + "-\n", which can't collide with a present file's record (whose
-// content length starts with a digit). A missing file in files is still
-// an error. The result is "" only when both lists are empty.
-func HashOptional(files, optional []string) (string, error) {
-	if len(files) == 0 && len(optional) == 0 {
-		return "", nil
-	}
-	type entry struct {
-		path     string
-		optional bool
-	}
-	all := make([]entry, 0, len(files)+len(optional))
-	for _, f := range files {
-		all = append(all, entry{f, false})
-	}
-	for _, f := range optional {
-		all = append(all, entry{f, true})
-	}
-	sort.SliceStable(all, func(i, j int) bool { return all[i].path < all[j].path })
-
-	h := sha256.New()
-	for _, e := range all {
-		content, err := os.ReadFile(e.path)
-		if e.optional && os.IsNotExist(err) {
-			fmt.Fprintf(h, "%s\n%s-\n", strconv.Itoa(len(e.path)), e.path)
-			continue
-		}
-		if err != nil {
-			return "", fmt.Errorf("trustfs: reading %s: %w", e.path, err)
-		}
-		fmt.Fprintf(h, "%s\n%s%s\n", strconv.Itoa(len(e.path)), e.path, strconv.Itoa(len(content)))
-		h.Write(content)
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }

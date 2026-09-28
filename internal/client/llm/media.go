@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"iter"
-	"strings"
 
 	"github.com/gammons/jig/internal/core"
 )
@@ -15,6 +15,13 @@ import (
 const maxRequestImages = 20
 
 const droppedNote = "[image omitted: earlier image; re-read or re-take it if needed]"
+
+// constError is an error that can be a constant (no package vars).
+type constError string
+
+func (e constError) Error() string { return string(e) }
+
+const errNoBlobStore = constError("no blob store")
 
 // BlobReader reads a stored blob by ref. *blobfs.Store satisfies it.
 type BlobReader interface {
@@ -191,7 +198,7 @@ func (m *mediaLLM) load(med core.Media) ([]byte, error) {
 		return med.Data, nil
 	}
 	if m.blobs == nil {
-		return nil, errors.New("no blob store")
+		return nil, errNoBlobStore
 	}
 	return m.blobs.Open(med.Ref)
 }
@@ -200,6 +207,18 @@ func (m *mediaLLM) omitted() string {
 	return fmt.Sprintf("[image omitted: %s does not accept images]", m.model)
 }
 
+// unavailable is the placeholder for a medium whose blob could not be
+// loaded. It names only the kind of failure, never the error text, which
+// can carry absolute paths.
 func unavailable(err error) string {
-	return "[image unavailable: " + strings.TrimSpace(err.Error()) + "]"
+	kind := "blob unreadable"
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		kind = "blob missing"
+	case errors.Is(err, fs.ErrPermission):
+		kind = "permission denied"
+	case errors.Is(err, errNoBlobStore):
+		kind = "no blob store"
+	}
+	return "[image unavailable: " + kind + "]"
 }

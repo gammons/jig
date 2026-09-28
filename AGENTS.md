@@ -160,8 +160,10 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   and agent sources come from `e.layers` (post-trust), never the raw
   project layer. The trust hash (`trustfs.HashOptional`) covers every
   project config file, agent file, and in-tree `{file:}` include (a
-  missing include hashes as absent). After the trusted re-load the hash
-  is recomputed; a mismatch makes the run untrusted. Grants are keyed by
+  missing include hashes as absent). It reads regular files only, up to
+  1 MiB each: a non-regular file or an unreadable include hashes as an
+  "unreadable" record, and a bigger file by its size. After the trusted
+  re-load the hash is recomputed; a mismatch makes the run untrusted. Grants are keyed by
   git root (or workdir) and hold a set of accepted hashes (most recent
   first, at most 16), so monorepo subdirs with different configs keep
   their own grants; `trustfs.Store.Get(project, hash)` checks membership.

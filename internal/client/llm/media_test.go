@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"iter"
 	"strings"
 	"testing"
@@ -18,7 +19,7 @@ type fakeBlobs map[string][]byte
 func (b fakeBlobs) Open(ref string) ([]byte, error) {
 	data, ok := b[ref]
 	if !ok {
-		return nil, errors.New("blob " + ref + " not found")
+		return nil, fmt.Errorf("blobfs: opening /home/u/.local/share/jig/blobs/%s: %w", ref, fs.ErrNotExist)
 	}
 	return data, nil
 }
@@ -131,7 +132,7 @@ func TestMediaLLM_BlobErrorPlaceholder(t *testing.T) {
 
 	drain(l, imageRequest("gone"))
 
-	const note = "[image unavailable: blob gone not found]"
+	const note = "[image unavailable: blob missing]"
 	got := resultOf(t, inner.got)
 	if !strings.HasSuffix(got.Output, "\n"+note) {
 		t.Errorf("sent Output = %q, want it to end with %q", got.Output, "\n"+note)
@@ -262,5 +263,19 @@ func TestMediaLLM_LoadsOnlyNewestImages(t *testing.T) {
 	}
 	if len(blobs.opened) != maxRequestImages || blobs.opened[0] != ref(5) {
 		t.Errorf("opened = %v, want exactly the last %d refs", blobs.opened, maxRequestImages)
+	}
+}
+
+func TestUnavailable_NoPaths(t *testing.T) {
+	cases := map[error]string{
+		fmt.Errorf("open /secret/a: %w", fs.ErrNotExist):   "[image unavailable: blob missing]",
+		fmt.Errorf("open /secret/a: %w", fs.ErrPermission): "[image unavailable: permission denied]",
+		errors.New("read /secret/a: input/output error"):   "[image unavailable: blob unreadable]",
+		errNoBlobStore: "[image unavailable: no blob store]",
+	}
+	for err, want := range cases {
+		if got := unavailable(err); got != want {
+			t.Errorf("unavailable(%v) = %q, want %q", err, got, want)
+		}
 	}
 }

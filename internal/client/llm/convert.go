@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 
 	"charm.land/fantasy"
 
@@ -101,12 +102,17 @@ func convertUserMessage(m core.Message) fantasy.Message {
 // whose Data has been loaded becomes a FilePart; a text attachment, or an
 // image whose Data could not be loaded (client/llm's media wrapper has
 // already replaced Content with a placeholder and cleared Media), becomes
-// a TextPart wrapping the content in an <attachment> tag.
+// a TextPart wrapping the content in an <attachment> tag. A closing tag
+// inside the content (any case) is escaped to "<\/attachment>", so the
+// content cannot end the wrapper early.
 func attachmentPart(a core.Attachment) fantasy.MessagePart {
 	if a.Media != nil && a.Media.Data != nil {
 		return fantasy.FilePart{Filename: filepath.Base(a.Path), Data: a.Media.Data, MediaType: a.Media.MIME}
 	}
-	return fantasy.TextPart{Text: fmt.Sprintf("<attachment path=%q>\n%s\n</attachment>", a.Path, a.Content)}
+	content := regexp.MustCompile(`(?i)</attachment>`).ReplaceAllStringFunc(a.Content, func(m string) string {
+		return `<\/` + m[2:]
+	})
+	return fantasy.TextPart{Text: fmt.Sprintf("<attachment path=%q>\n%s\n</attachment>", a.Path, content)}
 }
 
 // convertAssistantMessage splits m's parts into an assistant message
