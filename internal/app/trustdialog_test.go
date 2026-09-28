@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	xansi "github.com/charmbracelet/x/ansi"
 
+	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/service/trust"
 )
@@ -77,15 +78,33 @@ func TestTrustDialog_CtrlCAborts(t *testing.T) {
 }
 
 func TestTrustDialog_OtherKeysIgnored(t *testing.T) {
-	m := newTrustModel(dialogState())
-	next, cmd := m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
-	if cmd != nil {
-		if _, ok := cmd().(tea.QuitMsg); ok {
-			t.Fatal("x quit the dialog")
-		}
+	tests := []struct {
+		name string
+		key  tea.KeyPressMsg
+	}{
+		{"x", tea.KeyPressMsg{Code: 'x', Text: "x"}},
+		{"enter", tea.KeyPressMsg{Code: tea.KeyEnter}},
+		{"T", tea.KeyPressMsg{Code: 'T', Text: "T"}},
+		{"y", tea.KeyPressMsg{Code: 'y', Text: "y"}},
+		{"space", tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}},
 	}
-	if next.(trustModel).grant {
-		t.Error("x granted trust")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newTrustModel(dialogState())
+			next, cmd := m.Update(tt.key)
+			if cmd != nil {
+				if _, ok := cmd().(tea.QuitMsg); ok {
+					t.Fatalf("%s quit the dialog", tt.name)
+				}
+			}
+			got := next.(trustModel)
+			if got.grant {
+				t.Errorf("%s granted trust", tt.name)
+			}
+			if got.aborted {
+				t.Errorf("%s aborted the dialog", tt.name)
+			}
+		})
 	}
 }
 
@@ -123,8 +142,8 @@ func TestTrustDialog_WrapsLongEffects(t *testing.T) {
 		if strings.Contains(l, "TAIL") {
 			found = true
 		}
-		if len([]rune(l)) > trustWrapWidth {
-			t.Errorf("line %q is wider than %d", l, trustWrapWidth)
+		if w := ansi.Width(l); w > trustWrapWidth {
+			t.Errorf("line %q is %d cells wide, want <= %d", l, w, trustWrapWidth)
 		}
 	}
 	if !found {

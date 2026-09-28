@@ -37,18 +37,31 @@ func TestRunTUI_NotATerminalExits2(t *testing.T) {
 	}
 }
 
-// /dev/null is a character device but not a terminal.
-func TestIsTerminal_DevNullIsNot(t *testing.T) {
+// /dev/null is a character device but not a terminal; a pipe is neither.
+func TestIsTerminal_DevNullAndPipesAreNot(t *testing.T) {
 	f, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
 		t.Skip(err)
 	}
 	defer f.Close()
-	if isTerminal(f) {
-		t.Error("isTerminal(/dev/null) = true")
+	if isTerminalOut(f) {
+		t.Error("isTerminalOut(/dev/null) = true")
 	}
-	if isTerminal(&bytes.Buffer{}) {
-		t.Error("isTerminal(buffer) = true")
+	if isTerminalOut(&bytes.Buffer{}) {
+		t.Error("isTerminalOut(buffer) = true")
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	if isTerminalIn(r) {
+		t.Error("isTerminalIn(pipe) = true")
+	}
+	if isTerminalIn(strings.NewReader("")) {
+		t.Error("isTerminalIn(reader) = true")
 	}
 }
 
@@ -87,7 +100,8 @@ type fakeTUI struct {
 
 func (f *fakeTUI) deps() tuiDeps {
 	return tuiDeps{
-		isTerminal: func(io.Writer) bool { return true },
+		outIsTerminal: func(io.Writer) bool { return true },
+		inIsTerminal:  func(io.Reader) bool { return true },
 		runProgram: func(_ context.Context, m tea.Model, _ Stdio) error {
 			f.model = m
 			return f.err
@@ -118,6 +132,29 @@ func TestRunTUI_KeybindWarningsPrinted(t *testing.T) {
 	}
 	if _, ok := f.model.(*ui.App); !ok {
 		t.Errorf("program model = %T, want *ui.App", f.model)
+	}
+}
+
+// A non-terminal std.In (e.g. `echo t | jig`, piping an answer to the
+// trust dialog) must exit 2 even when std.Out is a terminal.
+func TestRunTUI_NonTerminalStdinExits2(t *testing.T) {
+	env := newTestEnv(t)
+	d := tuiDeps{
+		outIsTerminal: func(io.Writer) bool { return true },
+		inIsTerminal:  func(io.Reader) bool { return false },
+		runProgram: func(context.Context, tea.Model, Stdio) error {
+			t.Fatal("runProgram called with a non-terminal stdin")
+			return nil
+		},
+	}
+	var out, errw bytes.Buffer
+	std := Stdio{In: strings.NewReader("t\n"), Out: &out, Err: &errw}
+	code := d.run(t.Context(), []string{"--cwd", env.workDir}, std, env.getenv)
+	if code != exitConfig {
+		t.Errorf("exit = %d, want %d", code, exitConfig)
+	}
+	if errw.String() != wantNoTerminal {
+		t.Errorf("stderr = %q, want %q", errw.String(), wantNoTerminal)
 	}
 }
 

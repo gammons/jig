@@ -27,38 +27,40 @@ import (
 )
 
 // noTerminalMessage is printed when `jig` (the TUI) runs without a
-// terminal on stdout (R25).
+// terminal on stdin or stdout (R25).
 const noTerminalMessage = `jig: the interactive UI needs a terminal; use: jig run "prompt"`
 
 // defaultTheme is the theme used when neither prefs nor config name one,
 // or when the named one is unknown.
 const defaultTheme = "dark"
 
-// tuiDeps are runTUI's seams: the terminal check and the program runner,
+// tuiDeps are runTUI's seams: the terminal checks and the program runner,
 // so tests never start a real program.
 type tuiDeps struct {
-	isTerminal func(io.Writer) bool
-	runProgram func(ctx context.Context, m tea.Model, std Stdio) error
+	outIsTerminal func(io.Writer) bool
+	inIsTerminal  func(io.Reader) bool
+	runProgram    func(ctx context.Context, m tea.Model, std Stdio) error
 }
 
 // runTUI implements `jig [--cwd DIR] [--session ID] [--trust-project]`.
 func runTUI(ctx context.Context, args []string, std Stdio, getenv func(string) string) int {
-	return tuiDeps{isTerminal: isTerminal, runProgram: runProgram}.run(ctx, args, std, getenv)
+	return tuiDeps{outIsTerminal: isTerminalOut, inIsTerminal: isTerminalIn, runProgram: runProgram}.run(ctx, args, std, getenv)
 }
 
-// run parses args, checks for a terminal, decides trust (the trust
-// dialog, or granted by --trust-project), builds the runtime with a
-// permission.BusAsker, and runs the TUI until it quits.
+// run parses args, checks that both std.Out and std.In are terminals (a
+// pipe on either, e.g. `echo t | jig`, is not interactive), decides trust
+// (the trust dialog, or granted by --trust-project), builds the runtime
+// with a permission.BusAsker, and runs the TUI until it quits.
 func (d tuiDeps) run(ctx context.Context, args []string, std Stdio, getenv func(string) string) int {
 	opts, err := parseTUI(args, std.Err)
 	if err != nil {
 		return exitConfig
 	}
-	if !d.isTerminal(std.Out) {
+	if !d.outIsTerminal(std.Out) || !d.inIsTerminal(std.In) {
 		fmt.Fprintln(std.Err, noTerminalMessage)
 		return exitConfig
 	}
-	decide := trustDialog(std)
+	decide := trustDialog(ctx, std)
 	if opts.trustProject {
 		decide = staticTrust(true)
 	}
@@ -187,16 +189,22 @@ func imageEnv(getenv func(string) string) imgrender.Env {
 	}
 }
 
-// isTerminal reports whether w is a terminal: an *os.File that is a
+// isTerminalOut reports whether w is a terminal.
+func isTerminalOut(w io.Writer) bool { return isTerminalFile(w) }
+
+// isTerminalIn reports whether r is a terminal.
+func isTerminalIn(r io.Reader) bool { return isTerminalFile(r) }
+
+// isTerminalFile reports whether f is a terminal: an *os.File that is a
 // character device and answers terminal ioctls (so /dev/null, a
-// character device too, is not one).
-func isTerminal(w io.Writer) bool {
-	f, ok := w.(*os.File)
+// character device too, and a pipe, are not one).
+func isTerminalFile(f any) bool {
+	file, ok := f.(*os.File)
 	if !ok {
 		return false
 	}
-	info, err := f.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0 && term.IsTerminal(f.Fd())
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0 && term.IsTerminal(file.Fd())
 }
 
 // runProgram runs m as a full tea program on std until it quits or ctx

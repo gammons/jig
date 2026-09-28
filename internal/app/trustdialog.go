@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -23,10 +24,12 @@ var ErrTrustAborted = errors.New("trust dialog cancelled")
 
 // trustDialog is the TUI's trustDecider: a short-lived tea program on std
 // showing the project path and every effect, where t trusts and n or esc
-// continues untrusted. ctrl+c aborts jig.
-func trustDialog(std Stdio) trustDecider {
+// continues untrusted. ctrl+c aborts jig. ctx is the same base context the
+// main program later runs under, so an external cancellation (e.g.
+// SIGTERM) stops the dialog too.
+func trustDialog(ctx context.Context, std Stdio) trustDecider {
 	return func(st trustState) (bool, error) {
-		p := tea.NewProgram(newTrustModel(st), tea.WithInput(std.In), tea.WithOutput(std.Out))
+		p := tea.NewProgram(newTrustModel(st), tea.WithContext(ctx), tea.WithInput(std.In), tea.WithOutput(std.Out))
 		final, err := p.Run()
 		if err != nil {
 			return false, err
