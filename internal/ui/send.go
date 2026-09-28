@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -80,18 +81,45 @@ func lastN(s []string, n int) []string {
 	return slices.Clone(s[max(0, len(s)-n):])
 }
 
-// ctrlC is the ctrl+c ladder: clear a queued send and cancel the run (one
-// press), else cancel the run, else clear the prompt, else quit.
+// cancelGrace is how long after a ctrl+c that cancelled a run further
+// ctrl+c presses do nothing, so a double tap can't quit.
+const cancelGrace = time.Second
+
+// runHint is the hint INSERT's ctrl+d shows instead of quitting mid-run.
+const runHint = "run in progress · ctrl+c to cancel"
+
+// ctrlC is INSERT's ctrl+c ladder: clear a queued send and cancel the run
+// (one press), else cancel the run, else clear the prompt, else quit. For
+// cancelGrace after a press that cancelled, a press does nothing.
 func (s sender) ctrlC() tea.Cmd {
 	a := s.a
+	now := a.opts.Clock.Now()
 	switch {
-	case a.sess.queued || a.sess.run.busy():
+	case !a.sess.run.cancelledAt.IsZero() && now.Sub(a.sess.run.cancelledAt) < cancelGrace:
+		return nil
+	case s.inRun():
+		a.sess.run.cancelledAt = now
 		return s.cancelRun()
 	case a.w.prompt.Value() != "":
 		a.w.prompt.Reset()
 		return nil
 	}
 	return a.quit()
+}
+
+// inRun reports whether a send is in flight, unsettled, or queued.
+func (s sender) inRun() bool {
+	return s.a.sess.queued || s.a.sess.run.busy()
+}
+
+// ctrlD is INSERT's ctrl+d on an empty prompt: quit when idle; during a
+// run, a hint instead.
+func (s sender) ctrlD() tea.Cmd {
+	if s.inRun() {
+		s.a.view.hint = runHint
+		return nil
+	}
+	return s.a.quit()
 }
 
 // cancelRun drops a queued send, then cancels the send in flight: its

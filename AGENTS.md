@@ -413,9 +413,14 @@ Each has one key handler that runs its fixed R21 keys first, then
 
 - INSERT (`mode_insert.go`, `insertKeys`): the prompt has focus. `enter`
   sends (or queues during a run), `esc` → NORMAL, `tab`/`shift+tab`
-  cycle primary agents, `@` opens the file picker, `ctrl+d` on an empty
-  prompt quits, `ctrl+c` cancels a run.
-- NORMAL (`mode_normal.go`, `normalKeys`): vim-style navigation of the
+  cycle primary agents, `@` opens the file picker, `ctrl+d` on an empty prompt quits
+  when idle (during a run or with a queued send it only hints
+  `run in progress · ctrl+c to cancel`). `ctrl+c` is a ladder: cancel
+  the run (and drop the queue), else clear the prompt, else quit; for
+  1 s after a press that cancelled a run (`cancelGrace`, App clock),
+  further presses do nothing.
+- NORMAL (`mode_normal.go`, `normalKeys`): `ctrl+c` only cancels a
+  run (never clears or quits); vim-style navigation of the
   transcript list (`j k gg G ctrl+d ctrl+u`, `n`/`N` search matches),
   `enter` toggles the details split (`ctrl+e`/`ctrl+y` scroll it),
   `q`/`esc` close the split or clear the search, `gp` jumps to the next

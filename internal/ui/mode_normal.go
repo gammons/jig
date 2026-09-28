@@ -38,8 +38,8 @@ func (h normalKeys) handle(k tea.KeyPressMsg) tea.Cmd {
 		return permCtl{a}.key(k) // the deny message, enter, esc
 	}
 	switch key {
-	case "ctrl+c":
-		return a.sender().ctrlC()
+	case "ctrl+c": // spec §6.3: cancel the run only; never clear or quit
+		return a.sender().cancelRun()
 	case "g":
 		a.view.keyPrefix = "g"
 		return nil

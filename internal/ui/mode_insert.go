@@ -21,7 +21,7 @@ func (h insertKeys) handle(k tea.KeyPressMsg) tea.Cmd {
 		return a.sender().ctrlC()
 	case "ctrl+d":
 		if a.w.prompt.Value() == "" {
-			return a.quit()
+			return a.sender().ctrlD()
 		}
 	case "esc":
 		return a.setMode(modeNormal)

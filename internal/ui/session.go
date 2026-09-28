@@ -22,18 +22,20 @@ import (
 // (a RunFinished always follows one; an earlier RunFinished is stale).
 // running is what the UI shows. userID and text are the send's user
 // block and prompt text, to undo a send that never ran. frame is the
-// spinner frame, advanced by streamTick.
+// spinner frame, advanced by streamTick. cancelledAt is when an INSERT
+// ctrl+c last cancelled this run (sender.ctrlC's grace period).
 type runState struct {
-	running   bool
-	inFlight  bool
-	started   bool
-	ended     bool
-	awaitEnd  bool
-	startedAt time.Time
-	cancel    context.CancelFunc
-	userID    transcript.BlockID
-	text      string
-	frame     int
+	running     bool
+	inFlight    bool
+	started     bool
+	ended       bool
+	awaitEnd    bool
+	startedAt   time.Time
+	cancelledAt time.Time
+	cancel      context.CancelFunc
+	userID      transcript.BlockID
+	text        string
+	frame       int
 }
 
 // busy reports whether a new send must wait (be queued).

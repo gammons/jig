@@ -450,6 +450,82 @@ func TestApp_CtrlCLadder(t *testing.T) {
 	})
 }
 
+func TestApp_CtrlCDoubleTapAfterCancelDoesNotQuit(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("go")
+	ta.key("ctrl+c") // cancels the run
+	ta.event(event.RunFailed{Base: rootBase(), Err: "cancelled"})
+	ta.returnSend()
+	if ta.app.sess.run.busy() {
+		t.Fatal("test setup: still busy after the run ended")
+	}
+	ta.clk.Advance(900 * time.Millisecond)
+	ta.key("ctrl+c") // the double tap, now idle with an empty prompt
+	if ta.quit {
+		t.Fatal("a ctrl+c within 1 s of cancelling quit")
+	}
+	ta.typeText("draft")
+	ta.key("ctrl+c")
+	if ta.app.w.prompt.Value() != "draft" {
+		t.Errorf("a ctrl+c within 1 s of cancelling cleared the prompt")
+	}
+	ta.clk.Advance(200 * time.Millisecond)
+	ta.key("ctrl+c")
+	if ta.app.w.prompt.Value() != "" {
+		t.Errorf("ctrl+c 1.1 s after cancelling did not clear the prompt")
+	}
+	ta.key("ctrl+c")
+	if !ta.quit {
+		t.Error("ctrl+c on an empty idle prompt, 1.1 s after cancelling, did not quit")
+	}
+}
+
+func TestApp_NormalCtrlCOnlyCancels(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.typeText("draft")
+	ta.key("esc")
+	ta.key("ctrl+c")
+	if ta.quit || ta.app.w.prompt.Value() != "draft" {
+		t.Fatalf("idle NORMAL ctrl+c: quit=%v prompt=%q; want neither quit nor cleared", ta.quit, ta.app.w.prompt.Value())
+	}
+	ta.key("i")
+	ta.key("ctrl+c") // clear
+	ta.key("esc")
+	ta.key("ctrl+c")
+	if ta.quit {
+		t.Fatal("idle NORMAL ctrl+c on an empty prompt quit")
+	}
+
+	ta.key("i")
+	ta.sendAndAdopt("go")
+	ta.key("esc")
+	ta.key("ctrl+c")
+	if !slices.Equal(ta.chat.cancels, []core.SessionID{"ses_1"}) || ta.quit {
+		t.Errorf("running NORMAL ctrl+c: cancels = %v quit=%v; want one Cancel(ses_1)", ta.chat.cancels, ta.quit)
+	}
+}
+
+func TestApp_CtrlDDuringRunHints(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("go")
+	ta.key("ctrl+d")
+	if ta.quit {
+		t.Fatal("ctrl+d on an empty prompt quit during a run")
+	}
+	if got := ta.app.statusState().Hint; got != "run in progress · ctrl+c to cancel" {
+		t.Errorf("hint = %q, want the run-in-progress hint", got)
+	}
+	ta.event(event.RunFinished{Base: rootBase()})
+	ta.returnSend()
+	ta.key("ctrl+d")
+	if !ta.quit {
+		t.Error("ctrl+d on an empty prompt did not quit once idle")
+	}
+}
+
 func TestApp_CtrlDQuitsOnlyOnEmptyPrompt(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
