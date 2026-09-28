@@ -3,6 +3,7 @@ package app
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"io"
 	"path/filepath"
 
@@ -24,6 +25,12 @@ const defaultCatwalkURL = "https://catwalk.charm.land"
 // openStore opens the SQLite store at <DataDir>/jig.db.
 func openStore(ctx context.Context, e env) (*store.Store, error) {
 	return store.Open(ctx, filepath.Join(e.paths.DataDir, "jig.db"))
+}
+
+// prefsPath is the path to jig's persisted preferences file
+// ($XDG_STATE_HOME/jig/prefs.json).
+func (e env) prefsPath() string {
+	return filepath.Join(e.paths.StateDir, "prefs.json")
 }
 
 // newCatalog loads the provider catalog from <CacheDir>/catalog.json (or
@@ -52,12 +59,21 @@ type discovered struct {
 	sources agents.Sources
 }
 
-// discover finds skills for e and assembles the agent sources from e's
-// post-trust layers, writing skill and markdown agent warnings to errw.
+// discover finds skills for e (with agent-browser's skills dir, if any,
+// prepended as the lowest-precedence directory) and assembles the agent
+// sources from e's post-trust layers, writing skill, markdown agent, and
+// agent-browser warnings to errw.
 func discover(e env, errw io.Writer) discovered {
-	skills, warns := skillfs.Discover(skillfs.Dirs(e.paths, e.gitRoot, e.workDir, e.cfg().SkillPaths))
+	dirs := skillfs.Dirs(e.paths, e.gitRoot, e.workDir, e.cfg().SkillPaths)
+	if e.browser.skillsDir != "" {
+		dirs = append([]string{e.browser.skillsDir}, dirs...)
+	}
+	skills, warns := skillfs.Discover(dirs)
 	printWarnings(errw, warns)
 	printWarnings(errw, e.agentWarns)
+	for _, w := range e.browserWarns {
+		fmt.Fprintln(errw, w)
+	}
 
 	return discovered{
 		skills: skills,

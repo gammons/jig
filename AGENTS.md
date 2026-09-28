@@ -52,6 +52,7 @@ internal/data/atomicfile/               temp-file-then-rename atomic writes
 internal/data/blobfs/                   content-addressed blob store
 internal/data/prefsfs/                  core.Prefs JSON persistence
 internal/data/trustfs/                  trust grants + project config hash
+internal/client/agentbrowser/           agent-browser detection + skills path exec
 internal/client/catalog/                catwalk catalog
 internal/client/llm/                    fantasy adapter + model Source
 internal/client/llm/jigtest/            scripted provider (build tag jigtest)
@@ -200,6 +201,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   request; unsupported models get the `[image omitted: …]` text instead.
 - `GenerateTitle` never overwrites a non-placeholder title.
 - Stored `Session.Cwd` is `pathid.Key(workDir)`.
+- The agent-browser preset is the lowest config layer, and only when the
+  integration is enabled; an untrusted project cannot enable it.
 
 ## Shared code — check here before writing a helper
 

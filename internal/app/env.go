@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 
+	"github.com/gammons/jig/internal/client/agentbrowser"
 	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/data/agentfs"
@@ -22,14 +24,16 @@ import (
 // env is everything resolved from the process environment and the
 // config files before any service is built.
 type env struct {
-	paths      paths.Paths
-	workDir    string // absolute
-	gitRoot    string // "" outside a git repo
-	trust      trustState
-	layers     trust.Layers      // post-decision: the project layers are restricted unless trusted
-	merged     core.Config       // config.Merge(layers.Global, layers.Project), computed once in loadEnv
-	agentWarns []skillfs.Warning // markdown agent discovery warnings, printed by discover
-	getenv     func(string) string
+	paths        paths.Paths
+	workDir      string // absolute
+	gitRoot      string // "" outside a git repo
+	trust        trustState
+	layers       trust.Layers      // post-decision: the project layers are restricted unless trusted
+	merged       core.Config       // config.Merge(layers.Global, layers.Project), computed once in loadEnv
+	agentWarns   []skillfs.Warning // markdown agent discovery warnings, printed by discover
+	browser      browserIntegration
+	browserWarns []string // agent-browser warnings, printed by discover
+	getenv       func(string) string
 }
 
 func (e env) cfg() core.Config { return e.merged }
@@ -92,6 +96,7 @@ func (e *env) resolveLayers(decide trustDecider, clk clock.Clock) error {
 			return err
 		}
 	}
+	l, e.browser, e.browserWarns = resolveBrowser(l, st.trusted, exec.LookPath, e.prefsPath(), agentbrowser.SkillsPath)
 	e.layers, e.trust = applyTrust(l, st)
 	return nil
 }

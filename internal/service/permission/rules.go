@@ -21,6 +21,33 @@ func Defaults() core.PermissionRules {
 	}
 }
 
+// AgentBrowserPreset returns the permission rules the agent-browser
+// integration merges in when enabled: read-only/low-risk bash subcommands
+// are allowed, and any other "agent-browser ..." invocation asks. It sets
+// no Default (soundness relies on it never being looser than "ask") and
+// no pattern denies anything, since the preset is meant only to loosen
+// jig's normal bash-asks-by-default baseline for a known-safe set of
+// subcommands.
+func AgentBrowserPreset() core.PermissionRules {
+	return core.PermissionRules{
+		"bash": {
+			Patterns: map[string]core.Action{
+				"agent-browser snapshot*":   core.Allow,
+				"agent-browser screenshot*": core.Allow,
+				"agent-browser console*":    core.Allow,
+				"agent-browser errors*":     core.Allow,
+				"agent-browser get *":       core.Allow,
+				"agent-browser is *":        core.Allow,
+				"agent-browser tab":         core.Allow,
+				"agent-browser a11y*":       core.Allow,
+				"agent-browser vitals*":     core.Allow,
+				"agent-browser read*":       core.Allow,
+				"agent-browser *":           core.Ask,
+			},
+		},
+	}
+}
+
 // Effective merges an agent's permission rules over a config's over
 // Defaults(), per tool, covering the union of every tool named by any of
 // the three. Precedence (highest first) is agent, cfg, Defaults(): a
