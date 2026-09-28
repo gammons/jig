@@ -117,6 +117,19 @@ func (r *Runner) Run(ctx context.Context, rc ext.RunContext, userText string) (c
 	return r.finish(rc, last, usage, cost), nil
 }
 
+// Exclusive runs fn while holding id's slot in the running map: a Run on id
+// returns core.ErrBusy while fn runs, and Exclusive itself returns
+// core.ErrBusy if a Run (or another Exclusive) already holds id. Cancel(id)
+// cancels fn's ctx, same as it would a Run.
+func (r *Runner) Exclusive(ctx context.Context, id core.SessionID, fn func(context.Context) error) error {
+	ctx, release, err := r.register(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return fn(ctx)
+}
+
 // Cancel cancels the running turn for id, if any.
 func (r *Runner) Cancel(id core.SessionID) {
 	r.mu.Lock()

@@ -20,6 +20,8 @@ type SendResult struct {
 // ChatService is the port the UIs call to drive a conversation.
 type ChatService interface {
 	Send(ctx context.Context, req SendRequest) (SendResult, error)
+	// Compact returns ErrBusy while a run is in progress on id.
+	Compact(ctx context.Context, id SessionID) error
 	Cancel(id SessionID)
 	Close(ctx context.Context) error
 }

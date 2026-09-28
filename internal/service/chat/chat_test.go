@@ -77,6 +77,43 @@ type nopBus struct{}
 
 func (nopBus) Publish(event.Event) {}
 
+// recorder signals on runStarted whenever a MessageStarted event is
+// published, so a test can know a Run has registered in the Runner's
+// running map before it proceeds.
+type recorder struct {
+	started chan struct{}
+}
+
+func newRecorder() *recorder { return &recorder{started: make(chan struct{}, 16)} }
+
+func (r *recorder) Publish(e event.Event) {
+	if _, ok := e.(event.MessageStarted); ok {
+		select {
+		case r.started <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func waitStarted(t *testing.T, rec *recorder) {
+	t.Helper()
+	select {
+	case <-rec.started:
+	case <-time.After(closeTimeout):
+		t.Fatal("timed out waiting for MessageStarted")
+	}
+}
+
+func drainStarted(rec *recorder) {
+	for {
+		select {
+		case <-rec.started:
+		default:
+			return
+		}
+	}
+}
+
 func mainModel() core.ModelRef  { return core.ModelRef{Provider: "prov", Model: "main"} }
 func smallModel() core.ModelRef { return core.ModelRef{Provider: "prov", Model: "small"} }
 
@@ -85,6 +122,7 @@ type fixture struct {
 	llms     *fakeLLMs
 	sessions *session.Service
 	touches  *touchCounter
+	rec      *recorder
 	svc      *Service
 	workDir  string
 	deps     Deps
@@ -115,11 +153,12 @@ func newFixture(t *testing.T, main, small *llmtest.Client) *fixture {
 		errs:    map[core.ModelRef]error{},
 	}
 	sessions := session.New(session.Deps{Store: st, LLMs: llms, Agents: ag, Bus: nopBus{}, Clock: clk, IDs: gen})
+	rec := newRecorder()
 	runner := agent.NewRunner(agent.Deps{
 		LLMs: llms, Ext: ext.NewRegistry().Freeze(), Store: st, History: sessions,
-		Bus: nopBus{}, Clock: clk, IDs: gen,
+		Bus: rec, Clock: clk, IDs: gen,
 	})
-	f := &fixture{t: t, llms: llms, sessions: sessions, touches: &touchCounter{Service: sessions}, workDir: t.TempDir()}
+	f := &fixture{t: t, llms: llms, sessions: sessions, touches: &touchCounter{Service: sessions}, rec: rec, workDir: t.TempDir()}
 	f.deps = Deps{Sessions: f.touches, Agents: ag, LLMs: llms, Runner: runner, WorkDir: f.workDir}
 	f.svc = New(f.deps)
 	t.Cleanup(func() { f.close() })

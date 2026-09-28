@@ -44,6 +44,7 @@ type Sessions interface {
 	Update(ctx context.Context, sess core.Session) error
 	Touch(ctx context.Context, id core.SessionID) error
 	GenerateTitle(ctx context.Context, id core.SessionID, firstPrompt string) error
+	Compact(ctx context.Context, id core.SessionID) error
 }
 
 // Agents looks up agents and resolves their models.
@@ -63,6 +64,9 @@ type LLMSource interface {
 // Runner drives agent turns.
 type Runner interface {
 	Run(ctx context.Context, rc ext.RunContext, text string) (core.Message, error)
+	// Exclusive runs fn while holding id's slot in the running map, so it
+	// excludes (and is excluded by) a Run on id.
+	Exclusive(ctx context.Context, id core.SessionID, fn func(context.Context) error) error
 	Cancel(id core.SessionID)
 }
 

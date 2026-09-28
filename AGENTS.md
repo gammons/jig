@@ -21,11 +21,13 @@ progress through an in-process event bus. `internal/app` is the only package
 that knows the concrete types.
 
 The UIs call services only through three ports in `internal/core/ports.go`:
-`core.ChatService` (implemented by `service/chat`), `core.SessionService`
-(implemented by `service/session`, covering listing, `Rename`, and
-`Configure`), and `core.PermissionService` (implemented by
-`permission.BusAsker`). `chat.Send` failures caused by configuration or
-input are `*chat.ConfigError` (headless exit 2).
+`core.ChatService` (implemented by `service/chat`; `Send` drives a turn,
+`Compact` summarizes history behind the Runner's busy exclusion),
+`core.SessionService` (implemented by `service/session`, covering listing,
+`Rename`, and `Configure`), and `core.PermissionService` (implemented by
+`permission.BusAsker`). `chat.Send` and `chat.Compact` failures caused by
+configuration or input (including a missing session) are `*chat.ConfigError`
+(headless exit 2).
 
 ```
 cmd/jig/main.go                         entry: os.Exit(app.Run(...))
@@ -149,6 +151,12 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 - Session read-modify-writes (`Touch`, title save) go through
   `session.Service`'s mutex; don't `Get`+`Update` a session concurrently
   with a run.
+- The Runner's `running` map is the one owner of per-session busyness: `Run`
+  registers id there for the turn, and `chat.Compact` registers the same id
+  there via `Runner.Exclusive` for the compaction, so a run and a
+  compaction on the same session always exclude each other. Either returns
+  `core.ErrBusy` when the other holds id; `Cancel(id)` cancels whichever one
+  does.
 - `agent.Proxy` is the only setter-style late binding (for the task tool);
   `Set` panics if called twice.
 - `llm.Source` resolves provider factories through a providers-only
