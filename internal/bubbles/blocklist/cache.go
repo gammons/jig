@@ -8,11 +8,10 @@ import (
 	"github.com/gammons/jig/internal/bubbles/ansi"
 )
 
-// entry is one item's render, memoized under the key (ID, Version, width,
-// stylesVersion). The ID is the map key in cache.entries; the rest are
-// stored here. lines is dropped on eviction; height and the search memo
+// slot is one render of an item, memoized under the key (Version, width,
+// stylesVersion). lines is dropped on eviction; height and the search memo
 // survive it, so offsets and match counts never need a re-render.
-type entry struct {
+type slot struct {
 	version, width, sv int
 	height             int
 	lines              []string // each exactly width cells; nil once evicted
@@ -22,12 +21,20 @@ type entry struct {
 	matchKnown bool
 }
 
+// entry is one item's renders, keyed by its ID in cache.entries: the one
+// at the current width and the one at the previous width, so toggling
+// between two widths (the details split opening and closing) re-renders
+// nothing.
+type entry struct {
+	cur, prev slot
+}
+
 // cache holds every entry. Model keeps it behind a pointer so View, a value
 // method, can fill and evict it; its contents are only a memo of RenderFunc,
 // never state View's output depends on.
 type cache struct {
 	entries map[string]*entry
-	live    map[string]struct{} // IDs whose entry currently holds lines
+	live    map[string]struct{} // IDs whose entry currently holds lines in a slot
 	renders int                 // RenderFunc calls, for tests
 }
 
@@ -35,72 +42,103 @@ func newCache() *cache {
 	return &cache{entries: map[string]*entry{}, live: map[string]struct{}{}}
 }
 
-// valid reports whether e is it's render at width and sv.
-func (e *entry) valid(it Item, width, sv int) bool {
-	return e != nil && e.version == it.Version && e.width == width && e.sv == sv
+// valid reports whether s is it's render at width and sv. A zero slot
+// (width 0) never is: renders always have width >= 1.
+func (s *slot) valid(it Item, width, sv int) bool {
+	return s.width == width && s.width > 0 && s.version == it.Version && s.sv == sv
 }
 
-// get returns it's entry with lines, rendering it when it is missing,
-// stale, or evicted. An evicted entry re-rendered under the same key keeps
-// its recorded height, so offsets computed from it stay correct.
-func (c *cache) get(it Item, width, sv int, st Styles, render RenderFunc) *entry {
+// find returns e's slot for it at width and sv, or nil.
+func (e *entry) find(it Item, width, sv int) *slot {
+	switch {
+	case e == nil:
+		return nil
+	case e.cur.valid(it, width, sv):
+		return &e.cur
+	case e.prev.valid(it, width, sv):
+		return &e.prev
+	}
+	return nil
+}
+
+// get returns it's slot with lines, rendering it when it is missing,
+// stale, or evicted. An evicted slot re-rendered under the same key keeps
+// its recorded height, so offsets computed from it stay correct. A render
+// at a new width moves the current slot to prev; one at the current width
+// (a new version or styles) replaces it in place.
+func (c *cache) get(it Item, width, sv int, st Styles, render RenderFunc) *slot {
 	e := c.entries[it.ID]
-	if e.valid(it, width, sv) && e.lines != nil {
-		return e
+	s := e.find(it, width, sv)
+	if s != nil && s.lines != nil {
+		return s
 	}
 	lines := fit(render(it, width, st), width)
 	c.renders++
 	c.live[it.ID] = struct{}{}
-	if e.valid(it, width, sv) {
-		e.lines = resize(lines, e.height, width)
-		return e
+	if s != nil {
+		s.lines = resize(lines, s.height, width)
+		return s
 	}
-	e = &entry{version: it.Version, width: width, sv: sv, height: len(lines), lines: lines}
-	c.entries[it.ID] = e
-	return e
+	if e == nil {
+		e = &entry{}
+		c.entries[it.ID] = e
+	}
+	if e.cur.width != width {
+		e.prev = e.cur
+	}
+	e.cur = slot{version: it.Version, width: width, sv: sv, height: len(lines), lines: lines}
+	return &e.cur
 }
 
 // height returns it's height at width and sv, rendering only when no valid
-// entry exists.
+// slot exists.
 func (c *cache) height(it Item, width, sv int, st Styles, render RenderFunc) int {
-	if e := c.entries[it.ID]; e.valid(it, width, sv) {
-		return e.height
+	if s := c.entries[it.ID].find(it, width, sv); s != nil {
+		return s.height
 	}
 	return c.get(it, width, sv, st, render).height
 }
 
 // matches reports whether it's rendered lines, stripped of escapes,
-// contain query case-insensitively. The answer is memoized per entry.
+// contain query case-insensitively. The answer is memoized per slot.
 func (c *cache) matches(it Item, width, sv int, st Styles, render RenderFunc, query string) bool {
 	if query == "" {
 		return false
 	}
-	if e := c.entries[it.ID]; e.valid(it, width, sv) && e.matchKnown && e.matchQuery == query {
-		return e.matched
+	if s := c.entries[it.ID].find(it, width, sv); s != nil && s.matchKnown && s.matchQuery == query {
+		return s.matched
 	}
-	e := c.get(it, width, sv, st, render)
+	s := c.get(it, width, sv, st, render)
 	q := strings.ToLower(query)
-	e.matched = false
-	for _, l := range e.lines {
+	s.matched = false
+	for _, l := range s.lines {
 		if strings.Contains(strings.ToLower(xansi.Strip(l)), q) {
-			e.matched = true
+			s.matched = true
 			break
 		}
 	}
-	e.matchQuery, e.matchKnown = query, true
-	return e.matched
+	s.matchQuery, s.matchKnown = query, true
+	return s.matched
 }
 
-// evict drops the lines of every live entry keep rejects. Heights stay.
-func (c *cache) evict(keep func(id string) bool) {
+// evict drops the lines of every slot of a live entry that keep rejects.
+// Heights stay.
+func (c *cache) evict(keep func(id string, s *slot) bool) {
 	for id := range c.live {
-		if keep(id) {
+		e := c.entries[id]
+		if e == nil {
+			delete(c.live, id)
 			continue
 		}
-		if e := c.entries[id]; e != nil {
-			e.lines = nil
+		if e.cur.lines != nil && !keep(id, &e.cur) {
+			e.cur.lines = nil
 		}
-		delete(c.live, id)
+		if e.prev.lines != nil && !keep(id, &e.prev) {
+			e.prev.lines = nil
+		}
+		if e.cur.lines == nil && e.prev.lines == nil {
+			delete(c.live, id)
+		}
 	}
 }
 

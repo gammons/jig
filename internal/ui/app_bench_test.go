@@ -43,16 +43,52 @@ func BenchmarkApp_Resize2000(b *testing.B) {
 		b.Fatalf("list has %d items, want 2000", n)
 	}
 	_ = ta.view()
-	widths := [2]int{150, 160}
+	// Three widths in turn: the list keeps two widths' renders, so each
+	// step is a width it holds nothing for.
+	widths := [3]int{150, 155, 160}
 	b.ReportAllocs()
 	i := 0
 	for b.Loop() {
-		w := widths[i%2]
+		w := widths[i%3]
 		i++
 		for _, burst := range []int{w - 2, w - 1, w} {
 			ta.send(tea.WindowSizeMsg{Width: burst, Height: 40})
 		}
 		ta.fire()
 		_ = ta.view()
+	}
+}
+
+// BenchmarkApp_DetailsToggle2000 measures opening and closing the details
+// split (enter, then q, each followed by the width debounce and a View)
+// on a resumed 2,000-block session, after one warm-up pair: both widths
+// are then cached, so a toggle re-renders nothing in the list.
+func BenchmarkApp_DetailsToggle2000(b *testing.B) {
+	ta := newTestApp(b, withSize(150, 40), withResume(core.Session{ID: "ses_big", Agent: "build"}, benchHistory(2000), nil))
+	if n := ta.app.w.list.Len(); n != 2000 {
+		b.Fatalf("list has %d items, want 2000", n)
+	}
+	toggle := func() {
+		for _, k := range []string{"enter", "q"} {
+			ta.key(k)
+			ta.fire()
+			_ = ta.view()
+		}
+	}
+	ta.key("esc")
+	_ = ta.view()
+	closedW := ta.app.view.listW
+	ta.key("enter")
+	ta.fire()
+	_ = ta.view()
+	if !ta.app.view.detailsOpen || ta.app.view.listW == closedW {
+		b.Fatalf("enter did not open the split at a new list width (open %v, width %d)", ta.app.view.detailsOpen, closedW)
+	}
+	ta.key("q")
+	ta.fire()
+	_ = ta.view()
+	b.ReportAllocs()
+	for b.Loop() {
+		toggle()
 	}
 }

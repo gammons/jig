@@ -10,13 +10,15 @@ import (
 // from, the current one, and the Set built from it. version is the
 // styles version pushed to widgets that cache renders; it only grows.
 // orig is the palette to restore while the theme picker previews
-// another (nil when no preview is in progress).
+// another (nil when no preview is in progress). gen keys the debounced
+// preview (themeApplyMsg): only the latest highlight change applies.
 type themeState struct {
 	custom  []theme.Palette
 	current theme.Palette
 	version int
 	set     theme.Set
 	orig    *theme.Palette
+	gen     int
 }
 
 // newThemeState picks name among custom and the built-ins, falling back to

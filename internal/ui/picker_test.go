@@ -316,6 +316,7 @@ func TestApp_ThemePreviewEscRestores(t *testing.T) {
 	ta.typeText("switch theme")
 	ta.key("enter")
 	ta.typeText("nord")
+	ta.fire() // the preview debounce
 	if got := ta.app.theme.current.Name; got != "Nord" {
 		t.Fatalf("previewed theme = %q, want Nord", got)
 	}
@@ -365,12 +366,86 @@ func TestPicker_ThemesStartOnCurrentNoPreviewFlash(t *testing.T) {
 
 	// Moving away previews; moving back restores exactly.
 	ta.key("down")
+	ta.fire()
 	if ta.app.theme.current.Name == "Dark" {
 		t.Fatal("moving the highlight did not preview a different theme")
 	}
 	ta.key("up")
+	ta.fire()
 	if got := ta.app.theme.current.Name; got != "Dark" {
 		t.Errorf("theme after moving back = %q, want Dark", got)
+	}
+}
+
+// deferredOf returns the collected ticks whose message has msg's type.
+func deferredOf[M any](ta *testApp) []deferredMsg {
+	var out []deferredMsg
+	for _, d := range ta.deferred {
+		if _, ok := d.msg.(M); ok {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func TestApp_ThemePreviewDebounced(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	origVersion := ta.app.theme.version
+	ta.key("ctrl+p")
+	ta.typeText("switch theme")
+	ta.key("enter")
+	ta.key("down")
+	ta.key("down")
+	if ta.app.theme.current.Name != "Dark" || ta.app.theme.version != origVersion {
+		t.Fatalf("theme = %q version %d before the debounce, want Dark at %d",
+			ta.app.theme.current.Name, ta.app.theme.version, origVersion)
+	}
+	ticks := deferredOf[themeApplyMsg](ta)
+	if len(ticks) != 2 || ticks[0].d != themeDebounce {
+		t.Fatalf("theme ticks = %+v, want 2 at %v", ticks, themeDebounce)
+	}
+	want := ticks[1].msg.(themeApplyMsg).name
+	ta.fire()
+	if got := ta.app.theme.current.Name; !strings.EqualFold(got, want) {
+		t.Errorf("theme after the debounce = %q, want the last highlighted %q", got, want)
+	}
+	if got := ta.app.theme.version; got != origVersion+1 {
+		t.Errorf("version = %d, want %d (one restyle for the burst)", got, origVersion+1)
+	}
+}
+
+func TestApp_ThemePreviewEscBeforeDebounce(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	origVersion := ta.app.theme.version
+	ta.key("ctrl+p")
+	ta.typeText("switch theme")
+	ta.key("enter")
+	ta.key("down")
+	ta.key("esc")
+	ta.fire() // the stale preview tick
+	if ta.app.theme.current.Name != "Dark" || ta.app.theme.version != origVersion {
+		t.Errorf("theme = %q version %d after esc, want Dark untouched at %d",
+			ta.app.theme.current.Name, ta.app.theme.version, origVersion)
+	}
+}
+
+func TestApp_ThemeChooseAppliesAtOnce(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.key("ctrl+p")
+	ta.typeText("switch theme")
+	ta.key("enter")
+	ta.typeText("nord")
+	ta.key("enter") // before the preview tick
+	if ta.app.theme.current.Name != "Nord" {
+		t.Errorf("theme = %q right after choosing, want Nord", ta.app.theme.current.Name)
+	}
+	v := ta.app.theme.version
+	ta.fire()
+	if ta.app.theme.current.Name != "Nord" || ta.app.theme.version != v {
+		t.Errorf("a stale preview tick changed the chosen theme: %q version %d", ta.app.theme.current.Name, ta.app.theme.version)
 	}
 }
 

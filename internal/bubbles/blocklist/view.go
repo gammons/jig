@@ -14,7 +14,8 @@ import (
 // View renders exactly h lines of w cells: a 1-cell selection prefix, the
 // item lines (w-2 cells), and a scrollbar column. It renders only the
 // items it shows (from the cache when warm), then evicts the lines of items
-// entirely outside [yOffset-2h, yOffset+3h); heights stay cached.
+// entirely outside [yOffset-2h, yOffset+3h) at both cached widths; heights
+// stay cached.
 func (m Model) View() string {
 	if m.w <= 0 || m.h <= 0 {
 		return ""
@@ -38,11 +39,12 @@ func (m Model) View() string {
 	}
 
 	// Evict the lines of items outside [yOffset-2h, yOffset+3h), of
-	// removed items, and of stale renders.
+	// removed items, and of stale renders. A render at the previous width
+	// is kept under the same window, so toggling back re-renders nothing.
 	lo, hi, gap := m.yOffset-2*m.h, m.yOffset+3*m.h, gapOf(m.styles)
-	m.c.evict(func(id string) bool {
+	m.c.evict(func(id string, s *slot) bool {
 		i, ok := m.index[id]
-		if !ok || !m.c.entries[id].valid(m.items[i], iw, m.sv) {
+		if !ok || !s.valid(m.items[i], s.width, m.sv) {
 			return false
 		}
 		return m.offsets[i] < hi && m.offsets[i+1]-gap > lo

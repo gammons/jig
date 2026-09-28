@@ -4,6 +4,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -25,8 +26,19 @@ type pickerView struct {
 	recent  []string
 }
 
+// themeDebounce is how long after the last highlight change on the themes
+// level the highlighted palette is applied: a restyle re-renders every
+// transcript block, so holding an arrow key must not restyle per step.
+const themeDebounce = 120 * time.Millisecond
+
 // themePreviewMsg asks the App to preview the palette named name.
 type themePreviewMsg struct{ name string }
+
+// themeApplyMsg applies a debounced preview; only the latest (gen) does.
+type themeApplyMsg struct {
+	gen  int
+	name string
+}
 
 // previewTheme is the picker's PreviewFunc: on the themes level, the
 // highlighted palette is applied until the picker closes.
@@ -64,8 +76,12 @@ func (p pickerCtl) handle(msg tea.Msg) tea.Cmd {
 		a.w.picker, cmd = a.w.picker.Update(msg)
 		return cmd
 	case themePreviewMsg:
-		// A preview arriving after the picker closed is stale.
-		if a.w.picker.IsOpen() && a.theme.preview(msg.name) {
+		a.theme.gen++
+		return a.after(themeDebounce, themeApplyMsg{gen: a.theme.gen, name: msg.name})
+	case themeApplyMsg:
+		// A preview superseded, or arriving after the picker closed
+		// (closed and chosen bump gen), is stale.
+		if msg.gen == a.theme.gen && a.w.picker.IsOpen() && a.theme.preview(msg.name) {
 			p.restyle()
 		}
 		return nil
@@ -92,6 +108,7 @@ func (p pickerCtl) handle(msg tea.Msg) tea.Cmd {
 // theme preview, restoring the original palette.
 func (p pickerCtl) closed() tea.Cmd {
 	a := p.a
+	a.theme.gen++ // drop any pending debounced preview
 	if a.theme.restore() {
 		p.restyle()
 	}

@@ -299,6 +299,44 @@ func TestBlocklist_WarmViewDoesNotRender(t *testing.T) {
 	}
 }
 
+func TestBlocklist_PreviousWidthStaysCached(t *testing.T) {
+	t.Parallel()
+	m := newList(40, 10, oneLiners(500))
+	_ = m.View()
+
+	m.SetSize(60, 10) // e.g. the details split closing
+	_ = m.View()
+	before := m.c.renders
+	m.SetSize(40, 10) // and opening again
+	_ = m.View()
+	if got := m.c.renders - before; got != 0 {
+		t.Errorf("toggling back to the previous width rendered %d items, want 0", got)
+	}
+	m.SetSize(60, 10)
+	_ = m.View()
+	if got := m.c.renders - before; got != 0 {
+		t.Errorf("toggling to the other cached width rendered %d items, want 0", got)
+	}
+
+	m.SetSize(50, 10) // a third width is new
+	if got := m.c.renders - before; got < 500 {
+		t.Errorf("a new width rendered %d items for heights, want all 500", got)
+	}
+}
+
+func TestBlocklist_NewVersionAtPreviousWidthRenders(t *testing.T) {
+	t.Parallel()
+	m := newList(40, 10, testItems("a", "b"))
+	_ = m.View()
+	m.SetSize(60, 10)
+	_ = m.View()
+	m.Upsert(Item{ID: "i1", Version: 2, Data: "b changed"})
+	m.SetSize(40, 10)
+	if !containsRow(visibleText(m), "b changed") {
+		t.Errorf("a stale previous-width render was shown for a new version")
+	}
+}
+
 func TestBlocklist_StylesVersionInvalidatesCache(t *testing.T) {
 	t.Parallel()
 	m := newList(40, 10, oneLiners(50))

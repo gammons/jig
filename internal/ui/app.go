@@ -280,7 +280,7 @@ func (a *App) onResult(msg tea.Msg) tea.Cmd {
 		return a.sender().submit(msg.Text)
 	case prompt.MentionMsg:
 		return pickerCtl{a}.open(filesLevel(), true)
-	case picker.ItemsMsg, picker.ChosenMsg, picker.InputMsg, picker.ClosedMsg, themePreviewMsg:
+	case picker.ItemsMsg, picker.ChosenMsg, picker.InputMsg, picker.ClosedMsg, themePreviewMsg, themeApplyMsg:
 		return pickerCtl{a}.handle(msg)
 	case compactedMsg:
 		return pickerCtl{a}.compacted(msg)

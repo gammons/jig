@@ -338,19 +338,26 @@ the budget. Run with `go test -run XXX -bench . -benchmem <pkg>`.
 
 | Benchmark (`internal/ui`, a resumed 2,000-block session through the real `mdrender`, 150×40) | Budget | Measured (AMD Ryzen AI 9 HX 370) |
 |---|---|---|
-| `BenchmarkApp_Resize2000` — a burst of 3 width changes, the debounce, then `View` (every block re-rendered once at the new width) | < 1.5 s/op | 1.0 s/op |
+| `BenchmarkApp_Resize2000` — a burst of 3 width changes, the debounce, then `View` (a third width each step, so every block is re-rendered once at the new width) | < 1.5 s/op | 1.0 s/op |
+| `BenchmarkApp_DetailsToggle2000` — `enter` then `q` (each with the debounce and a `View`), both widths already cached | < 50 ms/op | 4.3 ms/op |
 
 The App applies a width change to the transcript list 50 ms after the
 last one of a burst (`resizeDebounce`, keyed by a generation counter),
 so a drag-resize re-renders every block once, not once per step; a
 height change applies at once (it re-renders nothing). Streaming deltas
 only mark blocks dirty; one `streamTick` every 80 ms upserts them all.
+In the theme picker, a highlight change previews its palette 120 ms
+after the last one (`themeDebounce`, keyed by `themeState.gen`); `esc`
+(restore) and a choice apply at once.
 
 The blocklist renders only new, changed, or restyled items (cache key:
 ID, Version, width, stylesVersion); a warm `View` renders nothing and
-touches only the visible rows. After each `View`, the lines of items
-entirely outside `[yOffset−2h, yOffset+3h)` are evicted; heights and
-search-match results stay, so offsets never need a re-render.
+touches only the visible rows. Each item keeps its render at the current
+width and at the previous one (lines and height), so toggling the
+details split back and forth re-renders nothing. After each `View`, the
+lines (at both widths) of items entirely outside `[yOffset−2h, yOffset+3h)`
+are evicted; heights and search-match results stay, so offsets never
+need a re-render.
 
 ## Adding a tool, transform, or hook
 
