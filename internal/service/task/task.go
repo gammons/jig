@@ -123,10 +123,11 @@ func (t *taskTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 	}
 
 	t.pub.Publish(event.SubagentSpawned{
-		Base:        event.Base{SessionID: rc.SessionID},
+		Base:        event.Base{SessionID: rc.SessionID, RootID: rc.RootID},
 		Child:       childID,
 		Agent:       in.Agent,
 		Description: in.Description,
+		CallID:      call.ID,
 	})
 
 	childRC := ext.RunContext{

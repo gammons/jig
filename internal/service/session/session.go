@@ -76,7 +76,7 @@ func (s *Service) Create(ctx context.Context, agentName, cwd string) (core.Sessi
 	if err := s.d.Store.CreateSession(ctx, sess); err != nil {
 		return core.Session{}, err
 	}
-	s.d.Bus.Publish(event.SessionCreated{Base: event.Base{SessionID: sess.ID}, Info: sess})
+	s.d.Bus.Publish(event.SessionCreated{Base: event.Base{SessionID: sess.ID, RootID: sess.ID}, Info: sess})
 	return sess, nil
 }
 

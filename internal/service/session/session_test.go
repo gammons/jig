@@ -168,6 +168,9 @@ func TestCreate_PublishesSessionCreated(t *testing.T) {
 	if sc.Session() != sess.ID || sc.Info.ID != sess.ID || sc.Info.Agent != "build" {
 		t.Errorf("SessionCreated = %+v", sc)
 	}
+	if sc.RootID != sess.ID {
+		t.Errorf("SessionCreated.RootID = %q, want %q", sc.RootID, sess.ID)
+	}
 }
 
 func TestCreateChild_InheritsCwdAndSetsFields(t *testing.T) {

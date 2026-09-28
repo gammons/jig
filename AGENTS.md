@@ -140,6 +140,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   `ids.Gen` (never the call ID), and are created `O_EXCL` at 0600.
 - The agent Runner writes exactly one assistant message per model step; the
   results of that step's tool calls are parts on the same message.
+- Every event's `Base.RootID` is the root session of the run that produced
+  it; the UI routes descendant events by it.
 - The model sees `session.Service.History`: the last message holding a
   `PartCompaction` and everything after it (all messages if none).
   Compaction and title requests run on `agents.SmallModel(resolved model)`.

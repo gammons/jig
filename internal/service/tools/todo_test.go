@@ -47,6 +47,7 @@ func TestTodo_ValidatesAndPublishes(t *testing.T) {
 	}
 	call := mustCall(t, "todo", map[string]any{"todos": todos})
 	rc := rcFor(dir)
+	rc.RootID = "root1"
 	res, err := tool.Run(context.Background(), rc, call)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -84,6 +85,9 @@ func TestTodo_ValidatesAndPublishes(t *testing.T) {
 	}
 	if tu.SessionID != rc.SessionID {
 		t.Errorf("TodosUpdated.SessionID = %q, want %q", tu.SessionID, rc.SessionID)
+	}
+	if tu.RootID != rc.RootID {
+		t.Errorf("TodosUpdated.RootID = %q, want %q", tu.RootID, rc.RootID)
 	}
 	if len(tu.Todos) != len(want) {
 		t.Fatalf("TodosUpdated.Todos len = %d, want %d", len(tu.Todos), len(want))

@@ -274,8 +274,8 @@ func TestRunner_TextOnlyTurn(t *testing.T) {
 	}
 
 	evs := f.rec.all()
-	if len(evs) != 3 {
-		t.Fatalf("events = %#v, want 3", evs)
+	if len(evs) != 4 {
+		t.Fatalf("events = %#v, want 4", evs)
 	}
 	if ms, ok := evs[0].(event.MessageStarted); !ok || ms.MessageID != got.ID || ms.Agent != "build" || ms.Model != "prov/mod" {
 		t.Errorf("event 0 = %#v, want MessageStarted", evs[0])
@@ -283,8 +283,11 @@ func TestRunner_TextOnlyTurn(t *testing.T) {
 	if td, ok := evs[1].(event.TextDelta); !ok || td.Text != "hi there" || td.MessageID != got.ID {
 		t.Errorf("event 1 = %#v, want TextDelta", evs[1])
 	}
-	if rf, ok := evs[2].(event.RunFinished); !ok || rf.MessageID != got.ID || rf.Session() != f.rc.SessionID {
-		t.Errorf("event 2 = %#v, want RunFinished", evs[2])
+	if sf, ok := evs[2].(event.StepFinished); !ok || sf.MessageID != got.ID {
+		t.Errorf("event 2 = %#v, want StepFinished", evs[2])
+	}
+	if rf, ok := evs[3].(event.RunFinished); !ok || rf.MessageID != got.ID || rf.Session() != f.rc.SessionID {
+		t.Errorf("event 3 = %#v, want RunFinished", evs[3])
 	}
 }
 

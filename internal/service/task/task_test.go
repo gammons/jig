@@ -193,6 +193,12 @@ func TestTask_SpawnsChildWithResolvedModel(t *testing.T) {
 	if sp.Session() != "parent1" || sp.Child != "child1" || sp.Agent != "explore" || sp.Description != "look around" {
 		t.Errorf("SubagentSpawned = %+v, unexpected", sp)
 	}
+	if sp.CallID != call.ID {
+		t.Errorf("SubagentSpawned.CallID = %q, want %q", sp.CallID, call.ID)
+	}
+	if sp.RootID != rc.RootID {
+		t.Errorf("SubagentSpawned.RootID = %q, want %q", sp.RootID, rc.RootID)
+	}
 }
 
 func TestTask_InheritsParentModelWhenUnset(t *testing.T) {
@@ -340,7 +346,7 @@ func TestTask_ContinueRequiresOwnChild(t *testing.T) {
 		pub := &recordingPublisher{}
 		tool := New(sessions, agentsSvc, runner, pub)
 
-		rc := ext.RunContext{SessionID: "parent1"}
+		rc := ext.RunContext{SessionID: "parent1", RootID: "root1"}
 		call := mustTaskCall(t, map[string]any{
 			"agent": "explore", "description": "d", "prompt": "continue please", "session_id": "child9",
 		})
@@ -367,6 +373,12 @@ func TestTask_ContinueRequiresOwnChild(t *testing.T) {
 		}
 		if sp.Session() != "parent1" || sp.Child != "child9" || sp.Agent != "explore" || sp.Description != "d" {
 			t.Errorf("SubagentSpawned = %+v, want Session=parent1 Child=child9 Agent=explore Description=d", sp)
+		}
+		if sp.CallID != call.ID {
+			t.Errorf("SubagentSpawned.CallID = %q, want %q", sp.CallID, call.ID)
+		}
+		if sp.RootID != rc.RootID {
+			t.Errorf("SubagentSpawned.RootID = %q, want %q", sp.RootID, rc.RootID)
 		}
 	})
 

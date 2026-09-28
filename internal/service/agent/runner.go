@@ -82,12 +82,12 @@ func (r *Runner) Run(ctx context.Context, rc ext.RunContext, userText string) (c
 	user.Parts = []core.Part{{Kind: core.PartText, Text: userText}}
 	user.Status = core.StatusComplete
 	if err := r.d.Store.SaveMessage(ctx, user); err != nil {
-		return core.Message{}, r.failed(rc.SessionID, err)
+		return core.Message{}, r.failed(rc.SessionID, rc.RootID, err)
 	}
 
 	llm, info, err := r.d.LLMs.For(rc.Model)
 	if err != nil {
-		return core.Message{}, r.failed(rc.SessionID, err)
+		return core.Message{}, r.failed(rc.SessionID, rc.RootID, err)
 	}
 	st := &run{rc: rc, llm: llm, info: info, allowed: r.allowedTools(rc.Agent), maxSteps: rc.Agent.MaxSteps}
 	if st.maxSteps <= 0 {
@@ -151,17 +151,17 @@ func (r *Runner) step(ctx context.Context, st *run) (core.Message, error) {
 	msg := r.newMessage(st.rc, core.RoleAssistant)
 	msg.Status = core.StatusStreaming
 	r.d.Bus.Publish(event.MessageStarted{
-		Base: event.Base{SessionID: st.rc.SessionID}, MessageID: msg.ID, Agent: msg.Agent, Model: msg.Model,
+		Base: event.Base{SessionID: st.rc.SessionID, RootID: st.rc.RootID}, MessageID: msg.ID, Agent: msg.Agent, Model: msg.Model,
 	})
 	rc := st.rc
 	rc.MessageID = msg.ID
 
 	req, err := r.buildRequest(ctx, rc, st)
 	if err != nil {
-		return r.abort(ctx, msg, err)
+		return r.abort(ctx, msg, rc.RootID, err)
 	}
 	if err := r.stream(ctx, st, req, &msg); err != nil {
-		return r.abort(ctx, msg, err)
+		return r.abort(ctx, msg, rc.RootID, err)
 	}
 	msg.CostUSD = st.info.Cost(msg.Usage)
 
@@ -170,13 +170,19 @@ func (r *Runner) step(ctx context.Context, st *run) (core.Message, error) {
 			msg.Parts = append(msg.Parts, core.Part{Kind: core.PartToolResult, Result: &res})
 		}
 		if err := ctx.Err(); err != nil {
-			return r.abort(ctx, msg, err)
+			return r.abort(ctx, msg, rc.RootID, err)
 		}
 	}
 	msg.Status = core.StatusComplete
 	if err := r.d.Store.SaveMessage(ctx, msg); err != nil {
-		return r.abort(ctx, msg, err)
+		return r.abort(ctx, msg, rc.RootID, err)
 	}
+	r.d.Bus.Publish(event.StepFinished{
+		Base:      event.Base{SessionID: rc.SessionID, RootID: rc.RootID},
+		MessageID: msg.ID,
+		Usage:     msg.Usage,
+		CostUSD:   msg.CostUSD,
+	})
 	return msg, nil
 }
 
@@ -190,9 +196,9 @@ func (r *Runner) stopAtMaxSteps(ctx context.Context, st *run, last core.Message)
 		delta = "\n" + notice
 	}
 	last.Parts = append(last.Parts, core.Part{Kind: core.PartText, Text: notice})
-	r.d.Bus.Publish(event.TextDelta{Base: event.Base{SessionID: last.SessionID}, MessageID: last.ID, Text: delta})
+	r.d.Bus.Publish(event.TextDelta{Base: event.Base{SessionID: last.SessionID, RootID: st.rc.RootID}, MessageID: last.ID, Text: delta})
 	if err := r.d.Store.SaveMessage(ctx, last); err != nil {
-		return r.abort(ctx, last, err)
+		return r.abort(ctx, last, st.rc.RootID, err)
 	}
 	return last, nil
 }
@@ -210,30 +216,30 @@ func hasText(m core.Message) bool {
 // abort ends a run on err: an interrupted message (with every unanswered
 // tool call answered "cancelled") when ctx is done, a failed one otherwise.
 // It saves msg, publishes RunFailed, and returns the error to surface.
-func (r *Runner) abort(ctx context.Context, msg core.Message, err error) (core.Message, error) {
+func (r *Runner) abort(ctx context.Context, msg core.Message, rootID core.SessionID, err error) (core.Message, error) {
 	saveCtx := context.WithoutCancel(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		msg.Status = core.StatusInterrupted
 		msg.Parts = answerPending(msg.Parts)
 		_ = r.d.Store.SaveMessage(saveCtx, msg)
-		r.d.Bus.Publish(event.RunFailed{Base: event.Base{SessionID: msg.SessionID}, Err: "cancelled"})
+		r.d.Bus.Publish(event.RunFailed{Base: event.Base{SessionID: msg.SessionID, RootID: rootID}, Err: "cancelled"})
 		return msg, ctxErr
 	}
 	msg.Status = core.StatusFailed
 	_ = r.d.Store.SaveMessage(saveCtx, msg)
-	return msg, r.failed(msg.SessionID, err)
+	return msg, r.failed(msg.SessionID, rootID, err)
 }
 
 // failed publishes RunFailed for err and returns err.
-func (r *Runner) failed(sid core.SessionID, err error) error {
-	r.d.Bus.Publish(event.RunFailed{Base: event.Base{SessionID: sid}, Err: err.Error()})
+func (r *Runner) failed(sid, rootID core.SessionID, err error) error {
+	r.d.Bus.Publish(event.RunFailed{Base: event.Base{SessionID: sid, RootID: rootID}, Err: err.Error()})
 	return err
 }
 
 // finish publishes RunFinished with the run's summed usage and cost.
 func (r *Runner) finish(rc ext.RunContext, last core.Message, usage core.Usage, cost float64) core.Message {
 	r.d.Bus.Publish(event.RunFinished{
-		Base: event.Base{SessionID: rc.SessionID}, MessageID: last.ID, Usage: usage, CostUSD: cost,
+		Base: event.Base{SessionID: rc.SessionID, RootID: rc.RootID}, MessageID: last.ID, Usage: usage, CostUSD: cost,
 	})
 	return last
 }

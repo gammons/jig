@@ -130,6 +130,9 @@ func TestHook_AlwaysGrantScopedToRoot(t *testing.T) {
 	if len(asker.requests) != 1 {
 		t.Fatalf("asker calls = %d, want 1", len(asker.requests))
 	}
+	if asker.requests[0].RootID != "rootA" {
+		t.Errorf("Request.RootID = %q, want %q", asker.requests[0].RootID, "rootA")
+	}
 
 	// Second call, still under root A (different session id, e.g. a child
 	// run): the grant is honored without asking again.

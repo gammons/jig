@@ -42,6 +42,7 @@ func TestBusAsker_PublishesRequestAndResolved(t *testing.T) {
 
 	req := Request{
 		SessionID: core.SessionID("s1"),
+		RootID:    core.SessionID("root1"),
 		Tool:      "bash",
 		Subject:   "git status",
 		Call:      core.ToolCall{ID: "c1", Name: "bash"},
@@ -64,6 +65,9 @@ func TestBusAsker_PublishesRequestAndResolved(t *testing.T) {
 	}
 	if pr.Session() != req.SessionID {
 		t.Errorf("PermissionRequested.Session() = %q, want %q", pr.Session(), req.SessionID)
+	}
+	if pr.RootID != req.RootID {
+		t.Errorf("PermissionRequested.RootID = %q, want %q", pr.RootID, req.RootID)
 	}
 	if pr.Tool != "bash" || pr.Subject != "git status" {
 		t.Errorf("PermissionRequested = %+v, want Tool=bash Subject=%q", pr, "git status")
@@ -99,6 +103,9 @@ func TestBusAsker_PublishesRequestAndResolved(t *testing.T) {
 	}
 	if rr.RequestID != pr.RequestID {
 		t.Errorf("PermissionResolved.RequestID = %q, want %q", rr.RequestID, pr.RequestID)
+	}
+	if rr.RootID != req.RootID {
+		t.Errorf("PermissionResolved.RootID = %q, want %q", rr.RootID, req.RootID)
 	}
 	if rr.Reply != want {
 		t.Errorf("PermissionResolved.Reply = %+v, want %+v", rr.Reply, want)
@@ -261,9 +268,10 @@ func TestAsk_ContextCancelPublishesResolved(t *testing.T) {
 	b := NewBusAsker(bus, newGen())
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
+	req := Request{SessionID: core.SessionID("s1"), RootID: core.SessionID("root1"), Tool: "bash"}
 	go func() {
 		defer close(done)
-		_, _ = b.Ask(ctx, Request{SessionID: core.SessionID("s1"), Tool: "bash"})
+		_, _ = b.Ask(ctx, req)
 	}()
 
 	pr := recvEvent(t, sub).(event.PermissionRequested)
@@ -277,5 +285,8 @@ func TestAsk_ContextCancelPublishesResolved(t *testing.T) {
 	want := core.PermissionReply{Kind: core.ReplyDeny, Message: "cancelled"}
 	if rr.RequestID != pr.RequestID || rr.Reply != want || rr.Session() != "s1" {
 		t.Errorf("PermissionResolved = %+v, want %s %+v on s1", rr, pr.RequestID, want)
+	}
+	if rr.RootID != req.RootID {
+		t.Errorf("PermissionResolved.RootID = %q, want %q (including on the cancel path)", rr.RootID, req.RootID)
 	}
 }

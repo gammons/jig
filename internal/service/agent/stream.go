@@ -17,7 +17,7 @@ func (r *Runner) consume(ctx context.Context, st *run, req core.LLMRequest, msg 
 			return received, err
 		}
 		received = true
-		if err := r.apply(ctx, msg, ev); err != nil {
+		if err := r.apply(ctx, st, msg, ev); err != nil {
 			return received, err
 		}
 	}
@@ -26,8 +26,8 @@ func (r *Runner) consume(ctx context.Context, st *run, req core.LLMRequest, msg 
 
 // apply folds one stream event into msg, publishing deltas and saving msg
 // when its first tool call arrives.
-func (r *Runner) apply(ctx context.Context, msg *core.Message, ev core.StreamEvent) error {
-	base := event.Base{SessionID: msg.SessionID}
+func (r *Runner) apply(ctx context.Context, st *run, msg *core.Message, ev core.StreamEvent) error {
+	base := event.Base{SessionID: msg.SessionID, RootID: st.rc.RootID}
 	switch ev.Kind {
 	case core.StreamText:
 		appendDelta(msg, core.PartText, ev.Text)

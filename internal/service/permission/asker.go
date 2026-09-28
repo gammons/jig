@@ -13,6 +13,7 @@ import (
 // Request describes a single permission decision an Asker must make.
 type Request struct {
 	SessionID core.SessionID
+	RootID    core.SessionID
 	Tool      string
 	Subject   string
 	Call      core.ToolCall
@@ -26,10 +27,11 @@ type Asker interface {
 
 // pendingRequest tracks the state Reply needs to resolve an outstanding
 // Ask call: the channel its goroutine is blocked reading, and the session
-// the PermissionResolved event belongs to.
+// and root session the PermissionResolved event belongs to.
 type pendingRequest struct {
 	ch        chan core.PermissionReply
 	sessionID core.SessionID
+	rootID    core.SessionID
 }
 
 // BusAsker is an Asker that publishes PermissionRequested on an
@@ -65,11 +67,11 @@ func (b *BusAsker) Ask(ctx context.Context, req Request) (core.PermissionReply, 
 	ch := make(chan core.PermissionReply, 1)
 
 	b.mu.Lock()
-	b.pending[id] = pendingRequest{ch: ch, sessionID: req.SessionID}
+	b.pending[id] = pendingRequest{ch: ch, sessionID: req.SessionID, rootID: req.RootID}
 	b.mu.Unlock()
 
 	b.pub.Publish(event.PermissionRequested{
-		Base:      event.Base{SessionID: req.SessionID},
+		Base:      event.Base{SessionID: req.SessionID, RootID: req.RootID},
 		RequestID: id,
 		Tool:      req.Tool,
 		Subject:   req.Subject,
@@ -87,7 +89,7 @@ func (b *BusAsker) Ask(ctx context.Context, req Request) (core.PermissionReply, 
 		// If Reply claimed the request first, it publishes the resolution.
 		if stillPending {
 			b.pub.Publish(event.PermissionResolved{
-				Base:      event.Base{SessionID: req.SessionID},
+				Base:      event.Base{SessionID: req.SessionID, RootID: req.RootID},
 				RequestID: id,
 				Reply:     core.PermissionReply{Kind: core.ReplyDeny, Message: "cancelled"},
 			})
@@ -120,7 +122,7 @@ func (b *BusAsker) Reply(requestID string, r core.PermissionReply) error {
 
 	p.ch <- r
 	b.pub.Publish(event.PermissionResolved{
-		Base:      event.Base{SessionID: p.sessionID},
+		Base:      event.Base{SessionID: p.sessionID, RootID: p.rootID},
 		RequestID: requestID,
 		Reply:     r,
 	})

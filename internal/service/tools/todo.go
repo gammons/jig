@@ -73,7 +73,7 @@ func (t *todoTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 		return core.ToolError(call, err.Error()), nil
 	}
 
-	t.pub.Publish(event.TodosUpdated{Base: event.Base{SessionID: rc.SessionID}, Todos: in.Todos})
+	t.pub.Publish(event.TodosUpdated{Base: event.Base{SessionID: rc.SessionID, RootID: rc.RootID}, Todos: in.Todos})
 
 	return core.ToolOK(call, renderTodos(in.Todos)), nil
 }

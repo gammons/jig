@@ -85,7 +85,7 @@ func (ex *executor) batch(ctx context.Context, calls []core.ToolCall, out []core
 // call runs one call through the full pipeline, publishing its start and
 // finish, and returns its result stamped with the call's ID and Name.
 func (ex *executor) call(ctx context.Context, call core.ToolCall) core.ToolResult {
-	base := event.Base{SessionID: ex.rc.SessionID}
+	base := event.Base{SessionID: ex.rc.SessionID, RootID: ex.rc.RootID}
 	ex.r.d.Bus.Publish(event.ToolCallStarted{Base: base, MessageID: ex.rc.MessageID, Call: call})
 	res := ex.guarded(ctx, call)
 	res.Output = capOutput(res.Output)

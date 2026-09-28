@@ -103,7 +103,7 @@ func (h *Hook) ask(ctx context.Context, rc ext.RunContext, call core.ToolCall, s
 		return call, ext.Verdict{}, nil
 	}
 
-	reply, err := h.asker.Ask(ctx, Request{SessionID: rc.SessionID, Tool: call.Name, Subject: subject, Call: call})
+	reply, err := h.asker.Ask(ctx, Request{SessionID: rc.SessionID, RootID: root, Tool: call.Name, Subject: subject, Call: call})
 	if err != nil {
 		return call, ext.Verdict{}, err
 	}
