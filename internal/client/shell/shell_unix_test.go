@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -85,6 +86,75 @@ func TestRun_NewSessionWithoutControllingTerminal(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not return within 2s of ctx cancel")
 	}
+}
+
+// A group member that escaped the first SIGKILL (on darwin, a child bash
+// was forking while killpg ran) is caught by a later one: the group is
+// re-killed on every tick until kill reports it empty.
+func TestKillUntilEmpty_RepeatsUntilESRCH(t *testing.T) {
+	t.Parallel()
+	var calls []int
+	kill := func(pid int, sig syscall.Signal) error {
+		if sig != syscall.SIGKILL {
+			t.Errorf("signal = %v, want SIGKILL", sig)
+		}
+		calls = append(calls, pid)
+		if len(calls) == 3 {
+			return syscall.ESRCH
+		}
+		return nil
+	}
+	ticks := make(chan time.Time, 10)
+	for range 10 {
+		ticks <- time.Time{}
+	}
+	killUntilEmpty(42, kill, ticks, 10)
+	if want := []int{-42, -42, -42}; !slices.Equal(calls, want) {
+		t.Errorf("kills = %v, want %v (stop at the first ESRCH)", calls, want)
+	}
+	if len(ticks) != 7 {
+		t.Errorf("%d ticks left, want 7: it must not wait for more after ESRCH", len(ticks))
+	}
+}
+
+func TestKillUntilEmpty_Bounded(t *testing.T) {
+	t.Parallel()
+	n := 0
+	kill := func(int, syscall.Signal) error { n++; return nil }
+	ticks := make(chan time.Time, 10)
+	for range 10 {
+		ticks <- time.Time{}
+	}
+	killUntilEmpty(42, kill, ticks, 4)
+	if n != 4 {
+		t.Errorf("kills = %d, want 4 (the bound)", n)
+	}
+}
+
+// A command that forks continuously is cancelled mid-fork most of the
+// time: on darwin that is the race the re-kill closes. Run must return
+// promptly and leave the group empty.
+func TestRun_CancelWhileForking(t *testing.T) {
+	var r Runner
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.Run(ctx, Spec{Command: fmt.Sprintf("echo $$ > %s; while :; do sleep 30 & done", pidFile)})
+		done <- err
+	}()
+	pid := waitForPID(t, pidFile, done)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run err = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return within 2s of ctx cancel")
+	}
+	waitGone(t, -pid, 2*time.Second)
 }
 
 func TestRun_TimeoutKillsGrandchildren(t *testing.T) {

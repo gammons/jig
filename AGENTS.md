@@ -275,7 +275,9 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   it has no controlling terminal, so it can never read from or take
   over the TUI's tty, and it leads its own process group, which a
   timeout or cancellation SIGKILLs whole (background grandchildren
-  included).
+  included). `shell.KillGroup` re-sends the SIGKILL every 10 ms (≤ 1 s)
+  until the group is empty, since darwin's killpg can miss a child
+  forked concurrently; `agentbrowser` cancels through it too.
 - bash attaches a screenshot only from the workdir or `screenshot*` files
   in the OS temp dir, after resolving symlinks.
 
