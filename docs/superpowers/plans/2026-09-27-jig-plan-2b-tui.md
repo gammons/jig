@@ -93,6 +93,52 @@ It ends with a pty smoke test driving the real binary.
 - **R26 — The user block shows attachments** as a dim second line: `  + a.go, shot.png`.
 - **R27 — The pty test matches on screen text.** It reconstructs the screen with `github.com/charmbracelet/x/vt` (test-only) if matching on `ansi.Strip`ped raw output proves flaky. Add it only if needed, and record the choice in the ledger.
 
+## Carry-over from Plan 2a (as executed — overrides this plan's text where they conflict)
+
+**API changes Plan 2a made that this plan must use:**
+- **Prefs:** `core.PrefsService` is `Get()` + `Update(fn func(*Prefs)) error`. There is no `Save`. Everywhere below that says `Prefs.Save(...)`, use `Prefs.Update(func(p *core.Prefs){ … })`.
+- **Transcript:**
+  - `transcript.Projection.AddUser(text string, attachments []string) BlockID` appends the live user block (ID `u/pending/<k>`). The App calls it on send.
+  - `Block.Title` holds the compaction notice's headline, and `Text` its summary.
+  - `Apply` returns nil when nothing visible changed. Re-read `Pending()` after every permission event.
+  - `Load` keeps the subagent owner map and unanswered permission requests.
+- **agent-browser preset:** it is not a config layer. `permission.NewHook(cfg, asker, permission.WithPreset(rules))` consults it only for an ask that came from the Default. The screenshot allow is exactly `agent-browser screenshot`, and `$` counts as a shell metacharacter.
+- **Trust:**
+  - `trustfs.Store.Get(project, hash)` checks whether `hash` is in the project's set of granted hashes (≤ 16 per project).
+  - Effects print `base_url` as `scheme://host[:port]/path` and print `{env:}`/`{file:}` tokens raw. A token-valued permission is listed in the effects and counts as dropped.
+  - `config.Load` takes a 4th `config.Options{SubstituteProject bool}`.
+- **Media:**
+  - Only the newest 20 media per request are sent.
+  - The image cap is 5 MiB after base64 encoding.
+  - `Media` errors never include paths.
+- **Rendering:** `ui/plain` and `internal/app` output are sanitized. `internal/app` has `printLine` for this.
+
+**Must-do items folded into the tasks named below:**
+- Task 1 / Task 17 (session Configure, model picker): `SessionService.Configure` must validate the model with `agents.ResolveRef` (aliases), and accept primary agents only.
+- Task 13 (render): make tool block IDs collision-proof against `n/<k>`/`u/…`, for example by prefixing `t/` inside `ui/transcript` with a test. Also don't spin a Streaming indicator for a block that was superseded.
+- Task 15 (App core):
+  - Call `projection.Load` only while idle, or right after `StepFinished`/`RunFinished`/`RunFailed`. A mid-step `Load` drops unsaved blocks.
+  - Normalize `ChangedFiles` paths by giving the projection the workdir, or with `path.Clean`/`Join(workDir, p)`.
+  - `chat.Compact` after `Close` must return `ErrClosed`.
+- Task 17: the `session.compact` action handles `core.ErrBusy` and `ErrClosed`.
+- Task 19 (trust dialog):
+  - Skip the dialog when there are zero effects.
+  - The keybinds of an untrusted project must not rebind the permission-card keys, `run.cancel`, or `app.quit`. Filter them in `actions.Resolve`, or drop project keybinds in `trust.Restrict`; pick one and test it.
+
+**Deferred minors from Plan 2a:** a reviewer may pick these up. None of them blocks 2b.
+- `config`/`agentfs`/`contextfs`/`skillfs` read project files with unbounded `os.ReadFile`, so a symlink to `/dev/zero` hangs. Add a regular-file check and a size cap.
+- Effects: the `jigtoken` placeholder can collide with a literal, which could spoof a displayed host.
+- `trustfs`: a Stat→Open swap to a FIFO is possible.
+- `optionTokens` skips arrays of tables.
+- The archtest `func(tea.Msg)` check misses `[]func`, `map` values, and a local `Msg` alias.
+- Verify the argument surface of agent-browser `read*`/`snapshot*`.
+- `media`: peak memory near `MaxPixels`. Lowering `MaxPixels` would help.
+- Blob loads ignore ctx cancellation.
+- On macOS, screenshot attachment depends on agent-browser writing to the same `$TMPDIR` that jig sees. Verify on a Mac.
+- Agent-browser detection runs for every subcommand.
+- `ListRootsByCwd` duplicates `ListSessions` boilerplate.
+- The 20 MiB image cap is duplicated in read, chat, and media.
+
 ## Review Focus
 
 1. **The terminal shrinks below 80×24**, even to 20×5 or a single row, or the width changes mid-stream. There is no panic, no negative sizes, and no line wider than the terminal; the sidebar hides below 120 cols and the details split goes full width. Tested in Task 15 (`TestApp_TinySizesDoNotPanic`, table over sizes) and Task 16 (golden `narrow_details`).
@@ -1001,7 +1047,7 @@ e2e/tui_test.go
   - **`sessions`**: `Sessions.ListForCwd(WorkDir, 30)`. Detail = relative age from `Options.Clock` (`just now`, `5m ago`, `3h ago`, `2d ago`) · `$0.42`, where cost = the sum of `Messages` `CostUSD`, loaded in the same Cmd. `Current` = the open session. Choose → `resume`: close the details, `projection.Load`, and set the agent and model.
   - **`models`**: `Catalog.Providers()`, grouped by provider name. Detail = `200k ctx · $3/$15`; `Disabled` = !Configured; `Current` = the current model. Choose → set the model, plus `Sessions.Configure` when a session exists.
   - **`agents`**: `Agents.Primary()`. Choose → like tab.
-  - **`themes`**: the builtin palettes plus custom ones. `WithPreview` applies the palette temporarily (`themeState` remembers the original). `ClosedMsg` on `themes` restores it. Choose → keep it, and `Prefs.Save` with `Theme`.
+  - **`themes`**: the builtin palettes plus custom ones. `WithPreview` applies the palette temporarily (`themeState` remembers the original). `ClosedMsg` on `themes` restores it. Choose → keep it, and `Prefs.Update` setting `Theme`.
   - **`rename`**: `InputMsg` → a `Sessions.Rename` Cmd.
   - **`files`** (`Multi: true`): `Project.Files()`, ranked:
     1. paths the session touched (a read, or in `ChangedFiles`), in last-touched order;
@@ -1013,7 +1059,7 @@ e2e/tui_test.go
   - **Other actions:**
     - `session.new`: clear the projection and session; the next send creates one.
     - `session.compact`: a `Chat.Compact` Cmd. `core.ErrBusy` → the hint `session is busy`; `ErrNothingToCompact` text → the hint `nothing to compact`.
-    - `run.cancel`, `view.sidebar` (toggle + `Prefs.Save`), `prompt.editor`, `app.quit`, and the `transcript.*` actions reuse Task 15/16 paths.
+    - `run.cancel`, `view.sidebar` (toggle + `Prefs.Update`), `prompt.editor`, `app.quit`, and the `transcript.*` actions reuse Task 15/16 paths.
     - `ext.<name>` → a Cmd running `Command.Run(ctx, nil)`; an error becomes a status hint.
     - Every executed action is pushed onto `Prefs.Recent` (deduped, ≤ 5) and saved.
   - **`@` in INSERT (`MentionMsg`)** opens the picker directly at `files`. `ClosedMsg` from a `files` level opened this way inserts a literal `@`.
