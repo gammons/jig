@@ -16,7 +16,10 @@ const (
 
 // Sanitize makes untrusted text inert. It keeps printable runes, '\n', and
 // '\t', and drops every escape sequence (7-bit and C1, including their
-// payloads), every other C0/C1 control, DEL, '\r', and PlaceholderRune.
+// payloads), every other C0/C1 control, DEL, '\r', PlaceholderRune, and the
+// bidi embedding/override/isolate controls U+202A–U+202E and U+2066–U+2069
+// (which can visually disguise text, "Trojan Source"). ZWJ, ZWNJ, variation
+// selectors, and the LRM/RLM marks U+200E/U+200F are kept.
 // Invalid UTF-8 bytes become U+FFFD. The result is valid UTF-8 and
 // Sanitize(Sanitize(s)) == Sanitize(s).
 //
@@ -66,11 +69,17 @@ func sanitizeStep(b *strings.Builder, s string, i int) int {
 		return skipCSI(s, i+size)
 	case isC1StringIntro(r):
 		return skipString(s, i+size)
-	case r >= 0x80 && r <= 0x9f, r == PlaceholderRune:
+	case r >= 0x80 && r <= 0x9f, r == PlaceholderRune, isBidiControl(r):
 	default:
 		b.WriteString(s[i : i+size])
 	}
 	return i + size
+}
+
+// isBidiControl reports whether r is a bidi embedding, override, or isolate
+// control (U+202A–U+202E, U+2066–U+2069), which can reorder displayed text.
+func isBidiControl(r rune) bool {
+	return (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069)
 }
 
 // isC1StringIntro reports whether r is an 8-bit DCS, SOS, OSC, PM, or APC.

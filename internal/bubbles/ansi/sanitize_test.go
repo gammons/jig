@@ -23,6 +23,8 @@ func assertInert(t *testing.T, in, out string) {
 			t.Errorf("Sanitize(%q) = %q: contains C1 %U", in, out, r)
 		case r == PlaceholderRune:
 			t.Errorf("Sanitize(%q) = %q: contains PlaceholderRune", in, out)
+		case (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069):
+			t.Errorf("Sanitize(%q) = %q: contains bidi control %U", in, out, r)
 		}
 	}
 }
@@ -96,6 +98,21 @@ func TestSanitize_StripsHostileSequences(t *testing.T) {
 		{"placeholder with diacritics", string(PlaceholderRune) + "\u0305\u030d", "\u0305\u030d"},
 		{"placeholder UTF-8 bytes", "a\xf4\x8e\xbb\xaeb", "ab"},
 		{"ZWJ emoji kept", "👨\u200d👩\u200d👧", "👨\u200d👩\u200d👧"},
+		{"LRE dropped", "a\u202ab", "ab"},
+		{"RLE dropped", "a\u202bb", "ab"},
+		{"PDF dropped", "a\u202cb", "ab"},
+		{"LRO dropped", "a\u202db", "ab"},
+		{"RLO dropped", "a\u202eb", "ab"},
+		{"LRI dropped", "a\u2066b", "ab"},
+		{"RLI dropped", "a\u2067b", "ab"},
+		{"FSI dropped", "a\u2068b", "ab"},
+		{"PDI dropped", "a\u2069b", "ab"},
+		{"Trojan Source command", "rm -rf \u202e/ tsil\u2066 # safe\u2069", "rm -rf / tsil # safe"},
+		{"ZWJ technologist kept", "👩\u200d💻", "👩\u200d💻"},
+		{"ZWNJ kept", "می\u200cخواهم", "می\u200cخواهم"},
+		{"variation selector kept", "❤\ufe0f", "❤\ufe0f"},
+		{"LRM kept", "abc\u200e123", "abc\u200e123"},
+		{"RLM kept", "abc\u200f123", "abc\u200f123"},
 		{"empty", "", ""},
 	}
 	for _, tt := range tests {
@@ -153,7 +170,7 @@ func FuzzSanitize(f *testing.F) {
 	seeds := []string{
 		"a\x1b]52;c;aGk=\x07b", "\x1b[2J", "a\u009b31mb", "a\x1bPq\x1b\\",
 		"\xc2", "\xc2\x9b", "\x1b\xc2\x9b", "ћ\x1b", string(PlaceholderRune),
-		"\x1b[\xff", "\x1b]\xc2\x9c", "\r\n\t",
+		"\x1b[\xff", "\x1b]\xc2\x9c", "\r\n\t", "\u202e\u2066\u2069",
 	}
 	for _, s := range seeds {
 		f.Add(s)
