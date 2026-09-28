@@ -13,6 +13,7 @@ type Paths struct {
 	ConfigDir string // $XDG_CONFIG_HOME/jig, default $HOME/.config/jig
 	DataDir   string // $XDG_DATA_HOME/jig, default $HOME/.local/share/jig
 	CacheDir  string // $XDG_CACHE_HOME/jig, default $HOME/.cache/jig
+	StateDir  string // $XDG_STATE_HOME/jig, default $HOME/.local/state/jig
 }
 
 // Resolve builds Paths from getenv, the way (*os.Environ)/os.Getenv would
@@ -34,8 +35,18 @@ func Resolve(getenv func(string) string) (Paths, error) {
 	if err != nil {
 		return Paths{}, err
 	}
+	stateDir, err := resolveDir(getenv("XDG_STATE_HOME"), home, ".local/state", "XDG_STATE_HOME")
+	if err != nil {
+		return Paths{}, err
+	}
 
-	return Paths{Home: home, ConfigDir: configDir, DataDir: dataDir, CacheDir: cacheDir}, nil
+	return Paths{
+		Home:      home,
+		ConfigDir: configDir,
+		DataDir:   dataDir,
+		CacheDir:  cacheDir,
+		StateDir:  stateDir,
+	}, nil
 }
 
 // resolveDir builds "<base>/jig", where base is xdg if set, or

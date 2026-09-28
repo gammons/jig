@@ -47,6 +47,9 @@ internal/data/store/                    SQLite store (one file per table)
 internal/data/skillfs/                  SKILL.md discovery
 internal/data/agentfs/                  markdown agent discovery
 internal/data/contextfs/                AGENTS.md / instructions files
+internal/data/atomicfile/               temp-file-then-rename atomic writes
+internal/data/blobfs/                   content-addressed blob store
+internal/data/prefsfs/                  core.Prefs JSON persistence
 internal/client/catalog/                catwalk catalog
 internal/client/llm/                    fantasy adapter + model Source
 internal/client/llm/jigtest/            scripted provider (build tag jigtest)
@@ -193,7 +196,9 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Find a project's git root from a directory | `fsroot.GitRoot(dir)` |
 | Walk root→leaf ancestor directories for context/skill discovery | `fsroot.Chain(root, dir)` |
 | Parse a `---\n<yaml>\n---\n<body>` file | `frontmatter.Parse(src, &meta)` |
-| Resolve XDG base directories | `paths.Resolve(getenv)` (`ConfigDir`/`DataDir`/`CacheDir`) |
+| Resolve XDG base directories | `paths.Resolve(getenv)` (`ConfigDir`/`DataDir`/`CacheDir`/`StateDir`) |
+| Write a file atomically (temp file, fsync, rename) | `atomicfile.Write(path, data, perm)` |
+| Content-addressed blob storage (SHA-256 refs) | `blobfs.New(dir)` / `(*Store).Put`, `.Open` |
 | Build a `core.ToolResult` for a tool's `Run` | `core.ToolError(call, msg)` (sets `IsError`) / `core.ToolOK(call, output)` |
 | Resolve a tool's `path` input against `rc.WorkDir` | `resolvePath(workDir, path)` in `service/tools` (also backs `subjectPath` for `ext.Subjecter`) |
 | Permission subject for a search tool's `path` input | `searchSubject(rc, input)` in `service/tools` |

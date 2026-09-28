@@ -54,6 +54,28 @@ func TestResolve_DefaultsUnderHome(t *testing.T) {
 	}
 }
 
+func TestResolve_StateDir(t *testing.T) {
+	getenv := fakeGetenv(map[string]string{
+		"HOME":           "/home/u",
+		"XDG_STATE_HOME": "/s",
+	})
+	p, err := Resolve(getenv)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if p.StateDir != "/s/jig" {
+		t.Errorf("StateDir = %q, want %q", p.StateDir, "/s/jig")
+	}
+
+	p, err = Resolve(fakeGetenv(map[string]string{"HOME": "/home/u"}))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if p.StateDir != "/home/u/.local/state/jig" {
+		t.Errorf("StateDir = %q, want %q", p.StateDir, "/home/u/.local/state/jig")
+	}
+}
+
 func TestResolve_MissingHomeAndXDGErrors(t *testing.T) {
 	getenv := fakeGetenv(map[string]string{})
 
