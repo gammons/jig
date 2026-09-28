@@ -21,6 +21,10 @@ import (
 // subagent's indicator (spec §5.3), matching statusbar's own.
 const spinnerFrames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
+// rightPad is the number of blank columns every transcript block leaves
+// before the scrollbar, so text never runs flush against it.
+const rightPad = 2
+
 // blockData is blocklist.Item.Data for every item the App puts in the
 // transcript's blocklist. The App bumps Item.Version whenever any field
 // here changes (R22: Duration; the spinner Frame; Card from
@@ -48,12 +52,15 @@ func newRenderer(set *theme.Set) *renderer {
 // the one-line formatters (§5.3) or mdrender, then appends the item's
 // permission card, if any. Every string taken from the Block passes
 // ansi.SanitizeLine (one-liners) or ansi.Sanitize (bodies) before styling.
+// Content is laid out rightPad columns narrower than width, and every line
+// is cut to that, so nothing reaches the scrollbar column.
 func (r *renderer) render(it blocklist.Item, width int, _ blocklist.Styles) []string {
 	data, ok := it.Data.(blockData)
 	if !ok {
 		return nil
 	}
 	b := data.Block
+	width = max(width-rightPad, 1)
 
 	var lines []string
 	switch b.Kind {
@@ -62,19 +69,29 @@ func (r *renderer) render(it blocklist.Item, width int, _ blocklist.Styles) []st
 	case transcript.KindText:
 		lines = r.md.Render(ansi.Sanitize(b.Text), width)
 	case transcript.KindReasoning:
-		lines = []string{r.renderReasoning(b, data.Thinking, data.Frame)}
+		lines = []string{r.fitLine(r.renderReasoning(b, data.Thinking, data.Frame), width)}
 	case transcript.KindTool:
-		lines = []string{r.renderTool(b, data.Duration, data.Frame)}
+		lines = []string{r.fitLine(r.renderTool(b, data.Duration, data.Frame), width)}
 	case transcript.KindSubagent:
-		lines = []string{r.renderSubagent(b, data.Frame)}
+		lines = []string{r.fitLine(r.renderSubagent(b, data.Frame), width)}
 	case transcript.KindNotice:
-		lines = []string{r.renderNotice(b)}
+		lines = []string{r.fitLine(r.renderNotice(b), width)}
 	}
 
 	if data.Card != "" {
 		lines = append(lines, strings.Split(data.Card, "\n")...)
 	}
 	return lines
+}
+
+// fitLine cuts a one-line block (tool, reasoning, subagent, notice) to
+// width with "…", so it ends rightPad columns before the scrollbar like
+// wrapped bodies do. Multi-line bodies are laid out at width already.
+func (r *renderer) fitLine(s string, width int) string {
+	if ansi.Width(s) <= width {
+		return s
+	}
+	return ansi.Truncate(s, width, "…")
 }
 
 // renderUser renders a User block: "› you  <text>", wrapped in full, with

@@ -83,6 +83,39 @@ func TestSidebar_ClipsToHeight(t *testing.T) {
 	}
 }
 
+// TestSidebar_Margins: every line leaves padX blank columns on each side,
+// so headers don't sit against the transcript's scrollbar and gauges and
+// long rows don't touch the terminal edge. Rows stay indented under
+// their header, and every line is still exactly the sidebar's width.
+func TestSidebar_Margins(t *testing.T) {
+	t.Parallel()
+	m := New()
+	m.SetSize(30, 6)
+	m.SetSections([]Section{{Title: "Session", Rows: []Row{
+		{Text: strings.Repeat("long ", 20)},
+		{Gauge: &Gauge{Used: 100, Limit: 100}},
+	}}})
+	lines := strings.Split(xansi.Strip(m.View()), "\n")
+	pad := strings.Repeat(" ", padX)
+	for i, l := range lines {
+		if w := xansi.StringWidth(l); w != 30 {
+			t.Errorf("line %d is %d cells, want 30: %q", i, w, l)
+		}
+		if !strings.HasPrefix(l, pad) || !strings.HasSuffix(l, pad) {
+			t.Errorf("line %d = %q, want %d blank columns on each side", i, l, padX)
+		}
+	}
+	if !strings.HasPrefix(lines[0], pad+"Session") {
+		t.Errorf("header = %q, want it right after the left margin", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], pad+"  long") {
+		t.Errorf("row = %q, want it indented two more columns under its header", lines[1])
+	}
+	if !strings.HasSuffix(strings.TrimRight(lines[2], " "), "100%") {
+		t.Errorf("gauge = %q, want it to end in 100%% before the right margin", lines[2])
+	}
+}
+
 func TestSidebar_EmptyWithoutSize(t *testing.T) {
 	t.Parallel()
 	m := New()

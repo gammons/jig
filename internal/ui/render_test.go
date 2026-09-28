@@ -69,6 +69,32 @@ func TestRender_SanitizesHostileOutput(t *testing.T) {
 	}
 }
 
+// TestRender_RightPadding: every block kind leaves rightPad blank columns
+// before the scrollbar — no rendered line is wider than width-rightPad,
+// including long one-liners (tools, notices) and wrapped bodies.
+func TestRender_RightPadding(t *testing.T) {
+	t.Parallel()
+	set := darkSet()
+	r := newRenderer(&set)
+	long := strings.Repeat("x", 120)
+	call := core.ToolCall{ID: "c1", Name: "bash", Input: []byte(`{"command":"` + long + `"}`)}
+	blocks := map[string]transcript.Block{
+		"user":      {Kind: transcript.KindUser, Text: long},
+		"text":      {Kind: transcript.KindText, Text: long + " " + long},
+		"reasoning": {Kind: transcript.KindReasoning, Text: long},
+		"tool":      {Kind: transcript.KindTool, Call: &call, State: transcript.StateRunning},
+		"notice":    {Kind: transcript.KindNotice, Text: long, Level: transcript.LevelError},
+	}
+	const width = 40
+	for name, b := range blocks {
+		for i, l := range strings.Split(renderOne(t, r, blockData{Block: b}, width), "\n") {
+			if w := xansi.StringWidth(l); w > width-rightPad {
+				t.Errorf("%s line %d is %d cells, want <= %d: %q", name, i, w, width-rightPad, xansi.Strip(l))
+			}
+		}
+	}
+}
+
 // TestRender_IgnoresSupersededStreamingFlag checks render's chosen fix for
 // the carry-over requirement that a superseded block (one transcript kept
 // Streaming true on, because the open slot for its message moved to a
