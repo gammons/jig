@@ -58,12 +58,22 @@ func TestRender_Golden(t *testing.T) {
 func TestRender_WidthRespected(t *testing.T) {
 	t.Parallel()
 	r := New(WithStyles(testStyles()))
-	for _, width := range []int{40, 80} {
+	for _, width := range []int{1, 2, 10, 40, 80} {
 		lines := r.Render(sampleMD, width)
 		for i, line := range lines {
 			if w := ansi.Width(line); w > width {
 				t.Errorf("width %d: line %d has width %d: %q", width, i, w, line)
 			}
+		}
+	}
+}
+
+func TestRender_NonPositiveWidth(t *testing.T) {
+	t.Parallel()
+	r := New(WithStyles(testStyles()))
+	for _, width := range []int{0, -1} {
+		if lines := r.Render(sampleMD, width); lines != nil {
+			t.Errorf("width %d: Render(...) = %v, want nil", width, lines)
 		}
 	}
 }

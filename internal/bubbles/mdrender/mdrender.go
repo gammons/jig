@@ -76,8 +76,15 @@ func (r *Renderer) SetStyles(st Styles) {
 
 // Render renders md at width, returning its lines with leading and trailing
 // blank lines trimmed. A glamour error, including one building the
-// TermRenderer, falls back to ansi.Wrap of md.
+// TermRenderer, falls back to ansi.Wrap of md. width <= 0 has no cells to
+// render into, so Render returns nil without invoking glamour, which would
+// otherwise treat a non-positive word-wrap width as "disabled" and emit
+// unwrapped lines.
 func (r *Renderer) Render(md string, width int) []string {
+	if width <= 0 {
+		return nil
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -89,7 +96,7 @@ func (r *Renderer) Render(md string, width int) []string {
 	if err != nil {
 		return trimBlankLines(ansi.Wrap(md, width))
 	}
-	return trimBlankLines(out)
+	return enforceWidth(trimBlankLines(out), width)
 }
 
 // rendererForWidth returns the TermRenderer cached for width, building and
@@ -127,4 +134,21 @@ func trimBlankLines(s string) []string {
 
 func isBlank(line string) bool {
 	return strings.TrimSpace(xansi.Strip(line)) == ""
+}
+
+// enforceWidth guards against glamour's word-wrap occasionally leaving a
+// line wider than width (observed at very small widths, where adjacent
+// styled spans such as a run of text followed by inline code's padding
+// space produce a run of spaces lipgloss.Wrap does not split). Any line
+// that is still too wide is hard-wrapped with ansi.Wrap.
+func enforceWidth(lines []string, width int) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if ansi.Width(line) <= width {
+			out = append(out, line)
+			continue
+		}
+		out = append(out, strings.Split(ansi.Wrap(line, width), "\n")...)
+	}
+	return out
 }
