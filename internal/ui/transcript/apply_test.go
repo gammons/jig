@@ -121,15 +121,15 @@ func TestApply_ToolLifecycle(t *testing.T) {
 			p := New(root)
 			run(t, p, []step{
 				{started("m1"), nil},
-				{event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: *c}, []BlockID{"c1"}},
+				{event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: *c}, []BlockID{"t/c1"}},
 			})
-			assertBlocks(t, p.Blocks(), []Block{{ID: "c1", Kind: KindTool, MessageID: "m1", Call: c, State: StateRunning}})
+			assertBlocks(t, p.Blocks(), []Block{{ID: "t/c1", Kind: KindTool, MessageID: "m1", Call: c, State: StateRunning}})
 			run(t, p, []step{
-				{event.ToolCallFinished{Base: rootBase(), MessageID: "m1", Result: *r}, []BlockID{"c1"}},
+				{event.ToolCallFinished{Base: rootBase(), MessageID: "m1", Result: *r}, []BlockID{"t/c1"}},
 				{event.ToolCallFinished{Base: rootBase(), MessageID: "m1", Result: *mkResult("nope", "bash", "", false)}, nil},
 			})
-			assertBlocks(t, p.Blocks(), []Block{{ID: "c1", Kind: KindTool, MessageID: "m1", Call: c, Result: r, State: tt.want}})
-			if b, _ := p.Block("c1"); b.Version != 2 {
+			assertBlocks(t, p.Blocks(), []Block{{ID: "t/c1", Kind: KindTool, MessageID: "m1", Call: c, Result: r, State: tt.want}})
+			if b, _ := p.Block("t/c1"); b.Version != 2 {
 				t.Errorf("Version = %d, want 2", b.Version)
 			}
 		})
@@ -141,15 +141,15 @@ func TestApply_TaskCallLifecycle(t *testing.T) {
 	r := mkResult("t1", "task", "<task_result session_id=\"ses_child\">\ndone\n</task_result>", false)
 	p := New(root)
 	run(t, p, []step{
-		{event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: *c}, []BlockID{"t1"}},
+		{event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: *c}, []BlockID{"t/t1"}},
 	})
 	assertBlocks(t, p.Blocks(), []Block{{
-		ID: "t1", Kind: KindSubagent, MessageID: "m1", Call: c, State: StateRunning,
+		ID: "t/t1", Kind: KindSubagent, MessageID: "m1", Call: c, State: StateRunning,
 		Sub: &Subagent{Agent: "explore", Description: "find x"},
 	}})
-	run(t, p, []step{{event.ToolCallFinished{Base: rootBase(), MessageID: "m1", Result: *r}, []BlockID{"t1"}}})
+	run(t, p, []step{{event.ToolCallFinished{Base: rootBase(), MessageID: "m1", Result: *r}, []BlockID{"t/t1"}}})
 	assertBlocks(t, p.Blocks(), []Block{{
-		ID: "t1", Kind: KindSubagent, MessageID: "m1", Call: c, Result: r, State: StateOK,
+		ID: "t/t1", Kind: KindSubagent, MessageID: "m1", Call: c, Result: r, State: StateOK,
 		Sub: &Subagent{Child: "ses_child", Agent: "explore", Description: "find x"},
 	}})
 }
@@ -169,12 +169,12 @@ func TestApply_RunFailedNotices(t *testing.T) {
 			c := mkCall("c1", "bash", `{}`)
 			p := New(root)
 			run(t, p, []step{
-				{event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: *c}, []BlockID{"c1"}},
+				{event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: *c}, []BlockID{"t/c1"}},
 				// A tool still running when the run ends is settled with it.
-				{event.RunFailed{Base: rootBase(), Err: tt.err}, []BlockID{"c1", "n/0"}},
+				{event.RunFailed{Base: rootBase(), Err: tt.err}, []BlockID{"t/c1", "n/0"}},
 			})
 			assertBlocks(t, p.Blocks(), []Block{
-				{ID: "c1", Kind: KindTool, MessageID: "m1", Call: c, State: tt.toolState},
+				{ID: "t/c1", Kind: KindTool, MessageID: "m1", Call: c, State: tt.toolState},
 				tt.want,
 			})
 		})
@@ -243,5 +243,30 @@ func TestApply_RootWithoutRootIDIsAccepted(t *testing.T) {
 	got := p.Apply(event.TextDelta{Base: event.Base{SessionID: root}, MessageID: "m1", Text: "a"})
 	if !reflect.DeepEqual(got, []BlockID{"m/m1/0"}) {
 		t.Errorf("Apply = %q", got)
+	}
+}
+
+// TestProjection_ToolIDsCannotCollide checks that a provider tool call ID
+// crafted to look like a notice or user block ID ("n/0", "u/x") does not
+// collide with one: tool and subagent block IDs are prefixed "t/".
+func TestProjection_ToolIDsCannotCollide(t *testing.T) {
+	p := New(root)
+	run(t, p, []step{
+		{started("m1"), nil},
+		{textDelta("m1", "hi"), []BlockID{"m/m1/0"}},
+		{event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: *mkCall("n/0", "read", `{}`)}, []BlockID{"t/n/0"}},
+		{event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: *mkCall("u/x", "read", `{}`)}, []BlockID{"t/u/x"}},
+	})
+	if b, ok := p.Block("n/0"); ok {
+		t.Fatalf("BlockID %q collided with a tool call ID: %+v", BlockID("n/0"), b)
+	}
+	if b, ok := p.Block("t/n/0"); !ok || b.Kind != KindTool {
+		t.Fatalf("no tool block at t/n/0: %+v, ok=%v", b, ok)
+	}
+	if b, ok := p.Block("t/u/x"); !ok || b.Kind != KindTool {
+		t.Fatalf("no tool block at t/u/x: %+v, ok=%v", b, ok)
+	}
+	if n := len(p.Blocks()); n != 3 {
+		t.Fatalf("len(Blocks) = %d, want 3 (text, and both tool calls kept distinct)", n)
 	}
 }

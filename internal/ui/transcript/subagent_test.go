@@ -54,18 +54,18 @@ func TestApply_SubagentLifecycle(t *testing.T) {
 		state ToolState
 		sub   Subagent
 	}{
-		{"task call starts", taskStarted(), []BlockID{"c1"}, StateRunning,
+		{"task call starts", taskStarted(), []BlockID{"t/c1"}, StateRunning,
 			Subagent{Agent: "explore", Description: "find x"}},
 		{"child spawned", event.SubagentSpawned{Base: rootBase(), Child: "k1", Agent: "explore", Description: "find x", CallID: "c1"},
-			[]BlockID{"c1"}, StateRunning, Subagent{Child: "k1", Agent: "explore", Description: "find x"}},
-		{"child tool starts", toolStarted("k1", "r1", "read"), []BlockID{"c1"}, StateRunning,
+			[]BlockID{"t/c1"}, StateRunning, Subagent{Child: "k1", Agent: "explore", Description: "find x"}},
+		{"child tool starts", toolStarted("k1", "r1", "read"), []BlockID{"t/c1"}, StateRunning,
 			Subagent{Child: "k1", Agent: "explore", Description: "find x", Tools: 1, Current: "read"}},
-		{"child tool finishes", toolFinished("k1", "r1", "read"), []BlockID{"c1"}, StateRunning,
+		{"child tool finishes", toolFinished("k1", "r1", "read"), []BlockID{"t/c1"}, StateRunning,
 			Subagent{Child: "k1", Agent: "explore", Description: "find x", Tools: 1}},
-		{"second child tool starts", toolStarted("k1", "r2", "grep"), []BlockID{"c1"}, StateRunning,
+		{"second child tool starts", toolStarted("k1", "r2", "grep"), []BlockID{"t/c1"}, StateRunning,
 			Subagent{Child: "k1", Agent: "explore", Description: "find x", Tools: 2, Current: "grep"}},
 		{"task call finishes", event.ToolCallFinished{Base: rootBase(), MessageID: "m1", Result: *mkResult("c1", "task", "done", false)},
-			[]BlockID{"c1"}, StateOK, Subagent{Child: "k1", Agent: "explore", Description: "find x", Tools: 2}},
+			[]BlockID{"t/c1"}, StateOK, Subagent{Child: "k1", Agent: "explore", Description: "find x", Tools: 2}},
 	}
 	version := 0
 	for _, tt := range tests {
@@ -73,7 +73,7 @@ func TestApply_SubagentLifecycle(t *testing.T) {
 		if !reflect.DeepEqual(got, tt.want) {
 			t.Fatalf("%s: Apply = %q, want %q", tt.name, got, tt.want)
 		}
-		b := mustBlock(t, p, "c1")
+		b := mustBlock(t, p, "t/c1")
 		if b.State != tt.state || !reflect.DeepEqual(*b.Sub, tt.sub) {
 			t.Errorf("%s: State %q Sub %+v, want %q %+v", tt.name, b.State, *b.Sub, tt.state, tt.sub)
 		}
@@ -87,20 +87,20 @@ func TestApply_SubagentLifecycle(t *testing.T) {
 func TestApply_NestedSubagentRoutesToOwner(t *testing.T) {
 	p := New(root)
 	run(t, p, []step{
-		{taskStarted(), []BlockID{"c1"}},
-		{spawned(root, "k1", "explore", "c1"), []BlockID{"c1"}},
+		{taskStarted(), []BlockID{"t/c1"}},
+		{spawned(root, "k1", "explore", "c1"), []BlockID{"t/c1"}},
 		// A grandchild's spawn changes nothing visible; it only routes k2.
 		{spawned("k1", "k2", "general", "kc1"), nil},
 		{spawned("k2", "k3", "general", "kc2"), nil},
-		{toolStarted("k2", "x1", "bash"), []BlockID{"c1"}},
-		{toolStarted("k3", "x2", "edit"), []BlockID{"c1"}},
-		{toolStarted("k1", "x3", "read"), []BlockID{"c1"}},
-		{toolFinished("k3", "x2", "edit"), []BlockID{"c1"}},
+		{toolStarted("k2", "x1", "bash"), []BlockID{"t/c1"}},
+		{toolStarted("k3", "x2", "edit"), []BlockID{"t/c1"}},
+		{toolStarted("k1", "x3", "read"), []BlockID{"t/c1"}},
+		{toolFinished("k3", "x2", "edit"), []BlockID{"t/c1"}},
 		// A spawn under an unknown parent is ignored, and so is its child.
 		{spawned("stranger", "k9", "general", "zz"), nil},
 		{toolStarted("k9", "x4", "read"), nil},
 	})
-	b := mustBlock(t, p, "c1")
+	b := mustBlock(t, p, "t/c1")
 	if b.Sub.Tools != 3 || b.Sub.Current != "" || b.Sub.Child != "k1" {
 		t.Errorf("Sub = %+v, want Tools 3, Current \"\", Child k1", *b.Sub)
 	}
@@ -126,13 +126,13 @@ func TestApply_DescendantToolCallsNeverCreateBlocks(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := New(root)
-			run(t, p, []step{{taskStarted(), []BlockID{"c1"}}, {spawned(root, "k1", "explore", "c1"), []BlockID{"c1"}}})
+			run(t, p, []step{{taskStarted(), []BlockID{"t/c1"}}, {spawned(root, "k1", "explore", "c1"), []BlockID{"t/c1"}}})
 			before := len(p.Blocks())
 			p.Apply(tt.ev)
 			if after := len(p.Blocks()); after != before {
 				t.Errorf("len(Blocks) = %d, want %d", after, before)
 			}
-			if b := mustBlock(t, p, "c1"); b.State != StateRunning {
+			if b := mustBlock(t, p, "t/c1"); b.State != StateRunning {
 				t.Errorf("c1 State = %q, want running", b.State)
 			}
 		})
@@ -142,25 +142,25 @@ func TestApply_DescendantToolCallsNeverCreateBlocks(t *testing.T) {
 func TestApply_RootPermissionAwaitsToolBlock(t *testing.T) {
 	p := New(root)
 	run(t, p, []step{
-		{toolStarted(root, "t1", "bash"), []BlockID{"t1"}},
-		{permRequested(root, "p1", "t1"), []BlockID{"t1"}},
+		{toolStarted(root, "t1", "bash"), []BlockID{"t/t1"}},
+		{permRequested(root, "p1", "t1"), []BlockID{"t/t1"}},
 	})
-	b := mustBlock(t, p, "t1")
+	b := mustBlock(t, p, "t/t1")
 	if b.State != StateAwaiting || b.Permission == nil || b.Permission.RequestID != "p1" {
 		t.Fatalf("t1 = State %q Permission %+v, want awaiting p1", b.State, b.Permission)
 	}
 	want := []PendingPermission{{
 		RequestID: "p1", Session: root, Tool: "bash", Subject: "ls",
-		Call: core.ToolCall{ID: "t1", Name: "bash"}, Block: "t1",
+		Call: core.ToolCall{ID: "t1", Name: "bash"}, Block: "t/t1",
 	}}
 	if got := p.Pending(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Pending = %+v, want %+v", got, want)
 	}
 	run(t, p, []step{
-		{permResolved(root, "p1"), []BlockID{"t1"}},
+		{permResolved(root, "p1"), []BlockID{"t/t1"}},
 		{permResolved(root, "p1"), nil}, // already resolved
 	})
-	b = mustBlock(t, p, "t1")
+	b = mustBlock(t, p, "t/t1")
 	if b.State != StateRunning || b.Permission != nil {
 		t.Errorf("t1 = State %q Permission %+v, want running, nil", b.State, b.Permission)
 	}
@@ -199,28 +199,28 @@ func TestApply_PermissionForUnknownCallIsPendingWithoutBlock(t *testing.T) {
 func TestApply_SubagentPermissionMarksOwner(t *testing.T) {
 	p := New(root)
 	run(t, p, []step{
-		{taskStarted(), []BlockID{"c1"}},
-		{spawned(root, "k1", "explore", "c1"), []BlockID{"c1"}},
+		{taskStarted(), []BlockID{"t/c1"}},
+		{spawned(root, "k1", "explore", "c1"), []BlockID{"t/c1"}},
 		{spawned("k1", "k2", "general", "kc"), nil},
-		{permRequested("k1", "p1", "x1"), []BlockID{"c1"}},
+		{permRequested("k1", "p1", "x1"), []BlockID{"t/c1"}},
 		{permRequested("k2", "p2", "x2"), nil}, // listed; c1 keeps showing p1
 	})
-	b := mustBlock(t, p, "c1")
+	b := mustBlock(t, p, "t/c1")
 	if b.State != StateAwaiting || b.Permission == nil || b.Permission.RequestID != "p1" ||
-		b.Permission.Subagent != "explore" || b.Permission.Block != "c1" || b.Permission.Session != "k1" {
+		b.Permission.Subagent != "explore" || b.Permission.Block != "t/c1" || b.Permission.Session != "k1" {
 		t.Fatalf("c1 = State %q Permission %+v, want awaiting p1 from explore", b.State, b.Permission)
 	}
 	pending := p.Pending()
-	if len(pending) != 2 || pending[1].Subagent != "general" || pending[1].Block != "c1" {
+	if len(pending) != 2 || pending[1].Subagent != "general" || pending[1].Block != "t/c1" {
 		t.Fatalf("Pending = %+v, want p1 and p2 (general) on c1", pending)
 	}
 	// Resolving the shown request shows the next one for the same block.
-	run(t, p, []step{{permResolved("k1", "p1"), []BlockID{"c1"}}})
-	if b = mustBlock(t, p, "c1"); b.State != StateAwaiting || b.Permission == nil || b.Permission.RequestID != "p2" {
+	run(t, p, []step{{permResolved("k1", "p1"), []BlockID{"t/c1"}}})
+	if b = mustBlock(t, p, "t/c1"); b.State != StateAwaiting || b.Permission == nil || b.Permission.RequestID != "p2" {
 		t.Fatalf("after p1: State %q Permission %+v, want awaiting p2", b.State, b.Permission)
 	}
-	run(t, p, []step{{permResolved("k2", "p2"), []BlockID{"c1"}}})
-	if b = mustBlock(t, p, "c1"); b.State != StateRunning || b.Permission != nil {
+	run(t, p, []step{{permResolved("k2", "p2"), []BlockID{"t/c1"}}})
+	if b = mustBlock(t, p, "t/c1"); b.State != StateRunning || b.Permission != nil {
 		t.Errorf("after p2: State %q Permission %+v, want running, nil", b.State, b.Permission)
 	}
 	if got := p.Pending(); len(got) != 0 {
@@ -231,13 +231,13 @@ func TestApply_SubagentPermissionMarksOwner(t *testing.T) {
 func TestApply_ResolvingAHiddenRequestLeavesBlockAlone(t *testing.T) {
 	p := New(root)
 	run(t, p, []step{
-		{taskStarted(), []BlockID{"c1"}},
-		{spawned(root, "k1", "explore", "c1"), []BlockID{"c1"}},
-		{permRequested("k1", "p1", "x1"), []BlockID{"c1"}},
+		{taskStarted(), []BlockID{"t/c1"}},
+		{spawned(root, "k1", "explore", "c1"), []BlockID{"t/c1"}},
+		{permRequested("k1", "p1", "x1"), []BlockID{"t/c1"}},
 		{permRequested("k1", "p2", "x2"), nil},
 		{permResolved("k1", "p2"), nil}, // c1 still shows p1
 	})
-	if b := mustBlock(t, p, "c1"); b.Permission == nil || b.Permission.RequestID != "p1" {
+	if b := mustBlock(t, p, "t/c1"); b.Permission == nil || b.Permission.RequestID != "p1" {
 		t.Errorf("Permission = %+v, want p1", b.Permission)
 	}
 	if got := p.Pending(); len(got) != 1 || got[0].RequestID != "p1" {
@@ -254,47 +254,47 @@ func TestLoad_ResumeWithTaskChild(t *testing.T) {
 	p := New(root)
 	p.Load(msgs)
 	run(t, p, []step{
-		{spawned(root, "ses_old", "explore", "t1"), []BlockID{"t1"}},
-		{toolStarted("ses_old", "r1", "read"), []BlockID{"t1"}},
+		{spawned(root, "ses_old", "explore", "t1"), []BlockID{"t/t1"}},
+		{toolStarted("ses_old", "r1", "read"), []BlockID{"t/t1"}},
 	})
 	if n := len(p.Blocks()); n != 2 {
 		t.Fatalf("len(Blocks) = %d, want 2", n)
 	}
-	b := mustBlock(t, p, "t1")
+	b := mustBlock(t, p, "t/t1")
 	if b.Sub.Child != "ses_old" || b.Sub.Tools != 1 || b.Version != 3 {
 		t.Errorf("t1 = Sub %+v Version %d, want Child ses_old, Tools 1, Version 3", *b.Sub, b.Version)
 	}
-	if b0 := mustBlock(t, p, "t0"); b0.Sub.Tools != 0 {
+	if b0 := mustBlock(t, p, "t/t0"); b0.Sub.Tools != 0 {
 		t.Errorf("t0 Tools = %d, want 0", b0.Sub.Tools)
 	}
 
 	// A child named by a loaded block routes even without a new spawn.
 	q := New(root)
 	q.Load(msgs)
-	run(t, q, []step{{toolStarted("ses_old", "r1", "read"), []BlockID{"t1"}}})
+	run(t, q, []step{{toolStarted("ses_old", "r1", "read"), []BlockID{"t/t1"}}})
 }
 
 func TestLoad_KeepsLiveSubagentsAndPermissions(t *testing.T) {
 	p := New(root)
 	run(t, p, []step{
-		{taskStarted(), []BlockID{"c1"}},
-		{spawned(root, "k1", "explore", "c1"), []BlockID{"c1"}},
-		{permRequested("k1", "p1", "x1"), []BlockID{"c1"}},
+		{taskStarted(), []BlockID{"t/c1"}},
+		{spawned(root, "k1", "explore", "c1"), []BlockID{"t/c1"}},
+		{permRequested("k1", "p1", "x1"), []BlockID{"t/c1"}},
 	})
 	// The step that called c1 is stored, but its result is not yet.
 	p.Load([]core.Message{asstMsg("m1", core.StatusComplete, callPart(mkCall("c1", "task", taskInput)))})
-	b := mustBlock(t, p, "c1")
+	b := mustBlock(t, p, "t/c1")
 	if b.Permission == nil || b.Permission.RequestID != "p1" {
 		t.Errorf("after Load: Permission = %+v, want p1", b.Permission)
 	}
-	if got := p.Pending(); len(got) != 1 || got[0].Block != "c1" {
+	if got := p.Pending(); len(got) != 1 || got[0].Block != "t/c1" {
 		t.Errorf("after Load: Pending = %+v, want [p1 on c1]", got)
 	}
 	run(t, p, []step{
-		{toolStarted("k1", "r1", "read"), []BlockID{"c1"}},
-		{permResolved("k1", "p1"), []BlockID{"c1"}},
+		{toolStarted("k1", "r1", "read"), []BlockID{"t/c1"}},
+		{permResolved("k1", "p1"), []BlockID{"t/c1"}},
 	})
-	if b = mustBlock(t, p, "c1"); b.Permission != nil || b.Sub.Tools != 1 {
+	if b = mustBlock(t, p, "t/c1"); b.Permission != nil || b.Sub.Tools != 1 {
 		t.Errorf("c1 = Permission %+v Sub %+v, want nil, Tools 1", b.Permission, *b.Sub)
 	}
 }

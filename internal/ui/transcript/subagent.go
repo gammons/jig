@@ -26,7 +26,7 @@ func newLineage() lineage {
 // and description) of an existing subagent block, so a resumed task updates
 // its block rather than duplicating it.
 func (g *lineage) spawn(l *blockList, root core.SessionID, e event.SubagentSpawned) []BlockID {
-	id := BlockID(e.CallID)
+	id := toolBlockID(e.CallID)
 	if e.Session() != root {
 		var ok bool
 		if id, ok = g.owner[e.Session()]; !ok {
@@ -114,7 +114,7 @@ func (ps *permissions) request(l *blockList, g *lineage, root core.SessionID, e 
 	}
 	var b *Block
 	if e.Session() == root {
-		b, _ = l.get(BlockID(e.Call.ID))
+		b, _ = l.get(toolBlockID(e.Call.ID))
 	} else if b = g.owned(l, e.Session()); b != nil {
 		pp.Subagent = b.Sub.Agent
 	}

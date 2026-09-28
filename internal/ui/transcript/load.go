@@ -75,7 +75,7 @@ func (p *Projection) loadAssistant(m core.Message) {
 			if part.Result == nil {
 				continue
 			}
-			if b, ok := p.list.get(BlockID(part.Result.CallID)); ok {
+			if b, ok := p.list.get(toolBlockID(part.Result.CallID)); ok {
 				b.finish(*part.Result)
 				p.derived.observe(b)
 			}

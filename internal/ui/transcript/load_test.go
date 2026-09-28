@@ -78,7 +78,7 @@ func TestLoad_UserTextToolsAndReasoning(t *testing.T) {
 				{ID: "u/m1", Kind: KindUser, MessageID: "m1", Text: "look", Attachments: []string{"/w/shot.png"}},
 				{ID: "m/m2/0", Kind: KindReasoning, MessageID: "m2", Text: "hmm"},
 				{ID: "m/m2/1", Kind: KindText, MessageID: "m2", Text: "ok"},
-				{ID: "c1", Kind: KindTool, MessageID: "m2", Call: read, Result: readOK, State: StateOK},
+				{ID: "t/c1", Kind: KindTool, MessageID: "m2", Call: read, Result: readOK, State: StateOK},
 			},
 		},
 		{
@@ -93,20 +93,20 @@ func TestLoad_UserTextToolsAndReasoning(t *testing.T) {
 			},
 			want: []Block{
 				{ID: "m/m2/0", Kind: KindText, MessageID: "m2", Text: "x"},
-				{ID: "c1", Kind: KindTool, MessageID: "m2", Call: read, Result: readOK, State: StateOK},
+				{ID: "t/c1", Kind: KindTool, MessageID: "m2", Call: read, Result: readOK, State: StateOK},
 				{ID: "m/m2/1", Kind: KindText, MessageID: "m2", Text: "y"},
 			},
 		},
 		{
 			name: "complete message with an unanswered call leaves it pending",
 			msgs: []core.Message{asstMsg("m2", core.StatusComplete, callPart(read))},
-			want: []Block{{ID: "c1", Kind: KindTool, MessageID: "m2", Call: read, State: StatePending}},
+			want: []Block{{ID: "t/c1", Kind: KindTool, MessageID: "m2", Call: read, State: StatePending}},
 		},
 		{
 			name: "failed message errors unanswered calls and adds a red notice",
 			msgs: []core.Message{asstMsg("m2", core.StatusFailed, callPart(read))},
 			want: []Block{
-				{ID: "c1", Kind: KindTool, MessageID: "m2", Call: read, State: StateError},
+				{ID: "t/c1", Kind: KindTool, MessageID: "m2", Call: read, State: StateError},
 				{ID: "n/0", Kind: KindNotice, MessageID: "m2", Text: "run failed", Level: LevelError},
 			},
 		},
@@ -132,8 +132,8 @@ func TestLoad_InterruptedRunCancelsUnansweredCalls(t *testing.T) {
 	p := New(root)
 	p.Load([]core.Message{asstMsg("m1", core.StatusInterrupted, callPart(c1), callPart(c2), resultPart(r2))})
 	assertBlocks(t, p.Blocks(), []Block{
-		{ID: "c1", Kind: KindTool, MessageID: "m1", Call: c1, State: StateCancelled},
-		{ID: "c2", Kind: KindTool, MessageID: "m1", Call: c2, Result: r2, State: StateCancelled},
+		{ID: "t/c1", Kind: KindTool, MessageID: "m1", Call: c1, State: StateCancelled},
+		{ID: "t/c2", Kind: KindTool, MessageID: "m1", Call: c2, Result: r2, State: StateCancelled},
 		{ID: "n/0", Kind: KindNotice, MessageID: "m1", Text: "cancelled", Level: LevelInfo},
 	})
 }
@@ -161,7 +161,7 @@ func TestLoad_ToolStatesFromResults(t *testing.T) {
 			r := mkResult("c1", "bash", tt.out, tt.isErr)
 			p := New(root)
 			p.Load([]core.Message{asstMsg("m1", core.StatusComplete, callPart(c), resultPart(r))})
-			b, ok := p.Block("c1")
+			b, ok := p.Block("t/c1")
 			if !ok || b.State != tt.want {
 				t.Errorf("state = %q (found %v), want %q", b.State, ok, tt.want)
 			}
@@ -185,7 +185,7 @@ func TestLoad_TaskCallBecomesSubagentBlock(t *testing.T) {
 			input:  input,
 			result: mkResult("t1", "task", "<task_result session_id=\"ses_child\">\ndone\n</task_result>", false),
 			want: Block{
-				ID: "t1", Kind: KindSubagent, MessageID: "m1", State: StateOK,
+				ID: "t/t1", Kind: KindSubagent, MessageID: "m1", State: StateOK,
 				Sub: &Subagent{Child: "ses_child", Agent: "explore", Description: "find x"},
 			},
 		},
@@ -194,7 +194,7 @@ func TestLoad_TaskCallBecomesSubagentBlock(t *testing.T) {
 			input:  input,
 			result: mkResult("t1", "task", "unknown agent", true),
 			want: Block{
-				ID: "t1", Kind: KindSubagent, MessageID: "m1", State: StateError,
+				ID: "t/t1", Kind: KindSubagent, MessageID: "m1", State: StateError,
 				Sub: &Subagent{Agent: "explore", Description: "find x"},
 			},
 		},
@@ -202,14 +202,14 @@ func TestLoad_TaskCallBecomesSubagentBlock(t *testing.T) {
 			name:  "resumed task takes its child from the input",
 			input: `{"agent":"explore","description":"again","prompt":"p","session_id":"ses_old"}`,
 			want: Block{
-				ID: "t1", Kind: KindSubagent, MessageID: "m1", State: StatePending,
+				ID: "t/t1", Kind: KindSubagent, MessageID: "m1", State: StatePending,
 				Sub: &Subagent{Child: "ses_old", Agent: "explore", Description: "again"},
 			},
 		},
 		{
 			name:  "malformed input still makes a subagent block",
 			input: `"not json"`,
-			want:  Block{ID: "t1", Kind: KindSubagent, MessageID: "m1", State: StatePending, Sub: &Subagent{}},
+			want:  Block{ID: "t/t1", Kind: KindSubagent, MessageID: "m1", State: StatePending, Sub: &Subagent{}},
 		},
 	}
 	for _, tt := range tests {
@@ -238,7 +238,7 @@ func TestLoad_CompactionAndMaxStepsNotices(t *testing.T) {
 	})
 	assertBlocks(t, p.Blocks(), []Block{
 		{ID: "n/0", Kind: KindNotice, MessageID: "m1", Title: "compaction summary", Text: "the summary", Level: LevelInfo},
-		{ID: "c1", Kind: KindTool, MessageID: "m2", Call: c, Result: r, State: StateOK},
+		{ID: "t/c1", Kind: KindTool, MessageID: "m2", Call: c, Result: r, State: StateOK},
 		{ID: "n/1", Kind: KindNotice, MessageID: "m2", Text: "[stopped: reached max_steps (40)]", Level: LevelInfo},
 	})
 }
@@ -261,7 +261,7 @@ func TestLoad_ReplacesBlocksAndKeepsVersionsMonotonic(t *testing.T) {
 		version int
 	}{
 		{"m/m1/0", 3}, // v1 created, v2 streaming cleared by RunFailed, v3 reloaded
-		{"c1", 3},     // v1 running, v2 finished, v3 reloaded
+		{"t/c1", 3},   // v1 running, v2 finished, v3 reloaded
 		{"n/1", 1},    // notice IDs keep counting across Load: "n/0" was the first run's
 	}
 	for _, tt := range tests {
@@ -332,7 +332,7 @@ func TestBlocks_ReturnsCopies(t *testing.T) {
 			asstMsg("m1", core.StatusComplete, callPart(c), resultPart(r)),
 		})
 		// Task 8 sets Permission from events; set it directly to cover clone.
-		b, _ := p.list.get("t1")
+		b, _ := p.list.get("t/t1")
 		b.Permission = &PendingPermission{RequestID: "p1", Call: core.ToolCall{ID: "t1", Input: []byte(`{"x":1}`)}}
 		return p
 	}
@@ -357,13 +357,13 @@ func TestBlocks_ReturnsCopies(t *testing.T) {
 		mutate func(b Block)
 	}{
 		{"attachment", "u/m0", func(b Block) { b.Attachments[0] = "/mutated" }},
-		{"sub", "t1", func(b Block) { b.Sub.Agent = "mutated" }},
-		{"call name", "t1", func(b Block) { b.Call.Name = "mutated" }},
-		{"call input", "t1", func(b Block) { b.Call.Input[0] = 'X' }},
-		{"result metadata", "t1", func(b Block) { b.Result.Metadata["k"] = "mutated" }},
-		{"result media ref", "t1", func(b Block) { b.Result.Media[0].Ref = "mutated" }},
-		{"result media data", "t1", func(b Block) { b.Result.Media[0].Data[0] = 'X' }},
-		{"permission call input", "t1", func(b Block) { b.Permission.Call.Input[0] = 'X' }},
+		{"sub", "t/t1", func(b Block) { b.Sub.Agent = "mutated" }},
+		{"call name", "t/t1", func(b Block) { b.Call.Name = "mutated" }},
+		{"call input", "t/t1", func(b Block) { b.Call.Input[0] = 'X' }},
+		{"result metadata", "t/t1", func(b Block) { b.Result.Metadata["k"] = "mutated" }},
+		{"result media ref", "t/t1", func(b Block) { b.Result.Media[0].Ref = "mutated" }},
+		{"result media data", "t/t1", func(b Block) { b.Result.Media[0].Data[0] = 'X' }},
+		{"permission call input", "t/t1", func(b Block) { b.Permission.Call.Input[0] = 'X' }},
 	}
 	for _, g := range getters {
 		for _, m := range mutations {

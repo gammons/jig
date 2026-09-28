@@ -1,0 +1,9 @@
+[2;38;2;136;136;136m▸ read  src/main.go[m
+[38;2;224;224;224m⠸ read  src/main.go[m
+[38;2;224;160;48m▸ bash  rm -rf /tmp/x ⚠[m
+⚠ bash wants to run: rm -rf /tmp/x
+  a allow · A always (this exact command) · d deny · D deny with message
+[38;2;80;200;120m▸ read  src/main.go · 2 lines[m
+[38;2;224;64;64m▸ bash  false ✗ exit 1[m
+[38;2;224;64;64m▸ bash  curl evil.test ⊘[m
+[2;38;2;136;136;136m▸ bash  sleep 99 ⊘[m

@@ -75,10 +75,10 @@ func (p *Projection) delta(msg core.MessageID, kind Kind, text string) []BlockID
 // startTool shows call as running. A block that already exists for the
 // call ID (a resumed call) is reused rather than duplicated.
 func (p *Projection) startTool(msg core.MessageID, call core.ToolCall) []BlockID {
-	b, ok := p.list.get(BlockID(call.ID))
+	b, ok := p.list.get(toolBlockID(call.ID))
 	if !ok {
 		p.list.add(newToolBlock(msg, call, StateRunning))
-		return []BlockID{BlockID(call.ID)}
+		return []BlockID{toolBlockID(call.ID)}
 	}
 	call = cloneCall(call)
 	b.Call = &call
@@ -91,7 +91,7 @@ func (p *Projection) startTool(msg core.MessageID, call core.ToolCall) []BlockID
 // finishTool records r on its call's block and observes it for derived
 // state.
 func (p *Projection) finishTool(r core.ToolResult) []BlockID {
-	b, ok := p.list.get(BlockID(r.CallID))
+	b, ok := p.list.get(toolBlockID(r.CallID))
 	if !ok {
 		return nil
 	}

@@ -16,9 +16,15 @@ import (
 
 // BlockID identifies a Block stably across updates: "u/<msgID>" for a user
 // message, "m/<msgID>/<n>" for the n-th (from 0) text or reasoning block of
-// an assistant message, the tool call ID for a tool or subagent block, and
+// an assistant message, "t/<callID>" for a tool or subagent block, and
 // "n/<k>" for the k-th (from 0) notice.
 type BlockID string
+
+// toolBlockID returns the BlockID of the tool or subagent block for a
+// provider tool call ID. The "t/" prefix keeps it from colliding with a
+// "n/<k>" notice or "u/…" user ID, since a provider call ID is untrusted
+// input and could otherwise be crafted to match one.
+func toolBlockID(callID string) BlockID { return BlockID("t/" + callID) }
 
 // Kind distinguishes what a Block displays.
 type Kind int

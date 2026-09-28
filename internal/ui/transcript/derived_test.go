@@ -110,10 +110,10 @@ func TestChangedFiles_ReturnsCopyAndLoadRecomputes(t *testing.T) {
 func TestChangedFiles_IgnoresDescendants(t *testing.T) {
 	p := New(root)
 	run(t, p, []step{
-		{taskStarted(), []BlockID{"c1"}},
-		{spawned(root, "k1", "explore", "c1"), []BlockID{"c1"}},
-		{event.ToolCallStarted{Base: sessBase("k1"), MessageID: "km", Call: *mkCall("w1", "write", pathInput("a.go"))}, []BlockID{"c1"}},
-		{event.ToolCallFinished{Base: sessBase("k1"), MessageID: "km", Result: *mkResult("w1", "write", "ok", false)}, []BlockID{"c1"}},
+		{taskStarted(), []BlockID{"t/c1"}},
+		{spawned(root, "k1", "explore", "c1"), []BlockID{"t/c1"}},
+		{event.ToolCallStarted{Base: sessBase("k1"), MessageID: "km", Call: *mkCall("w1", "write", pathInput("a.go"))}, []BlockID{"t/c1"}},
+		{event.ToolCallFinished{Base: sessBase("k1"), MessageID: "km", Result: *mkResult("w1", "write", "ok", false)}, []BlockID{"t/c1"}},
 	})
 	if got := p.ChangedFiles(); got != nil {
 		t.Errorf("ChangedFiles = %+v, want nil", got)
@@ -160,10 +160,10 @@ func TestLastBrowserURL_IgnoresDescendants(t *testing.T) {
 	p := New(root)
 	feeds()[1].feed(p, []toolUse{browsed("agent-browser open root.test")})
 	run(t, p, []step{
-		{taskStarted(), []BlockID{"c1"}},
-		{spawned(root, "k1", "explore", "c1"), []BlockID{"c1"}},
-		{event.ToolCallStarted{Base: sessBase("k1"), MessageID: "km", Call: *mkCall("b1", "bash", bashInput("agent-browser open kid.test"))}, []BlockID{"c1"}},
-		{event.ToolCallFinished{Base: sessBase("k1"), MessageID: "km", Result: *mkResult("b1", "bash", "ok", false)}, []BlockID{"c1"}},
+		{taskStarted(), []BlockID{"t/c1"}},
+		{spawned(root, "k1", "explore", "c1"), []BlockID{"t/c1"}},
+		{event.ToolCallStarted{Base: sessBase("k1"), MessageID: "km", Call: *mkCall("b1", "bash", bashInput("agent-browser open kid.test"))}, []BlockID{"t/c1"}},
+		{event.ToolCallFinished{Base: sessBase("k1"), MessageID: "km", Result: *mkResult("b1", "bash", "ok", false)}, []BlockID{"t/c1"}},
 	})
 	if got := p.LastBrowserURL(); got != "root.test" {
 		t.Errorf("LastBrowserURL = %q, want root.test", got)

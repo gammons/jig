@@ -31,6 +31,7 @@ type Set struct {
 	Status    statusbar.Styles
 	Sidebar   sidebar.Styles
 	Confirm   confirm.Styles
+	Render    RenderStyles
 	// One field per later widget goes here as each widget's Task adds it.
 }
 
@@ -49,6 +50,7 @@ func Build(p Palette, version int) Set {
 		Status:    statusStyles(p),
 		Sidebar:   sidebarStyles(p),
 		Confirm:   confirmStyles(p),
+		Render:    renderStyles(p),
 	}
 }
 

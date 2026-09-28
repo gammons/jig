@@ -301,3 +301,31 @@ func TestBuild_ConfirmFromPalette(t *testing.T) {
 		t.Errorf("Confirm = %+v, want %+v", set.Confirm, want)
 	}
 }
+
+func TestBuild_RenderFromPalette(t *testing.T) {
+	t.Parallel()
+
+	p := Complete(Palette{
+		Name: "test",
+		BaseColors: BaseColors{
+			Primary: "#111111", Accent: "#222222", Warning: "#333333", Error: "#444444",
+			Background: "#555555", Surface: "#666666", SurfaceDark: "#777777",
+			Text: "#888888", TextMuted: "#999999", Border: "#aaaaaa",
+		},
+	})
+
+	set := Build(p, 3)
+
+	want := RenderStyles{
+		Tool:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
+		OK:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Error:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
+		Denied: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
+		Warn:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
+		Dim:    lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		User:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
+	}
+	if !reflect.DeepEqual(set.Render, want) {
+		t.Errorf("Render = %+v, want %+v", set.Render, want)
+	}
+}

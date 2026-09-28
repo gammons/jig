@@ -131,7 +131,7 @@ func (l *blockList) snapshot() []Block {
 // and a tool block otherwise.
 func newToolBlock(msg core.MessageID, call core.ToolCall, state ToolState) *Block {
 	call = cloneCall(call)
-	b := &Block{ID: BlockID(call.ID), Kind: KindTool, MessageID: msg, Call: &call, State: state}
+	b := &Block{ID: toolBlockID(call.ID), Kind: KindTool, MessageID: msg, Call: &call, State: state}
 	if call.Name == taskTool {
 		b.Kind = KindSubagent
 		b.Sub = subagentOf(call)
