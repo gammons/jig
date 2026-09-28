@@ -21,28 +21,27 @@ func Defaults() core.PermissionRules {
 	}
 }
 
-// AgentBrowserPreset returns the permission rules the agent-browser
-// integration merges in when enabled: read-only/low-risk bash subcommands
-// are allowed, and any other "agent-browser ..." invocation asks. It sets
-// no Default (soundness relies on it never being looser than "ask") and
-// no pattern denies anything, since the preset is meant only to loosen
-// jig's normal bash-asks-by-default baseline for a known-safe set of
-// subcommands.
+// AgentBrowserPreset returns the read-only/low-risk agent-browser bash
+// subcommands the integration allows when enabled. It is not a config
+// layer: the Hook consults it (see WithPreset) only for a call whose
+// action is an ask that came from the tool's Default, so it never
+// overrides a deny or any user pattern. Every other "agent-browser ..."
+// invocation keeps that default ask. "screenshot" takes no path argument,
+// since a path would let the call overwrite an arbitrary file.
 func AgentBrowserPreset() core.PermissionRules {
 	return core.PermissionRules{
 		"bash": {
 			Patterns: map[string]core.Action{
-				"agent-browser snapshot*":   core.Allow,
-				"agent-browser screenshot*": core.Allow,
-				"agent-browser console*":    core.Allow,
-				"agent-browser errors*":     core.Allow,
-				"agent-browser get *":       core.Allow,
-				"agent-browser is *":        core.Allow,
-				"agent-browser tab":         core.Allow,
-				"agent-browser a11y*":       core.Allow,
-				"agent-browser vitals*":     core.Allow,
-				"agent-browser read*":       core.Allow,
-				"agent-browser *":           core.Ask,
+				"agent-browser snapshot*":  core.Allow,
+				"agent-browser screenshot": core.Allow,
+				"agent-browser console*":   core.Allow,
+				"agent-browser errors*":    core.Allow,
+				"agent-browser get *":      core.Allow,
+				"agent-browser is *":       core.Allow,
+				"agent-browser tab":        core.Allow,
+				"agent-browser a11y*":      core.Allow,
+				"agent-browser vitals*":    core.Allow,
+				"agent-browser read*":      core.Allow,
 			},
 		},
 	}

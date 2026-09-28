@@ -16,21 +16,38 @@ import (
 // and consults asker (remembering "always" answers per root session) for
 // calls that ask. Hook is safe for concurrent Before calls.
 type Hook struct {
-	cfg   core.PermissionRules
-	asker Asker
+	cfg    core.PermissionRules
+	preset core.PermissionRules // relaxes default asks only; see WithPreset
+	asker  Asker
 
 	mu     sync.Mutex
 	grants map[core.SessionID]map[string][]string // root -> tool -> granted subjects ("" = whole tool)
 }
 
+// HookOption configures a Hook.
+type HookOption func(*Hook)
+
+// WithPreset makes the Hook consult preset (e.g. AgentBrowserPreset) for
+// a call whose action is an ask that came from the tool's Default (no
+// user pattern matched): a matching preset allow turns it into an allow,
+// subject to the bash metacharacter downgrade. The preset never overrides
+// a deny or a user pattern, and does not affect tool visibility.
+func WithPreset(preset core.PermissionRules) HookOption {
+	return func(h *Hook) { h.preset = preset }
+}
+
 // NewHook returns a Hook that evaluates against cfg and asks through
 // asker.
-func NewHook(cfg core.PermissionRules, asker Asker) *Hook {
-	return &Hook{
+func NewHook(cfg core.PermissionRules, asker Asker, opts ...HookOption) *Hook {
+	h := &Hook{
 		cfg:    cfg,
 		asker:  asker,
 		grants: make(map[core.SessionID]map[string][]string),
 	}
+	for _, o := range opts {
+		o(h)
+	}
+	return h
 }
 
 // Before implements ext.ToolHook.
@@ -65,8 +82,16 @@ func (h *Hook) decide(rc ext.RunContext, tool, subject string) core.Action {
 // allow that came from a pattern (not the tool's default) is downgraded to
 // Ask when the command contains shell metacharacters, since a pattern such
 // as "git status*" would otherwise also allow "git status; rm -rf x".
+// An ask from the tool's Default may be relaxed by h.preset (see
+// WithPreset), under the same downgrade.
 func (h *Hook) decideOne(agent core.PermissionRules, tool, subject string) core.Action {
-	action, fromPattern := evaluate(Effective(agent, h.cfg)[tool], subject)
+	rule := Effective(agent, h.cfg)[tool]
+	action, fromPattern := evaluate(rule, subject)
+	if action == core.Ask && !fromPattern && rule.Default != core.Deny {
+		if pa, matched := evaluate(core.Rule{Patterns: h.preset[tool].Patterns}, subject); matched && pa == core.Allow {
+			action, fromPattern = core.Allow, true
+		}
+	}
 	if tool == "bash" && action == core.Allow && fromPattern && hasShellMeta(subject) {
 		return core.Ask
 	}
@@ -74,9 +99,9 @@ func (h *Hook) decideOne(agent core.PermissionRules, tool, subject string) core.
 }
 
 // hasShellMeta reports whether cmd contains a character or sequence that
-// can chain, substitute, or redirect shell commands.
+// can chain, substitute, expand, or redirect shell commands.
 func hasShellMeta(cmd string) bool {
-	return strings.ContainsAny(cmd, ";&|`><\n") || strings.Contains(cmd, "$(")
+	return strings.ContainsAny(cmd, ";&|`><\n$")
 }
 
 // After implements ext.ToolHook by returning res unchanged.

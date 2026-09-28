@@ -8,9 +8,7 @@ import (
 
 	"github.com/gammons/jig/internal/client/agentbrowser"
 	"github.com/gammons/jig/internal/core"
-	"github.com/gammons/jig/internal/data/config"
 	"github.com/gammons/jig/internal/data/prefsfs"
-	"github.com/gammons/jig/internal/service/permission"
 	"github.com/gammons/jig/internal/service/trust"
 )
 
@@ -29,32 +27,29 @@ const missingBrowserWarning = "warning: integrations.agent_browser.enabled = tru
 
 // resolveBrowser decides whether agent-browser is enabled for l (whose
 // Project layer has not yet been trust.Restricted) and trusted, and, if
-// so, merges its permission preset into l.Global and resolves its skills
-// dir. It must run before trust.Restrict: Restrict drops
-// Project.AgentBrowser whole for an untrusted project, and the merged
-// preset must already be part of the Global baseline Restrict tightens
-// project permissions against.
-func resolveBrowser(l trust.Layers, trusted bool, lookPath func(string) (string, error), prefsPath string, skillsPath func(context.Context, string) (string, error)) (trust.Layers, browserIntegration, []string) {
+// so, resolves its skills dir. An untrusted project's toggle is ignored.
+// Its permission preset is not a config layer: addHooks hands it to the
+// permission hook (permission.WithPreset) when the integration is enabled.
+func resolveBrowser(l trust.Layers, trusted bool, lookPath func(string) (string, error), prefsPath string, skillsPath func(context.Context, string) (string, error)) (browserIntegration, []string) {
 	toggle := browserToggle(l, trusted)
 	if toggle == core.ToggleFalse {
-		return l, browserIntegration{}, nil
+		return browserIntegration{}, nil
 	}
 
 	bin, ok := agentbrowser.Detect(lookPath)
 	if !ok {
 		if toggle == core.ToggleTrue {
-			return l, browserIntegration{}, []string{missingBrowserWarning}
+			return browserIntegration{}, []string{missingBrowserWarning}
 		}
-		return l, browserIntegration{}, nil
+		return browserIntegration{}, nil
 	}
 
-	l.Global = config.Merge(core.Config{Permissions: permission.AgentBrowserPreset()}, l.Global)
 	skillsDir, warn := browserSkillsDir(prefsPath, bin, skillsPath)
 	bi := browserIntegration{enabled: true, bin: bin, skillsDir: skillsDir}
 	if warn != "" {
-		return l, bi, []string{warn}
+		return bi, []string{warn}
 	}
-	return l, bi, nil
+	return bi, nil
 }
 
 // browserToggle is Project.AgentBrowser if trusted and set, else

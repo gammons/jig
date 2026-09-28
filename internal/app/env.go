@@ -96,7 +96,7 @@ func (e *env) resolveLayers(decide trustDecider, clk clock.Clock) error {
 			return err
 		}
 	}
-	l, e.browser, e.browserWarns = resolveBrowser(l, st.trusted, exec.LookPath, e.prefsPath(), agentbrowser.SkillsPath)
+	e.browser, e.browserWarns = resolveBrowser(l, st.trusted, exec.LookPath, e.prefsPath(), agentbrowser.SkillsPath)
 	e.layers, e.trust = applyTrust(l, st)
 	return nil
 }

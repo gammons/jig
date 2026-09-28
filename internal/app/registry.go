@@ -85,7 +85,11 @@ func addTools(r *ext.Registry, d registryDeps) error {
 }
 
 func addHooks(r *ext.Registry, d registryDeps) error {
-	return r.AddToolHook(permission.NewHook(d.env.cfg().Permissions, d.asker))
+	var opts []permission.HookOption
+	if d.env.browser.enabled {
+		opts = append(opts, permission.WithPreset(permission.AgentBrowserPreset()))
+	}
+	return r.AddToolHook(permission.NewHook(d.env.cfg().Permissions, d.asker, opts...))
 }
 
 // addTransforms registers the system-prompt transforms. A literal

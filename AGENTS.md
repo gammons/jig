@@ -137,8 +137,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   every entry of `rc.Ancestors` (each merged over config) and takes the
   most restrictive action; `task` appends the parent's rules to the
   child's `Ancestors`. A `bash` allow from a pattern is downgraded to ask
-  when the command has shell metacharacters. Session grants apply only
-  to `ask`.
+  when the command has shell metacharacters (including any `$`). Session
+  grants apply only to `ask`.
 - An untrusted project layer goes through `trust.Restrict` before any
   merge; `permission.Tighten` never keeps an `allow` pattern, and keeps an
   `ask` pattern only where the baseline has no `deny`. A top-level project
@@ -201,8 +201,13 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   request; unsupported models get the `[image omitted: …]` text instead.
 - `GenerateTitle` never overwrites a non-placeholder title.
 - Stored `Session.Cwd` is `pathid.Key(workDir)`.
-- The agent-browser preset is the lowest config layer, and only when the
-  integration is enabled; an untrusted project cannot enable it.
+- The agent-browser preset is not a config layer: `internal/app` passes
+  it to `permission.NewHook` via `WithPreset` only when the integration is
+  enabled (an untrusted project cannot enable it). The Hook consults it
+  only when an agent's action is an `ask` from the tool's Default (no user
+  pattern matched); a preset allow then applies, still subject to the
+  metachar downgrade. It never overrides a deny or a user pattern, and
+  never affects `ToolsFor`.
 - bash attaches a screenshot only from the workdir or `screenshot*` files
   in the OS temp dir, after resolving symlinks.
 

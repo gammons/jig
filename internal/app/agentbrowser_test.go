@@ -2,13 +2,17 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/gammons/jig/internal/core"
+	"github.com/gammons/jig/internal/core/ext"
 	"github.com/gammons/jig/internal/data/prefsfs"
+	"github.com/gammons/jig/internal/service/agents"
+	"github.com/gammons/jig/internal/service/permission"
 	"github.com/gammons/jig/internal/service/trust"
 )
 
@@ -32,7 +36,7 @@ func TestBrowser_ToggleFalse_NoExec(t *testing.T) {
 	l := trust.Layers{Global: core.Config{AgentBrowser: core.ToggleFalse}}
 	prefsPath := filepath.Join(t.TempDir(), "prefs.json")
 
-	_, bi, warns := resolveBrowser(l, false, failingLookPath(t), prefsPath, failingSkillsPath(t))
+	bi, warns := resolveBrowser(l, false, failingLookPath(t), prefsPath, failingSkillsPath(t))
 	if bi.enabled {
 		t.Errorf("browserIntegration = %+v, want disabled", bi)
 	}
@@ -46,7 +50,7 @@ func TestBrowser_MissingBinaryWithTrue_Warns(t *testing.T) {
 	prefsPath := filepath.Join(t.TempDir(), "prefs.json")
 	lookPath := func(string) (string, error) { return "", errors.New("not found") }
 
-	_, bi, warns := resolveBrowser(l, false, lookPath, prefsPath, failingSkillsPath(t))
+	bi, warns := resolveBrowser(l, false, lookPath, prefsPath, failingSkillsPath(t))
 	if bi.enabled {
 		t.Errorf("browserIntegration = %+v, want disabled", bi)
 	}
@@ -60,7 +64,7 @@ func TestBrowser_AutoWithoutBinary_NoWarning(t *testing.T) {
 	prefsPath := filepath.Join(t.TempDir(), "prefs.json")
 	lookPath := func(string) (string, error) { return "", errors.New("not found") }
 
-	_, bi, warns := resolveBrowser(l, false, lookPath, prefsPath, failingSkillsPath(t))
+	bi, warns := resolveBrowser(l, false, lookPath, prefsPath, failingSkillsPath(t))
 	if bi.enabled {
 		t.Errorf("browserIntegration = %+v, want disabled", bi)
 	}
@@ -101,7 +105,7 @@ func TestBrowser_CachedPrefsSkipsSkillsPath(t *testing.T) {
 	l := trust.Layers{Global: core.Config{AgentBrowser: core.ToggleAuto}}
 	lookPath := func(string) (string, error) { return bin, nil }
 
-	_, bi, warns := resolveBrowser(l, false, lookPath, prefsPath, failingSkillsPath(t))
+	bi, warns := resolveBrowser(l, false, lookPath, prefsPath, failingSkillsPath(t))
 	if !bi.enabled || bi.bin != bin || bi.skillsDir != "/cached/skills" {
 		t.Errorf("browserIntegration = %+v, want enabled with cached skills dir", bi)
 	}
@@ -126,7 +130,7 @@ func TestBrowser_CacheMissRunsSkillsPathAndSaves(t *testing.T) {
 		return "/fresh/skills", nil
 	}
 
-	_, bi, warns := resolveBrowser(l, false, lookPath, prefsPath, skillsPath)
+	bi, warns := resolveBrowser(l, false, lookPath, prefsPath, skillsPath)
 	if calls != 1 {
 		t.Errorf("skillsPath called %d times, want 1", calls)
 	}
@@ -155,7 +159,7 @@ func TestBrowser_SkillsPathErrorWarnsButStaysEnabled(t *testing.T) {
 	lookPath := func(string) (string, error) { return bin, nil }
 	skillsPath := func(context.Context, string) (string, error) { return "", errors.New("boom") }
 
-	_, bi, warns := resolveBrowser(l, false, lookPath, prefsPath, skillsPath)
+	bi, warns := resolveBrowser(l, false, lookPath, prefsPath, skillsPath)
 	if !bi.enabled || bi.skillsDir != "" {
 		t.Errorf("browserIntegration = %+v, want enabled with no skills dir", bi)
 	}
@@ -164,17 +168,98 @@ func TestBrowser_SkillsPathErrorWarnsButStaysEnabled(t *testing.T) {
 	}
 }
 
-func TestBrowser_PresetMergedIntoGlobal(t *testing.T) {
-	dir := t.TempDir()
-	bin := writeFakeBin(t, dir)
-	prefsPath := filepath.Join(dir, "prefs.json")
-	l := trust.Layers{Global: core.Config{AgentBrowser: core.ToggleAuto}}
-	lookPath := func(string) (string, error) { return bin, nil }
-	skillsPath := func(context.Context, string) (string, error) { return "", errors.New("no skills") }
+// cmdTool is a stand-in bash tool whose permission subject is its
+// "command" input.
+type cmdTool struct{}
 
-	out, _, _ := resolveBrowser(l, false, lookPath, prefsPath, skillsPath)
-	if _, ok := out.Global.Permissions["bash"].Patterns["agent-browser snapshot*"]; !ok {
-		t.Errorf("Global.Permissions = %+v, want the agent-browser preset merged in", out.Global.Permissions)
+func (cmdTool) Name() string           { return "bash" }
+func (cmdTool) Description() string    { return "" }
+func (cmdTool) Schema() map[string]any { return nil }
+func (cmdTool) Concurrent() bool       { return false }
+func (cmdTool) Run(context.Context, ext.RunContext, core.ToolCall) (core.ToolResult, error) {
+	return core.ToolResult{}, nil
+}
+func (cmdTool) Subject(_ ext.RunContext, input json.RawMessage) string {
+	var in struct{ Command string }
+	_ = json.Unmarshal(input, &in)
+	return in.Command
+}
+
+// browserEnv loads an env with a fake agent-browser on PATH (so the
+// integration is enabled) and globalTOML as the global config.
+func browserEnv(t *testing.T, globalTOML string) env {
+	t.Helper()
+	te := newTestEnv(t)
+	binDir := t.TempDir()
+	writeFakeBin(t, binDir)
+	t.Setenv("PATH", binDir)
+	te.writeConfig(t, globalTOML)
+	e := mustLoadEnv(t, te, (&countingDecider{}).decide)
+	if !e.browser.enabled {
+		t.Fatal("browser integration not enabled")
+	}
+	return e
+}
+
+// browserVerdict runs the registered permission hook for a bash call of
+// cmd under agent, answering any ask with a deny.
+func browserVerdict(t *testing.T, e env, agent core.Agent, cmd string) ext.Verdict {
+	t.Helper()
+	r := ext.NewRegistry()
+	if err := addHooks(r, registryDeps{env: e, asker: denyAsker{}}); err != nil {
+		t.Fatal(err)
+	}
+	input, _ := json.Marshal(map[string]string{"command": cmd})
+	rc := ext.RunContext{SessionID: "s", RootID: "s", Agent: agent}
+	_, v, err := r.Freeze().ToolHooks()[0].Before(t.Context(), rc, cmdTool{}, core.ToolCall{ID: "c", Name: "bash", Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+type denyAsker struct{}
+
+func (denyAsker) Ask(context.Context, permission.Request) (core.PermissionReply, error) {
+	return core.PermissionReply{Kind: core.ReplyDeny, Message: "asked"}, nil
+}
+
+func TestBrowser_PresetRelaxesDefaultAsk(t *testing.T) {
+	e := browserEnv(t, "")
+	if _, ok := e.cfg().Permissions["bash"]; ok {
+		t.Errorf("cfg().Permissions[bash] = %+v, want the preset kept out of config", e.cfg().Permissions["bash"])
+	}
+	if v := browserVerdict(t, e, core.Agent{}, "agent-browser snapshot -i"); v.Block {
+		t.Errorf("snapshot verdict = %+v, want allowed", v)
+	}
+	for _, cmd := range []string{"agent-browser click @e1", "agent-browser screenshot ~/.bashrc", "agent-browser snapshot $HOME"} {
+		if v := browserVerdict(t, e, core.Agent{}, cmd); v.Reason != "user denied: asked" {
+			t.Errorf("%q verdict = %+v, want an ask", cmd, v)
+		}
+	}
+}
+
+func TestBrowser_GlobalBashDenyBeatsPreset(t *testing.T) {
+	e := browserEnv(t, "[permissions]\nbash = \"deny\"\n")
+	if v := browserVerdict(t, e, core.Agent{}, "agent-browser snapshot -i"); !v.Block || v.Reason == "user denied: asked" {
+		t.Errorf("verdict = %+v, want denied by rule", v)
+	}
+}
+
+func TestBrowser_AgentBashDenyBeatsPresetAndStaysHidden(t *testing.T) {
+	e := browserEnv(t, "[agents.build.permissions]\nbash = \"deny\"\n")
+	ag, err := agents.New(e.cfg(), agents.Sources{GlobalTOML: e.layers.Global.Agents})
+	if err != nil {
+		t.Fatal(err)
+	}
+	build, _ := ag.Get("build")
+	if v := browserVerdict(t, e, build, "agent-browser snapshot -i"); !v.Block || v.Reason == "user denied: asked" {
+		t.Errorf("verdict = %+v, want denied by rule", v)
+	}
+	for _, tool := range agents.ToolsFor(build, []ext.Tool{cmdTool{}}) {
+		if tool.Name() == "bash" {
+			t.Error("ToolsFor(build) includes bash, want it hidden (Default deny)")
+		}
 	}
 }
 
@@ -185,7 +270,7 @@ func TestBrowser_TrustedProjectTogglesOverridesGlobal(t *testing.T) {
 	}
 	prefsPath := filepath.Join(t.TempDir(), "prefs.json")
 
-	_, bi, warns := resolveBrowser(l, true, failingLookPath(t), prefsPath, failingSkillsPath(t))
+	bi, warns := resolveBrowser(l, true, failingLookPath(t), prefsPath, failingSkillsPath(t))
 	if bi.enabled {
 		t.Errorf("browserIntegration = %+v, want disabled (Project overrides trusted)", bi)
 	}
@@ -201,7 +286,7 @@ func TestBrowser_UntrustedProjectIgnored(t *testing.T) {
 	}
 	prefsPath := filepath.Join(t.TempDir(), "prefs.json")
 
-	_, bi, warns := resolveBrowser(l, false, failingLookPath(t), prefsPath, failingSkillsPath(t))
+	bi, warns := resolveBrowser(l, false, failingLookPath(t), prefsPath, failingSkillsPath(t))
 	if bi.enabled {
 		t.Errorf("browserIntegration = %+v, want disabled (untrusted Project ignored)", bi)
 	}
