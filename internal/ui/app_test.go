@@ -534,6 +534,20 @@ func TestApp_StatusContextAndCost(t *testing.T) {
 	}
 }
 
+// An agent without its own model runs on the configured default, so the
+// status bar shows it before the first step reports one.
+func TestApp_StatusShowsDefaultModelBeforeFirstRun(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, func(c *testConfig) {
+		c.agents = fakeAgents{{Name: "build", Mode: core.ModePrimary}}
+		c.opts.DefaultModel = "anthropic/claude-sonnet-5"
+	})
+	st := ta.app.statusState()
+	if st.Model != "claude-sonnet-5" || st.CtxLimit != 200000 {
+		t.Errorf("model = %q (ctx limit %d), want claude-sonnet-5 (200000)", st.Model, st.CtxLimit)
+	}
+}
+
 func TestApp_StatusSanitizesSessionStrings(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)

@@ -77,10 +77,12 @@ type toolTimes struct {
 	durs   map[transcript.BlockID]time.Duration
 }
 
-// catalog caches the read-only port lists the App consults per frame.
+// catalog caches the read-only port lists the App consults per frame, and
+// the configured default model (the fallback for an agent without one).
 type catalog struct {
-	agents    []core.Agent
-	providers []core.ProviderStatus
+	agents       []core.Agent
+	providers    []core.ProviderStatus
+	defaultModel string
 }
 
 // idSet is an insertion-ordered set of block IDs. Blocks are created in
@@ -135,9 +137,12 @@ type sessionState struct {
 }
 
 // newSessionState starts with root id ("" for a session the first send
-// will create).
-func newSessionState(id core.SessionID, clk clock.Clock) *sessionState {
-	s := &sessionState{proj: transcript.New(id), info: core.Session{ID: id}, clk: clk, versions: map[transcript.BlockID]int{}}
+// will create) and the configured default model.
+func newSessionState(id core.SessionID, clk clock.Clock, defaultModel string) *sessionState {
+	s := &sessionState{
+		proj: transcript.New(id), info: core.Session{ID: id}, clk: clk,
+		versions: map[transcript.BlockID]int{}, cat: catalog{defaultModel: defaultModel},
+	}
 	s.resetBlocks()
 	return s
 }

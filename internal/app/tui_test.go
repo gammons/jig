@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/jig/internal/core"
+	"github.com/gammons/jig/internal/service/agents"
 	"github.com/gammons/jig/internal/ui"
 	"github.com/gammons/jig/internal/ui/theme"
 )
@@ -252,5 +253,24 @@ func TestTUIPorts_PermsIsTheRuntimeAsker(t *testing.T) {
 	if p.Chat == nil || p.Sessions == nil || p.Agents == nil || p.Catalog == nil ||
 		p.Project == nil || p.Blobs == nil || p.Editor == nil || p.Subscribe == nil {
 		t.Errorf("ports has a nil field: %+v", p)
+	}
+}
+
+func TestDefaultModel_ResolvesAliasOrEmpty(t *testing.T) {
+	for _, tc := range []struct {
+		cfg  core.Config
+		want string
+	}{
+		{core.Config{DefaultModel: "fast", ModelAliases: map[string]string{"fast": "jigtest/m1"}}, "jigtest/m1"},
+		{core.Config{DefaultModel: "anthropic/claude-sonnet-5"}, "anthropic/claude-sonnet-5"},
+		{core.Config{}, ""},
+	} {
+		ag, err := agents.New(tc.cfg, agents.Sources{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := defaultModel(ag); got != tc.want {
+			t.Errorf("defaultModel(%+v) = %q, want %q", tc.cfg, got, tc.want)
+		}
 	}
 }

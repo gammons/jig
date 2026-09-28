@@ -242,7 +242,7 @@ func (p pickerCtl) resume(id core.SessionID) tea.Cmd {
 // catalog, agent, and model. Recorded attachments don't carry over: a
 // path picked for the old session must not attach to the new one.
 func freshSession(old *sessionState, id core.SessionID) *sessionState {
-	s := newSessionState(id, old.clk)
+	s := newSessionState(id, old.clk, old.cat.defaultModel)
 	s.cat = old.cat
 	s.info.Agent, s.info.Model = old.info.Agent, old.info.Model
 	return s

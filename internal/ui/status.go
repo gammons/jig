@@ -33,7 +33,7 @@ func (s *sessionState) status(aliases map[string]string) statusbar.State {
 
 // modelRef is the "provider/model" the next send runs on: the session's
 // own model, else the agent's configured one, else the one the last root
-// step reported.
+// step reported, else the configured default.
 func (s *sessionState) modelRef() string {
 	if s.info.Model != "" {
 		return s.info.Model
@@ -41,7 +41,10 @@ func (s *sessionState) modelRef() string {
 	if i := s.agentIndex(); i >= 0 && !s.cat.agents[i].Model.IsZero() {
 		return s.cat.agents[i].Model.String()
 	}
-	return s.model
+	if s.model != "" {
+		return s.model
+	}
+	return s.cat.defaultModel
 }
 
 // contextWindow looks ref up in the cached catalog; 0 when unknown.

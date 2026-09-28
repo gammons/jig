@@ -20,6 +20,7 @@ import (
 	"github.com/gammons/jig/internal/core/event"
 	"github.com/gammons/jig/internal/data/themefs"
 	"github.com/gammons/jig/internal/ids"
+	"github.com/gammons/jig/internal/service/agents"
 	"github.com/gammons/jig/internal/service/permission"
 	"github.com/gammons/jig/internal/ui"
 	"github.com/gammons/jig/internal/ui/actions"
@@ -138,8 +139,17 @@ func tuiOptions(e env, rt *runtime, opts tuiOpts, prefTheme string, errw io.Writ
 		Actions:   cat, Keymap: km,
 		Themes: custom, Theme: chooseTheme(prefTheme, e.cfg().Theme, custom, errw),
 		Images: imageEnv(e.getenv), Tmux: e.getenv("TMUX") != "",
-		Aliases: e.cfg().ModelAliases,
+		Aliases: e.cfg().ModelAliases, DefaultModel: defaultModel(rt.svc.agents),
 	}
+}
+
+// defaultModel is the resolved default_model, or "" when none resolves.
+func defaultModel(ag *agents.Service) string {
+	ref, err := ag.ResolveModel(core.Agent{}, core.ModelRef{}, core.ModelRef{})
+	if err != nil {
+		return ""
+	}
+	return ref.String()
 }
 
 // tuiUntrusted reports whether the status bar shows "untrusted": the

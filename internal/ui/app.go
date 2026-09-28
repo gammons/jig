@@ -42,6 +42,7 @@ type Options struct {
 	Images              imgrender.Env
 	Tmux                bool
 	Aliases             map[string]string // alias → "provider/model", for the status bar
+	DefaultModel        string            // resolved default_model ("provider/model"), for the status bar
 	Clock               clock.Clock
 }
 
@@ -127,7 +128,7 @@ func New(p Ports, o Options) *App {
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &App{
 		ports: p, opts: o, ctx: ctx, cancel: cancel,
-		sess:  newSessionState(o.Session, o.Clock),
+		sess:  newSessionState(o.Session, o.Clock, o.DefaultModel),
 		theme: newThemeState(o.Theme, o.Themes),
 		img:   newImageState(imgrender.Detect(o.Images, ""), o.Tmux),
 		after: tick,
