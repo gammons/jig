@@ -8,11 +8,14 @@ import (
 
 	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/bubbles/coderender"
+	"github.com/gammons/jig/internal/bubbles/confirm"
 	"github.com/gammons/jig/internal/bubbles/details"
 	"github.com/gammons/jig/internal/bubbles/mdrender"
 	"github.com/gammons/jig/internal/bubbles/permcard"
 	"github.com/gammons/jig/internal/bubbles/picker"
 	"github.com/gammons/jig/internal/bubbles/prompt"
+	"github.com/gammons/jig/internal/bubbles/sidebar"
+	"github.com/gammons/jig/internal/bubbles/statusbar"
 )
 
 func TestBuild_MarkdownFromPalette(t *testing.T) {
@@ -211,5 +214,90 @@ func TestBuild_CardFromPalette(t *testing.T) {
 	}
 	if !reflect.DeepEqual(set.Card, want) {
 		t.Errorf("Card = %+v, want %+v", set.Card, want)
+	}
+}
+
+func TestBuild_StatusFromPalette(t *testing.T) {
+	t.Parallel()
+
+	p := Complete(Palette{
+		Name: "test",
+		BaseColors: BaseColors{
+			Primary: "#111111", Accent: "#222222", Warning: "#333333", Error: "#444444",
+			Background: "#555555", Surface: "#666666", SurfaceDark: "#777777",
+			Text: "#888888", TextMuted: "#999999", Border: "#aaaaaa",
+		},
+	})
+
+	set := Build(p, 3)
+
+	want := statusbar.Styles{
+		Mode:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
+		Text:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
+		Running: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Idle:    lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		Warn:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
+		Hint:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
+		Dim:     lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+	}
+	if !reflect.DeepEqual(set.Status, want) {
+		t.Errorf("Status = %+v, want %+v", set.Status, want)
+	}
+}
+
+func TestBuild_SidebarFromPalette(t *testing.T) {
+	t.Parallel()
+
+	p := Complete(Palette{
+		Name: "test",
+		BaseColors: BaseColors{
+			Primary: "#111111", Accent: "#222222", Warning: "#333333", Error: "#444444",
+			Background: "#555555", Surface: "#666666", SurfaceDark: "#777777",
+			Text: "#888888", TextMuted: "#999999", Border: "#aaaaaa",
+		},
+		SidebarColors: SidebarColors{SidebarText: "#bbbbbb", SidebarTextMuted: "#cccccc"},
+	})
+
+	set := Build(p, 3)
+
+	want := sidebar.Styles{
+		Header:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
+		Normal:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.SidebarText)),
+		Muted:      lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.SidebarTextMuted)),
+		Accent:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Success:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Warning:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
+		Error:      lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
+		GaugeEmpty: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Border)),
+	}
+	if !reflect.DeepEqual(set.Sidebar, want) {
+		t.Errorf("Sidebar = %+v, want %+v", set.Sidebar, want)
+	}
+}
+
+func TestBuild_ConfirmFromPalette(t *testing.T) {
+	t.Parallel()
+
+	p := Complete(Palette{
+		Name: "test",
+		BaseColors: BaseColors{
+			Primary: "#111111", Accent: "#222222", Warning: "#333333", Error: "#444444",
+			Background: "#555555", Surface: "#666666", SurfaceDark: "#777777",
+			Text: "#888888", TextMuted: "#999999", Border: "#aaaaaa",
+		},
+	})
+
+	set := Build(p, 3)
+
+	want := confirm.Styles{
+		Border: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Border)),
+		Title:  lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
+		Text:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
+		Key:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Accent)),
+		Label:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
+		Scroll: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+	}
+	if !reflect.DeepEqual(set.Confirm, want) {
+		t.Errorf("Confirm = %+v, want %+v", set.Confirm, want)
 	}
 }

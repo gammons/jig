@@ -6,11 +6,14 @@ import (
 	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/bubbles/coderender"
+	"github.com/gammons/jig/internal/bubbles/confirm"
 	"github.com/gammons/jig/internal/bubbles/details"
 	"github.com/gammons/jig/internal/bubbles/mdrender"
 	"github.com/gammons/jig/internal/bubbles/permcard"
 	"github.com/gammons/jig/internal/bubbles/picker"
 	"github.com/gammons/jig/internal/bubbles/prompt"
+	"github.com/gammons/jig/internal/bubbles/sidebar"
+	"github.com/gammons/jig/internal/bubbles/statusbar"
 )
 
 // Set holds a Palette mapped into every widget's Styles type. Version
@@ -25,6 +28,9 @@ type Set struct {
 	Prompt    prompt.Styles
 	Details   details.Styles
 	Card      permcard.Styles
+	Status    statusbar.Styles
+	Sidebar   sidebar.Styles
+	Confirm   confirm.Styles
 	// One field per later widget goes here as each widget's Task adds it.
 }
 
@@ -40,6 +46,61 @@ func Build(p Palette, version int) Set {
 		Prompt:    promptStyles(p),
 		Details:   detailsStyles(p),
 		Card:      cardStyles(p),
+		Status:    statusStyles(p),
+		Sidebar:   sidebarStyles(p),
+		Confirm:   confirmStyles(p),
+	}
+}
+
+// statusStyles maps p onto statusbar.Styles: the mode badge and the
+// running indicator use Primary/Accent to stand out, idle and the dim
+// ctrl+p hint fall back to TextMuted (faint, like every other hint), and
+// the indicators/Hint segments share Warning, the palette's one
+// stand-out-and-needs-attention color.
+func statusStyles(p Palette) statusbar.Styles {
+	return statusbar.Styles{
+		Mode:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
+		Text:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
+		Running: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Idle:    lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		Warn:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
+		Hint:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
+		Dim:     lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+	}
+}
+
+// sidebarStyles maps p onto sidebar.Styles: section headers use Primary
+// like every other pane title, the base text/muted tones use the
+// palette's dedicated Sidebar* colors (falling back to the message pane's
+// via Complete), Success reuses Accent (the palette has no dedicated
+// green, the same gap codeStyles works around), and a Gauge's unfilled
+// track uses Border, the same role it plays in blocklistStyles.
+func sidebarStyles(p Palette) sidebar.Styles {
+	return sidebar.Styles{
+		Header:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
+		Normal:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.SidebarText)),
+		Muted:      lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.SidebarTextMuted)),
+		Accent:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Success:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Warning:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
+		Error:      lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
+		GaugeEmpty: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Border)),
+	}
+}
+
+// confirmStyles maps p onto confirm.Styles: the border uses the palette's
+// border color, the title (embedded in the top border) and a choice's key
+// use Primary/Accent to match the picker's title and mark/selected
+// colors, and the "j/k scroll" hint embedded in the bottom border falls
+// back to TextMuted like every other hint.
+func confirmStyles(p Palette) confirm.Styles {
+	return confirm.Styles{
+		Border: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Border)),
+		Title:  lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
+		Text:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
+		Key:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Accent)),
+		Label:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
+		Scroll: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 	}
 }
 
