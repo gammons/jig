@@ -64,6 +64,7 @@ internal/bubbles/                       (Plan 2) Bubble Tea widgets and helpers
 internal/bubbles/ansi/                  sanitize untrusted text; ANSI-safe width/wrap/highlight
 internal/bubbles/overlay/               center a box over a dimmed background (ported from slk)
 internal/bubbles/scrollbar/             1-column proportional scrollbar gutter (ported from slk)
+internal/bubbles/wintree/               window split tree, pure geometry (ported from slk)
 internal/golden/                        golden-frame test assertion
 internal/app/                           composition root + CLI
 e2e/                                    end-to-end tests against the built binary
@@ -189,6 +190,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Wrap styled text to a width, hard-breaking long words | `ansi.Wrap(s, width)` (also `ansi.Width`/`Truncate`/`Cut`) |
 | Center a modal box over a dimmed background | `overlay.Center(background, width, height, box, dim)` in `internal/bubbles/overlay` |
 | Overlay a proportional scrollbar gutter onto rendered rows | `scrollbar.Overlay(visible, width, total, yOffset, visibleHeight, bg, trackFg, thumbFg)` / `scrollbar.Visible(total, visibleHeight)` in `internal/bubbles/scrollbar` |
+| Vim-style window split tree (layout, split/close/navigate) | `wintree.New()` / `(*Tree).Split`, `.Close`, `.Only`, `.Cycle`, `.NavigateDir`, `.SetFixed`, `.Layout`, `.ComputeRects` in `internal/bubbles/wintree` |
 
 ## Adding a tool, transform, or hook
 
