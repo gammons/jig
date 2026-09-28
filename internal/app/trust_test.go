@@ -152,3 +152,80 @@ func TestLoadEnv_SourcesComeFromRestrictedLayers(t *testing.T) {
 		t.Errorf("ProjectMD y bash = %q, want the allow dropped", got)
 	}
 }
+
+func TestLoadEnv_FileIncludeChangeReprompts(t *testing.T) {
+	env := newTestEnv(t)
+	env.writeProject(t, ".jig/config.toml", "[permissions]\nbash = \"{file:mode}\"\n")
+
+	// A missing in-tree include doesn't fail the untrusted pass, and is hashed.
+	d := &countingDecider{}
+	missing := mustLoadEnv(t, env, d.decide).trust.hash
+	env.writeProject(t, ".jig/mode", "ask\n")
+
+	d = &countingDecider{grant: true}
+	e := mustLoadEnv(t, env, d.decide)
+	if d.calls != 1 || !e.trust.trusted || e.trust.hash == missing {
+		t.Fatalf("grant: calls %d, trusted %v, hash changed %v; want 1, true, true", d.calls, e.trust.trusted, e.trust.hash != missing)
+	}
+	if got := e.cfg().Permissions["bash"].Default; got != core.Ask {
+		t.Errorf("trusted bash = %q, want ask from the include", got)
+	}
+
+	d = &countingDecider{}
+	if e = mustLoadEnv(t, env, d.decide); d.calls != 0 || !e.trust.trusted {
+		t.Fatalf("unchanged: calls %d, trusted %v; want 0, true", d.calls, e.trust.trusted)
+	}
+
+	env.writeProject(t, ".jig/mode", "allow\n")
+	e = mustLoadEnv(t, env, d.decide)
+	if d.calls != 1 || e.trust.trusted {
+		t.Errorf("include changed: calls %d, trusted %v; want 1, false", d.calls, e.trust.trusted)
+	}
+	if got := e.cfg().Permissions["bash"].Default; got == core.Allow {
+		t.Error("untrusted bash = allow from the changed include")
+	}
+}
+
+func TestLoadEnv_OutOfTreeIncludeNotHashed(t *testing.T) {
+	env := newTestEnv(t)
+	outside := filepath.Join(env.vars["HOME"], "outside.txt")
+	if err := os.WriteFile(outside, []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env.writeProject(t, ".jig/config.toml", "[agents.build]\nprompt = \"{file:~/outside.txt}\"\n")
+	d := &countingDecider{}
+	first := mustLoadEnv(t, env, d.decide).trust.hash
+	if err := os.WriteFile(outside, []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if second := mustLoadEnv(t, env, d.decide).trust.hash; second != first {
+		t.Error("hash changed with an out-of-tree include")
+	}
+}
+
+// The project config changes between the trust decision (hash) and the
+// trusted re-load: this run must not use the new content as trusted.
+func TestLoadEnv_ChangeBeforeTrustedReloadRestricts(t *testing.T) {
+	env := newTestEnv(t)
+	env.vars["SECRET"] = "s3cr3t-value"
+	env.writeProject(t, ".jig/config.toml", "[permissions]\nwrite = \"ask\"\n")
+	swap := func(trustState) (bool, error) {
+		env.writeProject(t, ".jig/config.toml", "[permissions]\nwrite = \"allow\"\n[agents.build]\nprompt = \"{env:SECRET}\"\n")
+		return true, nil
+	}
+	e := mustLoadEnv(t, env, swap)
+	if e.trust.trusted {
+		t.Error("trusted = true after the config changed under the reload")
+	}
+	if got := e.cfg().Permissions["write"].Default; got == core.Allow {
+		t.Error("write = allow from the swapped-in config")
+	}
+	if strings.Contains(e.cfg().Agents["build"].Prompt, "s3cr3t-value") {
+		t.Error("the swapped-in config's {env:} was expanded")
+	}
+
+	d := &countingDecider{}
+	if e = mustLoadEnv(t, env, d.decide); d.calls != 1 || e.trust.trusted {
+		t.Errorf("next load: calls %d, trusted %v; want the new config to need a decision", d.calls, e.trust.trusted)
+	}
+}

@@ -245,3 +245,32 @@ func TestStore_CorruptFileIsError(t *testing.T) {
 		t.Errorf("Put err = %v, want it to name %q", err, path)
 	}
 }
+
+func TestHashOptional_MissingIsStableAndDistinct(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.toml")
+	ref := filepath.Join(dir, "mode")
+	if err := os.WriteFile(cfg, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	absent1, err := HashOptional([]string{cfg}, []string{ref})
+	if err != nil {
+		t.Fatalf("HashOptional with missing optional: %v", err)
+	}
+	absent2, _ := HashOptional([]string{cfg}, []string{ref})
+	if absent1 != absent2 {
+		t.Error("absent hash is not stable")
+	}
+	if plain, _ := Hash([]string{cfg}); plain == absent1 {
+		t.Error("an absent optional file does not change the hash")
+	}
+	if err := os.WriteFile(ref, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if empty, _ := HashOptional([]string{cfg}, []string{ref}); empty == absent1 {
+		t.Error("an empty optional file hashes like an absent one")
+	}
+	if _, err := HashOptional([]string{filepath.Join(dir, "nope")}, nil); err == nil {
+		t.Error("a missing required file is not an error")
+	}
+}

@@ -112,20 +112,42 @@ func (s *Store) load() (map[string]Grant, error) {
 // Hash(nil) is "", not the hash of an empty stream, so "no files" is
 // distinguishable from "one empty file".
 func Hash(files []string) (string, error) {
-	if len(files) == 0 {
+	return HashOptional(files, nil)
+}
+
+// HashOptional is Hash over files plus optional, files that may not exist:
+// a missing optional file contributes strconv.Itoa(len(path)) + "\n" +
+// path + "-\n", which can't collide with a present file's record (whose
+// content length starts with a digit). A missing file in files is still
+// an error. The result is "" only when both lists are empty.
+func HashOptional(files, optional []string) (string, error) {
+	if len(files) == 0 && len(optional) == 0 {
 		return "", nil
 	}
-
-	sorted := append([]string(nil), files...)
-	sort.Strings(sorted)
+	type entry struct {
+		path     string
+		optional bool
+	}
+	all := make([]entry, 0, len(files)+len(optional))
+	for _, f := range files {
+		all = append(all, entry{f, false})
+	}
+	for _, f := range optional {
+		all = append(all, entry{f, true})
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].path < all[j].path })
 
 	h := sha256.New()
-	for _, path := range sorted {
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return "", fmt.Errorf("trustfs: reading %s: %w", path, err)
+	for _, e := range all {
+		content, err := os.ReadFile(e.path)
+		if e.optional && os.IsNotExist(err) {
+			fmt.Fprintf(h, "%s\n%s-\n", strconv.Itoa(len(e.path)), e.path)
+			continue
 		}
-		fmt.Fprintf(h, "%s\n%s%s\n", strconv.Itoa(len(path)), path, strconv.Itoa(len(content)))
+		if err != nil {
+			return "", fmt.Errorf("trustfs: reading %s: %w", e.path, err)
+		}
+		fmt.Fprintf(h, "%s\n%s%s\n", strconv.Itoa(len(e.path)), e.path, strconv.Itoa(len(content)))
 		h.Write(content)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil

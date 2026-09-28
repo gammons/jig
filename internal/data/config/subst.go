@@ -99,16 +99,77 @@ func resolveToken(kind, arg, dir, home string, getenv func(string) string) (stri
 // newline trimmed. A missing file is an error naming both rawPath and the
 // resolved absolute path.
 func readFileToken(rawPath, dir, home string) (string, error) {
-	resolved := paths.ExpandHome(rawPath, home)
-	if !filepath.IsAbs(resolved) {
-		resolved = filepath.Join(dir, resolved)
-	}
-
+	resolved := resolveFilePath(rawPath, dir, home)
 	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return "", fmt.Errorf("config: {file:%s}: reading %s: %w", rawPath, resolved, err)
 	}
 	return trimOneTrailingNewline(string(data)), nil
+}
+
+// resolveFilePath resolves a "{file:rawPath}" token's path: a leading "~"
+// expands to home, and a relative path is joined to dir.
+func resolveFilePath(rawPath, dir, home string) string {
+	resolved := paths.ExpandHome(rawPath, home)
+	if !filepath.IsAbs(resolved) {
+		resolved = filepath.Join(dir, resolved)
+	}
+	return resolved
+}
+
+// fileRefs appends to out the resolved path of every "{file:...}" token
+// in v (walked like substitute), without reading any of them.
+func fileRefs(out []string, v any, dir, home string) []string {
+	switch val := v.(type) {
+	case string:
+		for _, m := range tokenPattern().FindAllStringSubmatch(val, -1) {
+			if m[1] == "file" {
+				out = append(out, resolveFilePath(m[2], dir, home))
+			}
+		}
+	case map[string]any:
+		for _, elem := range val {
+			out = fileRefs(out, elem, dir, home)
+		}
+	case []any:
+		for _, elem := range val {
+			out = fileRefs(out, elem, dir, home)
+		}
+	}
+	return out
+}
+
+// dropTokenActions removes, from a file's generic map, every permission
+// action (top-level [permissions] and [agents.<name>.permissions], bare or
+// per pattern) that holds a "{env:}"/"{file:}" token. It is used when
+// tokens are left literal: a literal token can't be a valid action, so
+// the entry is treated as unset. It mutates m.
+func dropTokenActions(m map[string]any) {
+	dropTokenRules(m["permissions"])
+	agents, _ := m["agents"].(map[string]any)
+	for _, a := range agents {
+		if am, ok := a.(map[string]any); ok {
+			dropTokenRules(am["permissions"])
+		}
+	}
+}
+
+func dropTokenRules(v any) {
+	rules, _ := v.(map[string]any)
+	for tool, r := range rules {
+		switch rv := r.(type) {
+		case string:
+			if tokenPattern().MatchString(rv) {
+				delete(rules, tool)
+			}
+		case map[string]any:
+			for pattern, a := range rv {
+				if s, ok := a.(string); ok && tokenPattern().MatchString(s) {
+					delete(rv, pattern)
+				}
+			}
+		}
+	}
 }
 
 func trimOneTrailingNewline(s string) string {

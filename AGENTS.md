@@ -144,9 +144,12 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 - Trust is decided once in `loadEnv`, before any service is built;
   `e.cfg()` is already the trusted or restricted merge. Project config
   files are loaded without `{env:}`/`{file:}` substitution until the
-  project is trusted, and agent sources come from `e.layers` (post-trust),
-  never the raw project layer. The trust hash covers every project config
-  file and every discovered project markdown agent file.
+  project is trusted (a permission action holding a token is then unset),
+  and agent sources come from `e.layers` (post-trust), never the raw
+  project layer. The trust hash (`trustfs.HashOptional`) covers every
+  project config file, agent file, and in-tree `{file:}` include (a
+  missing include hashes as absent). After the trusted re-load the hash
+  is recomputed; a mismatch makes the run untrusted.
 - Model strings go through `agents.ParseRef`/`Service.ResolveRef`
   (`provider/model` or a `[model_aliases]` name) everywhere: `--model`,
   `default_model`, `small_model`, agent `model` fields, startup

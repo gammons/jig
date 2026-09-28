@@ -2,7 +2,7 @@ package app
 
 import (
 	"path/filepath"
-	"sort"
+	"strings"
 
 	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core"
@@ -46,25 +46,48 @@ func trustStore(dataDir string) *trustfs.Store {
 	return trustfs.New(filepath.Join(dataDir, "trust.json"))
 }
 
+// trustProject is the key a project's grant is stored under: its git
+// root, or workDir outside a git repo.
+func trustProject(gitRoot, workDir string) string {
+	if gitRoot != "" {
+		return pathid.Key(gitRoot)
+	}
+	return pathid.Key(workDir)
+}
+
 // projectFiles lists every file that shapes the project layer: the
-// project config files Load read and each discovered project agent file.
-func projectFiles(loaded config.Loaded, projectMD map[string]core.AgentConfig) []string {
-	files := append([]string(nil), loaded.ProjectFiles...)
+// project config files Load read and each discovered project agent file
+// (files), plus the "{file:}" includes under project (optional, since they
+// may not exist). Includes outside project are not hashed.
+func projectFiles(project string, loaded config.Loaded, projectMD map[string]core.AgentConfig) (files, optional []string) {
+	files = append([]string(nil), loaded.ProjectFiles...)
 	for _, ac := range projectMD {
 		files = append(files, ac.Source)
 	}
-	sort.Strings(files)
-	return files
+	for _, ref := range loaded.ProjectFileRefs {
+		if within(project, ref) || within(project, pathid.Key(ref)) {
+			optional = append(optional, ref)
+		}
+	}
+	return files, optional
 }
 
-// readTrust computes st's project key, hash, and effects for l, and
-// whether the stored grant matches the hash.
-func readTrust(store *trustfs.Store, gitRoot, workDir string, files []string, l trust.Layers) (trustState, error) {
-	st := trustState{project: pathid.Key(workDir), effects: trust.Effects(l)}
-	if gitRoot != "" {
-		st.project = pathid.Key(gitRoot)
-	}
-	hash, err := trustfs.Hash(files)
+// within reports whether path is dir or lies under it.
+func within(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// hashProject hashes projectFiles(project, loaded, projectMD).
+func hashProject(project string, loaded config.Loaded, projectMD map[string]core.AgentConfig) (string, error) {
+	return trustfs.HashOptional(projectFiles(project, loaded, projectMD))
+}
+
+// readTrust computes st for l: project key, hash, effects, and whether
+// the stored grant matches the hash.
+func readTrust(store *trustfs.Store, project string, loaded config.Loaded, l trust.Layers) (trustState, error) {
+	st := trustState{project: project, effects: trust.Effects(l)}
+	hash, err := hashProject(project, loaded, l.ProjectMD)
 	if err != nil {
 		return trustState{}, err
 	}
@@ -72,7 +95,7 @@ func readTrust(store *trustfs.Store, gitRoot, workDir string, files []string, l 
 	if hash == "" {
 		return st, nil
 	}
-	g, ok, err := store.Get(st.project)
+	g, ok, err := store.Get(project)
 	if err != nil {
 		return trustState{}, err
 	}

@@ -64,7 +64,7 @@ func loadEnv(cwd string, getenv func(string) string, decide trustDecider) (env, 
 // resolveLayers loads the config and markdown agent layers, decides
 // trust, and sets e.layers and e.trust. Project config files are loaded
 // without "{env:}"/"{file:}" substitution first and re-loaded with it
-// only once the project is trusted.
+// only once the project is trusted (see reloadTrusted).
 func (e *env) resolveLayers(decide trustDecider, clk clock.Clock) error {
 	loaded, err := config.Load(e.paths, e.workDir, e.getenv, config.Options{})
 	if err != nil {
@@ -77,7 +77,7 @@ func (e *env) resolveLayers(decide trustDecider, clk clock.Clock) error {
 	l := trust.Layers{Global: loaded.Global, Project: loaded.Project, GlobalMD: globalMD, ProjectMD: projectMD}
 
 	store := trustStore(e.paths.DataDir)
-	st, err := readTrust(store, e.gitRoot, e.workDir, projectFiles(loaded, projectMD), l)
+	st, err := readTrust(store, trustProject(e.gitRoot, e.workDir), loaded, l)
 	if err != nil {
 		return err
 	}
@@ -85,13 +85,33 @@ func (e *env) resolveLayers(decide trustDecider, clk clock.Clock) error {
 		return err
 	}
 	if st.trusted {
-		if loaded, err = config.Load(e.paths, e.workDir, e.getenv, config.Options{SubstituteProject: true}); err != nil {
+		if l, st, err = e.reloadTrusted(l, st); err != nil {
 			return err
 		}
-		l.Global, l.Project = loaded.Global, loaded.Project
 	}
 	e.layers, e.trust = applyTrust(l, st)
 	return nil
+}
+
+// reloadTrusted re-loads the config with project substitution for a
+// trusted st and re-hashes the project files. If the hash no longer
+// matches st.hash (a file changed since the decision), the project is
+// untrusted for this run and l is returned unsubstituted.
+func (e *env) reloadTrusted(l trust.Layers, st trustState) (trust.Layers, trustState, error) {
+	loaded, err := config.Load(e.paths, e.workDir, e.getenv, config.Options{SubstituteProject: true})
+	if err != nil {
+		return l, st, err
+	}
+	hash, err := hashProject(st.project, loaded, l.ProjectMD)
+	if err != nil {
+		return l, st, err
+	}
+	if hash != st.hash {
+		st.trusted = false
+		return l, st, nil
+	}
+	l.Global, l.Project = loaded.Global, loaded.Project
+	return l, st, nil
 }
 
 // resolveWorkDir returns cwd as an absolute, canonical path (see

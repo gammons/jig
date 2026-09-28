@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/BurntSushi/toml"
 
@@ -28,6 +29,11 @@ type Loaded struct {
 
 	GlobalFiles  []string // files actually read for Global (0 or 1 entries)
 	ProjectFiles []string // files actually read for Project, in merge order
+
+	// ProjectFileRefs is the resolved absolute path of every "{file:...}"
+	// token in the project files, sorted and deduplicated, collected
+	// whether or not they were substituted. The files are not read.
+	ProjectFileRefs []string
 }
 
 // Options controls Load.
@@ -52,40 +58,59 @@ type Options struct {
 // not change the files' bytes, so a trust hash over them is the same
 // either way.
 func Load(p paths.Paths, workDir string, getenv func(string) string, o Options) (Loaded, error) {
-	global, globalFiles, err := loadLayer(p, []string{globalConfigFile(p)}, getenv, true)
+	global, err := loadLayer(p, []string{globalConfigFile(p)}, getenv, true)
 	if err != nil {
 		return Loaded{}, err
 	}
-	project, projectFiles, err := loadLayer(p, projectConfigFiles(p, workDir), getenv, o.SubstituteProject)
+	project, err := loadLayer(p, projectConfigFiles(p, workDir), getenv, o.SubstituteProject)
 	if err != nil {
 		return Loaded{}, err
 	}
+	slices.Sort(project.refs)
 	return Loaded{
-		Global:       global,
-		Project:      project,
-		GlobalFiles:  globalFiles,
-		ProjectFiles: projectFiles,
+		Global:          global.cfg,
+		Project:         project.cfg,
+		GlobalFiles:     global.read,
+		ProjectFiles:    project.read,
+		ProjectFileRefs: slices.Compact(project.refs),
 	}, nil
 }
 
+// layer is one loadLayer result.
+type layer struct {
+	cfg  core.Config
+	read []string // files actually read
+	refs []string // resolved "{file:...}" token paths, unsorted
+}
+
 // loadLayer folds every file in files (skipping missing ones) into a
-// single core.Config, in order, and reports which files it actually read.
-// subst says whether to substitute "{env:}"/"{file:}" tokens.
-func loadLayer(p paths.Paths, files []string, getenv func(string) string, subst bool) (core.Config, []string, error) {
+// single core.Config, in order, and reports which files it actually read
+// and the "{file:...}" paths they reference. subst says whether to
+// substitute "{env:}"/"{file:}" tokens.
+func loadLayer(p paths.Paths, files []string, getenv func(string) string, subst bool) (layer, error) {
 	var st state
-	var read []string
+	var out layer
 	for _, path := range files {
-		dto, md, ok, err := decodeFile(path, p.Home, getenv, subst)
+		d, ok, err := decodeFile(path, p.Home, getenv, subst)
 		if err != nil {
-			return core.Config{}, nil, err
+			return layer{}, err
 		}
 		if !ok {
 			continue
 		}
-		st.apply(dto, md, path, filepath.Dir(path), p.Home)
-		read = append(read, path)
+		st.apply(d.dto, d.md, path, filepath.Dir(path), p.Home)
+		out.read = append(out.read, path)
+		out.refs = append(out.refs, d.refs...)
 	}
-	return st.cfg, read, nil
+	out.cfg = st.cfg
+	return out, nil
+}
+
+// decoded is one decodeFile result.
+type decoded struct {
+	dto  tomlFile
+	md   toml.MetaData
+	refs []string // resolved "{file:...}" token paths
 }
 
 // globalConfigFile is the single global config file.
@@ -108,40 +133,45 @@ func projectConfigFiles(p paths.Paths, workDir string) []string {
 }
 
 // decodeFile reads path, substitutes "{env:}"/"{file:}" tokens in every
-// string (only if subst; otherwise they stay literal), and decodes
-// the result into a tomlFile. ok is false (with a nil error) if path does
-// not exist.
-func decodeFile(path, home string, getenv func(string) string, subst bool) (tomlFile, toml.MetaData, bool, error) {
+// string (only if subst; otherwise they stay literal, except that a
+// permission action holding one is dropped, see dropTokenActions), and decodes
+// the result into a tomlFile, also collecting its "{file:...}" paths. ok
+// is false (with a nil error) if path does not exist.
+func decodeFile(path, home string, getenv func(string) string, subst bool) (decoded, bool, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return tomlFile{}, toml.MetaData{}, false, nil
+			return decoded{}, false, nil
 		}
-		return tomlFile{}, toml.MetaData{}, false, fmt.Errorf("config: reading %s: %w", path, err)
+		return decoded{}, false, fmt.Errorf("config: reading %s: %w", path, err)
 	}
 
 	var generic map[string]any
 	if _, err := toml.Decode(string(raw), &generic); err != nil {
-		return tomlFile{}, toml.MetaData{}, false, fmt.Errorf("config: %s: %w", path, err)
+		return decoded{}, false, fmt.Errorf("config: %s: %w", path, err)
 	}
 
+	dir := filepath.Dir(path)
+	refs := fileRefs(nil, generic, dir, home)
 	var substituted any = generic
 	if subst {
-		substituted, err = substitute(generic, filepath.Dir(path), home, getenv)
+		substituted, err = substitute(generic, dir, home, getenv)
 		if err != nil {
-			return tomlFile{}, toml.MetaData{}, false, err
+			return decoded{}, false, err
 		}
+	} else {
+		dropTokenActions(generic)
 	}
 
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(substituted); err != nil {
-		return tomlFile{}, toml.MetaData{}, false, fmt.Errorf("config: %s: re-encoding after substitution: %w", path, err)
+		return decoded{}, false, fmt.Errorf("config: %s: re-encoding after substitution: %w", path, err)
 	}
 
 	var dto tomlFile
 	md, err := toml.Decode(buf.String(), &dto)
 	if err != nil {
-		return tomlFile{}, toml.MetaData{}, false, fmt.Errorf("config: %s: %w", path, err)
+		return decoded{}, false, fmt.Errorf("config: %s: %w", path, err)
 	}
-	return dto, md, true, nil
+	return decoded{dto: dto, md: md, refs: refs}, true, nil
 }
