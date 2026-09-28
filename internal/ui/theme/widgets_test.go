@@ -135,7 +135,7 @@ func TestBuild_PickerFromPalette(t *testing.T) {
 		Header:   lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 		Text:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
 		Detail:   lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
-		Match:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.SearchHighlightFg)),
+		Match:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Warning)),
 		Selected: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
 		Disabled: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 		Current:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
@@ -143,6 +143,29 @@ func TestBuild_PickerFromPalette(t *testing.T) {
 	}
 	if !reflect.DeepEqual(set.Picker, want) {
 		t.Errorf("Picker = %+v, want %+v", set.Picker, want)
+	}
+}
+
+// TestBuild_PickerMatchReadable guards against a picker match color that
+// vanishes into the picker's background: the picker paints no background
+// of its own (it sits on the pane Background, or Surface where a theme
+// fills it), so matched runes need a foreground distinct from both — and
+// from Text, so they stand out from the rest of the row.
+func TestBuild_PickerMatchReadable(t *testing.T) {
+	t.Parallel()
+
+	for _, raw := range Builtin() {
+		p := Complete(raw)
+		fg := Build(p, 1).Picker.Match.GetForeground()
+		if fg == nil {
+			t.Errorf("%s: picker Match has no foreground", p.Name)
+			continue
+		}
+		for name, c := range map[string]string{"Background": p.Background, "Surface": p.Surface, "Text": p.Text} {
+			if reflect.DeepEqual(fg, lipgloss.Color(c)) {
+				t.Errorf("%s: picker Match foreground %v equals %s", p.Name, fg, name)
+			}
+		}
 	}
 }
 

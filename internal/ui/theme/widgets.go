@@ -160,17 +160,21 @@ func blocklistStyles(p Palette) blocklist.Styles {
 }
 
 // pickerStyles maps p onto picker.Styles: the title bar and current-item
-// marker use Primary, matched runes reuse the palette's search-highlight
-// foreground (bolded, to stand out from a row's own color), the cursor
+// marker use Primary, matched runes use Warning in bold, the cursor
 // glyph and multi-select mark share Accent, and headers/detail text/
-// disabled items all fall back to TextMuted.
+// disabled items all fall back to TextMuted. Matches must not use
+// SearchHighlightFg on its own: it is meant to sit on SearchHighlightBg
+// and is usually the pane Background, so on the picker (which paints no
+// background) it vanishes. Warning is already read as text on Background
+// (status hints, code) and differs from Text in every built-in, and a
+// foreground-only highlight keeps the row free of background blocks.
 func pickerStyles(p Palette) picker.Styles {
 	return picker.Styles{
 		Title:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
 		Header:   lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 		Text:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
 		Detail:   lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
-		Match:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.SearchHighlightFg)),
+		Match:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Warning)),
 		Selected: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
 		Disabled: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 		Current:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
