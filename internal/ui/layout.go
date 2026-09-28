@@ -18,6 +18,9 @@ const (
 	sidebarMax     = 50
 	detailsPercent = 50
 	statusRows     = 1
+	// gapRows blank rows separate the transcript (and side slot) from the
+	// prompt, so model output doesn't butt against the input box.
+	gapRows = 1
 )
 
 // splitBounds is the nominal size the window tree is split at. Splits are
@@ -27,18 +30,22 @@ const (
 const splitBounds = 1000
 
 // rects is one frame's layout: the transcript, the side slot (sidebar or
-// details split), the prompt, and the status bar. Narrow is width < 120;
-// SideVisible is whether the sidebar is shown (never while the details
-// split holds the side slot).
+// details split), the blank gap above the prompt, the prompt, and the
+// status bar. Narrow is width < 120; SideVisible is whether the sidebar
+// is shown (never while the details split holds the side slot).
 type rects struct {
-	Transcript, Side, Prompt, Status wintree.Rect
-	Narrow, SideVisible, DetailsOpen bool
+	Transcript, Side, Gap, Prompt, Status wintree.Rect
+	Narrow, SideVisible, DetailsOpen      bool
 }
 
 // computeLayout lays out a w×h terminal with a promptH-row prompt. The
 // sidebar is visible iff w ≥ 120 and sidebarPref is nil or true; the
 // details split, when open, takes the side slot at 50% of the width, or
-// the whole transcript region when narrow. Negative sizes count as 0.
+// the whole transcript region when narrow. gapRows full-width blank rows
+// are carved off the bottom of the transcript region, only while it keeps
+// at least one row, so on a short terminal the gap is the first thing to
+// go and never squeezes the prompt or status bar. Negative sizes count
+// as 0.
 func computeLayout(w, h, promptH int, sidebarPref *bool, detailsOpen bool) rects {
 	w, h = max(w, 0), max(h, 0)
 	r := rects{Narrow: w < sidebarMinTerm, DetailsOpen: detailsOpen}
@@ -71,6 +78,17 @@ func computeLayout(w, h, promptH int, sidebarPref *bool, detailsOpen bool) rects
 	if side > 0 {
 		r.Side = all[sideID]
 	}
+	// The transcript and side slot share one row span; the gap takes the
+	// bottom gapRows of it across the full width.
+	region := max(r.Transcript.H, r.Side.H)
+	if region > gapRows {
+		top := r.Prompt.Y - gapRows
+		r.Gap = wintree.Rect{X: 0, Y: top, W: w, H: gapRows}
+		r.Transcript.H = max(r.Transcript.H-gapRows, 0)
+		if side > 0 {
+			r.Side.H = max(r.Side.H-gapRows, 0)
+		}
+	}
 	return r
 }
 
@@ -97,8 +115,8 @@ func fit(s string, w, h int) string {
 }
 
 // compose joins the regions of one frame per lay: transcript and side
-// side by side, then the prompt, then the status bar. Each region is fit
-// to its rect first, so the frame never exceeds the terminal.
+// side by side, then the blank gap, the prompt, and the status bar. Each
+// region is fit to its rect first, so the frame never exceeds the terminal.
 func compose(lay rects, transcript, side, prompt, status string) string {
 	var top []string
 	if lay.Transcript.W > 0 {
@@ -108,8 +126,11 @@ func compose(lay rects, transcript, side, prompt, status string) string {
 		top = append(top, fit(side, lay.Side.W, lay.Side.H))
 	}
 	var rows []string
-	if lay.Transcript.H > 0 && len(top) > 0 {
+	if max(lay.Transcript.H, lay.Side.H) > 0 && len(top) > 0 {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, top...))
+	}
+	if lay.Gap.H > 0 {
+		rows = append(rows, fit("", lay.Gap.W, lay.Gap.H))
 	}
 	if lay.Prompt.H > 0 {
 		rows = append(rows, fit(prompt, lay.Prompt.W, lay.Prompt.H))

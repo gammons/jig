@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gammons/jig/internal/bubbles/wintree"
@@ -47,8 +48,13 @@ func TestLayout_Table(t *testing.T) {
 			if r.Prompt != wantPrompt || r.Status != wantStatus {
 				t.Errorf("prompt %+v status %+v; want %+v %+v", r.Prompt, r.Status, wantPrompt, wantStatus)
 			}
-			if r.Transcript.H != top || (r.Side.W > 0 && (r.Side.H != top || r.Side.X != r.Transcript.W)) {
-				t.Errorf("transcript %+v side %+v: want height %d, side right of transcript", r.Transcript, r.Side, top)
+			wantGap := wintree.Rect{X: 0, Y: top - gapRows, W: tt.w, H: gapRows}
+			if r.Gap != wantGap {
+				t.Errorf("gap %+v; want %+v (blank rows between transcript and prompt)", r.Gap, wantGap)
+			}
+			transH := top - gapRows
+			if r.Transcript.H != transH || (r.Side.W > 0 && (r.Side.H != transH || r.Side.X != r.Transcript.W)) {
+				t.Errorf("transcript %+v side %+v: want height %d, side right of transcript", r.Transcript, r.Side, transH)
 			}
 		})
 	}
@@ -63,8 +69,46 @@ func TestLayout_TinySizesNeverNegative(t *testing.T) {
 				t.Errorf("%dx%d: negative rect %+v", sz[0], sz[1], rc)
 			}
 		}
-		if total := r.Transcript.H + r.Prompt.H + r.Status.H; total > max(sz[1], 0) {
+		if total := r.Transcript.H + r.Gap.H + r.Prompt.H + r.Status.H; total > max(sz[1], 0) {
 			t.Errorf("%dx%d: rows %d exceed height", sz[0], sz[1], total)
 		}
+	}
+}
+
+// TestLayout_GapYieldsFirst: when the terminal is too short, the gap is
+// dropped before the transcript loses its last row, and it never takes
+// rows from the prompt or status bar.
+func TestLayout_GapYieldsFirst(t *testing.T) {
+	t.Parallel()
+	const promptH = 3
+	tests := []struct {
+		h, transH, gapH, promptH int
+	}{
+		{h: 6, transH: 1, gapH: 1, promptH: 3}, // room for everything
+		{h: 5, transH: 1, gapH: 0, promptH: 3}, // gap goes first
+		{h: 4, transH: 0, gapH: 0, promptH: 3}, // no transcript, no gap
+		{h: 2, transH: 0, gapH: 0, promptH: 2}, // prompt squeezed, gap still 0
+	}
+	for _, tt := range tests {
+		r := computeLayout(80, tt.h, promptH, nil, false)
+		if r.Transcript.H != tt.transH || r.Gap.H != tt.gapH || r.Prompt.H != tt.promptH {
+			t.Errorf("h=%d: transcript %d gap %d prompt %d; want %d %d %d",
+				tt.h, r.Transcript.H, r.Gap.H, r.Prompt.H, tt.transH, tt.gapH, tt.promptH)
+		}
+	}
+}
+
+func TestCompose_GapIsBlankRow(t *testing.T) {
+	t.Parallel()
+	lay := computeLayout(10, 6, 3, nil, false)
+	rows := strings.Split(compose(lay, "T", "", "P", "S"), "\n")
+	if len(rows) != 6 {
+		t.Fatalf("got %d rows, want 6: %q", len(rows), rows)
+	}
+	if rows[1] != strings.Repeat(" ", 10) {
+		t.Errorf("row 1 = %q, want a blank 10-column gap row", rows[1])
+	}
+	if !strings.HasPrefix(rows[2], "P") {
+		t.Errorf("row 2 = %q, want the prompt right after the gap", rows[2])
 	}
 }

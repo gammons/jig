@@ -913,6 +913,38 @@ func TestApp_GoldenIdle(t *testing.T) {
 	golden.Assert(t, "app_idle", ta.view())
 }
 
+// TestApp_GapAbovePrompt: with a full, bottom-pinned transcript, the row
+// right above the prompt's top border is blank, not model output.
+func TestApp_GapAbovePrompt(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("Explain the build")
+	ta.event(event.MessageStarted{Base: rootBase(), MessageID: "m1", Agent: "build", Model: "anthropic/claude-sonnet-5"})
+	var b strings.Builder
+	for i := range 80 {
+		fmt.Fprintf(&b, "line %d\n\n", i)
+	}
+	ta.event(event.TextDelta{Base: rootBase(), MessageID: "m1", Text: b.String()})
+	ta.fire()
+
+	rows := strings.Split(xansi.Strip(ta.view()), "\n")
+	border := -1
+	for i, r := range rows {
+		if strings.HasPrefix(r, "╭") {
+			border = i
+		}
+	}
+	if border < 2 {
+		t.Fatalf("prompt border not found (or at the top) in:\n%s", strings.Join(rows, "\n"))
+	}
+	if got := strings.TrimSpace(rows[border-1]); got != "" {
+		t.Errorf("row above the prompt = %q, want blank", rows[border-1])
+	}
+	if got := strings.TrimSpace(rows[border-2]); got == "" {
+		t.Errorf("row two above the prompt is blank; want transcript output there (full, bottom-pinned transcript)")
+	}
+}
+
 func TestApp_GoldenStreaming(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
