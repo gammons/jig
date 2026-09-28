@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/jig/internal/bubbles/ansi"
@@ -86,6 +87,7 @@ type widgets struct {
 	status  statusbar.Model
 	side    sidebar.Model
 	confirm confirm.Model
+	search  textinput.Model
 	render  *renderer
 	upserts int
 }
@@ -102,7 +104,11 @@ func (w *widgets) upsert(items []blocklist.Item) {
 // viewState is the App's presentation state: the sidebar preference, whether the details split is open, the
 // status hint, the project's prompt history, whether streamTick is
 // running, and the transcript list's applied size (listW/listH) and a
-// pending debounced width (pendingW, keyed by resizeGen).
+// pending debounced width (pendingW, keyed by resizeGen). keyPrefix holds
+// a pending NORMAL g-prefix ("g", awaiting its second key); searching is
+// whether the one-line search input owns the status bar's slot;
+// detailsFor is the block ID the open details split shows, so an async
+// detailsMsg for a block the selection has since left can be ignored.
 type viewState struct {
 	sidebarPref  *bool
 	detailsOpen  bool
@@ -112,6 +118,9 @@ type viewState struct {
 	resizeGen    int
 	pendingW     int
 	listW, listH int
+	keyPrefix    string
+	searching    bool
+	detailsFor   transcript.BlockID
 }
 
 // App is jig's TUI: a bubbletea model that bridges bus events into
@@ -163,6 +172,14 @@ func tick(d time.Duration, msg tea.Msg) tea.Cmd {
 // newWidgets builds every widget styled from set.
 func newWidgets(set *theme.Set, edit prompt.EditFunc) widgets {
 	r := newRenderer(set)
+	search := textinput.New()
+	search.Prompt = "/"
+	// A blinking cursor ticks on its own real-time timer (not the App's
+	// injected clock); a static one keeps the search input's Focus Cmd
+	// synchronous, like prompt's textarea (prompt.go's taStyles).
+	sst := search.Styles()
+	sst.Cursor.Blink = false
+	search.SetStyles(sst)
 	return widgets{
 		list:    blocklist.New(r.render, blocklist.WithStyles(set.Blocklist)),
 		prompt:  prompt.New(edit, prompt.WithStyles(set.Prompt)),
@@ -172,6 +189,7 @@ func newWidgets(set *theme.Set, edit prompt.EditFunc) widgets {
 		status:  statusbar.New(statusbar.WithStyles(set.Status)),
 		side:    sidebar.New(sidebar.WithStyles(set.Sidebar)),
 		confirm: confirm.New(confirm.WithStyles(set.Confirm)),
+		search:  search,
 		render:  r,
 	}
 }
@@ -234,7 +252,11 @@ func (a *App) View() tea.View {
 	case a.lay.SideVisible:
 		side = a.w.side.View()
 	}
-	v.Content = compose(a.lay, a.w.list.View(), side, a.w.prompt.View(), a.w.status.View())
+	status := a.w.status.View()
+	if a.view.searching {
+		status = a.w.search.View()
+	}
+	v.Content = compose(a.lay, a.w.list.View(), side, a.w.prompt.View(), status)
 	if a.w.picker.IsOpen() {
 		v.Content = overlay.Center(v.Content, a.width, a.height, a.w.picker.View(), overlayDim)
 	}
@@ -304,6 +326,12 @@ func (a *App) onResult(msg tea.Msg) tea.Cmd {
 		return editorResultCmd(msg)
 	case sendDoneMsg:
 		return a.sender().done(msg)
+	case detailsMsg:
+		// A build for a block the selection has since left (or whose
+		// split has closed) is stale; only the current one applies.
+		if msg.Block == a.view.detailsFor {
+			a.w.details.SetContent(msg.Content)
+		}
 	case tea.TerminalVersionMsg:
 		if p := imgrender.Detect(a.opts.Images, msg.Name); p != a.img.Protocol() {
 			a.img = imgrender.New(p, imgrender.WithTmux(a.opts.Tmux))
@@ -353,6 +381,7 @@ func (a *App) relayout() tea.Cmd {
 	}
 	a.lay = computeLayout(a.width, a.height, a.w.prompt.Height(), a.view.sidebarPref, a.view.detailsOpen)
 	a.w.status.SetWidth(a.lay.Status.W)
+	a.w.search.SetWidth(max(a.lay.Status.W-2, 0))
 	a.w.side.SetSize(a.lay.Side.W, a.lay.Side.H)
 	a.w.details.SetSize(a.lay.Side.W, a.lay.Side.H)
 	a.w.picker.SetSize(a.width, a.height)
@@ -434,6 +463,10 @@ func (a *App) runAction(id actions.ID) tea.Cmd {
 		return editorCmd(a.ports, a.w.prompt.Value())
 	case actions.RunCancel:
 		return a.sender().cancelRun()
+	case actions.TranscriptSearch:
+		return normalKeys{a}.openSearch()
+	case actions.TranscriptYank:
+		return normalKeys{a}.yank()
 	case actions.AppQuit:
 		return a.quit()
 	}
