@@ -7,7 +7,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/gammons/jig/internal/client/search"
 	"github.com/gammons/jig/internal/core"
@@ -85,6 +87,69 @@ func TestProjectPort_ReadFileConfinement(t *testing.T) {
 	}
 }
 
+// readFileBounded runs p.ReadFile(ctx, path) on its own goroutine and
+// fails the test if it does not return within the timeout, so a
+// regression that blocks on a device or FIFO fails fast instead of
+// hanging the suite.
+func readFileBounded(t *testing.T, p projectPort, path string) ([]byte, error) {
+	t.Helper()
+	type result struct {
+		data []byte
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		data, err := p.ReadFile(context.Background(), path)
+		done <- result{data, err}
+	}()
+	select {
+	case r := <-done:
+		return r.data, r.err
+	case <-time.After(5 * time.Second):
+		t.Fatalf("ReadFile(%q) did not return within 5s", path)
+		return nil, nil
+	}
+}
+
+func TestProjectPort_ReadFile_RejectsDeviceSymlink(t *testing.T) {
+	if _, err := os.Stat("/dev/zero"); err != nil {
+		t.Skip("/dev/zero not available")
+	}
+	workDir := t.TempDir()
+	if err := os.Symlink("/dev/zero", filepath.Join(workDir, "zero")); err != nil {
+		t.Fatal(err)
+	}
+	p := projectPort{workDir: workDir}
+
+	if _, err := readFileBounded(t, p, "zero"); err == nil {
+		t.Error("ReadFile(symlink to /dev/zero): want error")
+	}
+}
+
+func TestProjectPort_ReadFile_RejectsFIFO(t *testing.T) {
+	workDir := t.TempDir()
+	fifoPath := filepath.Join(workDir, "pipe")
+	if err := syscall.Mkfifo(fifoPath, 0o600); err != nil {
+		t.Skipf("mkfifo: %v", err)
+	}
+	p := projectPort{workDir: workDir}
+
+	if _, err := readFileBounded(t, p, "pipe"); err == nil {
+		t.Error("ReadFile(FIFO): want error")
+	}
+}
+
+func TestProjectPort_ReadFile_RejectsDirectory(t *testing.T) {
+	workDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workDir, "adir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := projectPort{workDir: workDir}
+	if _, err := p.ReadFile(context.Background(), "adir"); err == nil {
+		t.Error("ReadFile(directory): want error")
+	}
+}
+
 func TestProjectPort_FilesMarksModified(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
@@ -156,6 +221,30 @@ func TestEditorPort_RoundTrip(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("spillDir entries = %v, want none (temp file removed)", entries)
+	}
+}
+
+func TestEditorPort_EditorCommand_SkipsWhitespaceOnlyVISUAL(t *testing.T) {
+	getenv := func(k string) string {
+		switch k {
+		case "VISUAL":
+			return "   "
+		case "EDITOR":
+			return "nano"
+		}
+		return ""
+	}
+	p := editorPort{getenv: getenv}
+	if got := p.editorCommand(); got != "nano" {
+		t.Errorf("editorCommand = %q, want %q (VISUAL is whitespace-only)", got, "nano")
+	}
+}
+
+func TestEditorPort_EditorCommand_FallsBackToVi(t *testing.T) {
+	getenv := func(string) string { return "  " }
+	p := editorPort{getenv: getenv}
+	if got := p.editorCommand(); got != "vi" {
+		t.Errorf("editorCommand = %q, want %q (both whitespace-only)", got, "vi")
 	}
 }
 

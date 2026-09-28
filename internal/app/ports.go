@@ -93,8 +93,9 @@ func (p projectPort) Files(ctx context.Context) ([]core.ProjectFile, error) {
 }
 
 // ReadFile resolves path against p.workDir (if relative), confines it to
-// the workdir, spill dir, or blob dir, and returns its bytes if it is at
-// most maxProjectFileSize.
+// the workdir, spill dir, or blob dir, rejects anything but a regular
+// file (a symlink or FIFO could otherwise block the caller forever), and
+// returns its bytes if it is at most maxProjectFileSize.
 func (p projectPort) ReadFile(_ context.Context, path string) ([]byte, error) {
 	abs := path
 	if !filepath.IsAbs(abs) {
@@ -107,10 +108,32 @@ func (p projectPort) ReadFile(_ context.Context, path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("path %s is not a regular file", path)
+	}
 	if info.Size() > maxProjectFileSize {
 		return nil, fmt.Errorf("path %s is too large (%d bytes, max %d)", path, info.Size(), maxProjectFileSize)
 	}
-	return os.ReadFile(abs)
+	return readBounded(abs, path)
+}
+
+// readBounded opens abs and reads at most maxProjectFileSize+1 bytes, so
+// a file that grows past the cap after the Stat check in ReadFile still
+// can't be read past it.
+func readBounded(abs, path string) ([]byte, error) {
+	f, err := os.Open(abs)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxProjectFileSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxProjectFileSize {
+		return nil, fmt.Errorf("path %s is too large (max %d bytes)", path, maxProjectFileSize)
+	}
+	return data, nil
 }
 
 // confine returns an error unless abs's canonical form (symlinks
@@ -167,12 +190,13 @@ func (p editorPort) Edit(text string) (core.ExecCommand, func() (string, error),
 	return execCmd{cmd}, editResult(path), nil
 }
 
-// editorCommand returns $VISUAL, else $EDITOR, else "vi".
+// editorCommand returns $VISUAL, else $EDITOR, else "vi", skipping a
+// value that is empty or all whitespace.
 func (p editorPort) editorCommand() string {
-	if v := p.getenv("VISUAL"); v != "" {
+	if v := strings.TrimSpace(p.getenv("VISUAL")); v != "" {
 		return v
 	}
-	if e := p.getenv("EDITOR"); e != "" {
+	if e := strings.TrimSpace(p.getenv("EDITOR")); e != "" {
 		return e
 	}
 	return "vi"
