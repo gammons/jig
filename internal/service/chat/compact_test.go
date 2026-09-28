@@ -43,6 +43,18 @@ func TestCompact_BusyDuringRun(t *testing.T) {
 	}
 }
 
+func TestCompact_AfterCloseIsErrClosed(t *testing.T) {
+	f := newFixture(t, llmtest.New(llmtest.Text("hi")), llmtest.New(llmtest.Text("Title")))
+	res, err := f.svc.Send(context.Background(), core.SendRequest{Text: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.close()
+	if err := f.svc.Compact(context.Background(), res.SessionID); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Compact after Close err = %v, want ErrClosed", err)
+	}
+}
+
 func TestCompact_MissingSessionIsConfigError(t *testing.T) {
 	f := newFixture(t, llmtest.New(), llmtest.New())
 	err := f.svc.Compact(context.Background(), "ses_missing")

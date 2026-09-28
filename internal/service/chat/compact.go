@@ -12,7 +12,14 @@ import (
 // returns core.ErrBusy while a run is in progress on id, and
 // session.ErrNothingToCompact unchanged when there is nothing new to
 // summarize. A missing session is a *ConfigError, same as Send's resume.
+// After Close it returns ErrClosed.
 func (s *Service) Compact(ctx context.Context, id core.SessionID) error {
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return ErrClosed
+	}
 	if _, err := s.d.Sessions.Get(ctx, id); err != nil {
 		if errors.Is(err, session.ErrNotFound) {
 			return configErr("session %q: %w", id, err)

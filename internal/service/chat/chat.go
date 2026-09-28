@@ -19,7 +19,7 @@ import (
 // defaultAgent runs when neither the request nor the session names one.
 const defaultAgent = "build"
 
-// ErrClosed is returned by Send after Close.
+// ErrClosed is returned by Send and Compact after Close.
 var ErrClosed = errors.New("chat: service closed")
 
 // ConfigError marks a Send failure caused by configuration or user input
