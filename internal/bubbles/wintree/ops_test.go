@@ -196,6 +196,44 @@ func TestSplit_RefusesWhenNestedSiblingWouldShrinkBelowMin(t *testing.T) {
 	}
 }
 
+// TestSplit_IgnoresFixedLeafBelowMinimum checks that an existing FIXED
+// leaf's rect being below MinWidth/MinHeight never blocks a later
+// split of one of its FLEX siblings — only flex leaves participate in
+// the min-room validation.
+func TestSplit_IgnoresFixedLeafBelowMinimum(t *testing.T) {
+	bounds := Rect{X: 0, Y: 0, W: 120, H: 40}
+	tr, root := New()
+	p, err := tr.Split(root, SplitStacked, bounds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// p's own rect (H=1) is now below MinHeight=3, on purpose.
+	if err := tr.SetFixed(p, 1); err != nil {
+		t.Fatal(err)
+	}
+	other, err := tr.Split(root, SplitStacked, bounds)
+	if err != nil {
+		t.Fatalf("split refused: %v (a fixed leaf's undersized rect must not block a flex sibling's split)", err)
+	}
+	rects := tr.ComputeRects(bounds)
+	if len(rects) != 3 {
+		t.Fatalf("got %d rects, want 3", len(rects))
+	}
+	area := 0
+	for _, r := range rects {
+		area += r.W * r.H
+	}
+	if area != bounds.W*bounds.H {
+		t.Fatalf("rect areas sum to %d, want %d (gap or overlap)", area, bounds.W*bounds.H)
+	}
+	if rects[p].H != 1 {
+		t.Fatalf("fixed leaf p rect = %+v, want H=1", rects[p])
+	}
+	if rects[root].H < MinHeight || rects[other].H < MinHeight {
+		t.Fatalf("flex leaves below MinHeight: root=%+v other=%+v", rects[root], rects[other])
+	}
+}
+
 func TestClose_CollapsesAndReturnsNeighbor(t *testing.T) {
 	tr, a := New()
 	b, _ := tr.Split(a, SplitSideBySide, testBounds)
