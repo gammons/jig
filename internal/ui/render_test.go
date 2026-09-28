@@ -143,6 +143,28 @@ func TestRender_Golden(t *testing.T) {
 				Call:   toolCall("c7", "bash", `{"command":"sleep 99"}`),
 				Result: toolResult("c7", "bash", "cancelled", true),
 			}},
+			// A bash call settled to error with no result yet (RunFailed /
+			// a failed stored message) must still show the ✗ icon: bashLine
+			// never embedded one for it (review fix, item 1a).
+			{Block: transcript.Block{
+				Kind: transcript.KindTool, State: transcript.StateError,
+				Call: toolCall("c8", "bash", `{"command":"ls"}`),
+			}},
+			// An agent-browser call settled to error must also show the ✗
+			// icon: bashLine's browser branch never embeds a status either
+			// (review fix, item 1b).
+			{Block: transcript.Block{
+				Kind: transcript.KindTool, State: transcript.StateError,
+				Call:   toolCall("c9", "bash", `{"command":"agent-browser open evil.test"}`),
+				Result: toolResult("c9", "bash", "boom", true),
+			}},
+			// A running agent-browser call must show a spinner too (review
+			// fix, item 3): the default icon substitution never applies to
+			// 🌐, so the spinner is shown right after it instead.
+			{Block: transcript.Block{
+				Kind: transcript.KindTool, State: transcript.StateRunning,
+				Call: toolCall("c10", "bash", `{"command":"agent-browser open a.test"}`),
+			}, Frame: 2},
 		}
 		var lines []string
 		for _, b := range blocks {
@@ -198,6 +220,85 @@ func TestRender_Golden(t *testing.T) {
 		}
 		golden.Assert(t, "render_notice", strings.Join(lines, "\n"))
 	})
+}
+
+// TestRender_BashErrorAlwaysShowsAnErrorIcon covers review fix item 1: a
+// bash call in StateError shows the generic ✗ suffix whenever its own
+// summary didn't already embed one — a still-nil Result (settled by
+// RunFailed or a failed stored message with no answer) and an
+// agent-browser call (whose summary never embeds a status) both need it,
+// even though a bash call with a real exit-code result does not (it
+// already shows its own "✗ exit N"/"✗ timed out").
+func TestRender_BashErrorAlwaysShowsAnErrorIcon(t *testing.T) {
+	t.Parallel()
+	set := darkSet()
+	r := newRenderer(&set)
+
+	tests := []struct {
+		name  string
+		block transcript.Block
+	}{
+		{
+			"nil result",
+			transcript.Block{Kind: transcript.KindTool, State: transcript.StateError, Call: toolCall("c1", "bash", `{"command":"ls"}`)},
+		},
+		{
+			"agent-browser",
+			transcript.Block{
+				Kind: transcript.KindTool, State: transcript.StateError,
+				Call:   toolCall("c2", "bash", `{"command":"agent-browser open evil.test"}`),
+				Result: toolResult("c2", "bash", "boom", true),
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := renderOne(t, r, blockData{Block: tt.block}, 80)
+			if !strings.Contains(out, "✗") {
+				t.Errorf("render = %q, want it to contain %q", out, "✗")
+			}
+		})
+	}
+}
+
+// TestRender_RunningAgentBrowserShowsSpinner covers review fix item 3: a
+// running agent-browser call shows the animated spinner, not just its 🌐
+// icon frozen in place.
+func TestRender_RunningAgentBrowserShowsSpinner(t *testing.T) {
+	t.Parallel()
+	set := darkSet()
+	r := newRenderer(&set)
+
+	block := transcript.Block{
+		Kind: transcript.KindTool, State: transcript.StateRunning,
+		Call: toolCall("c1", "bash", `{"command":"agent-browser open a.test"}`),
+	}
+	out := renderOne(t, r, blockData{Block: block, Frame: 2}, 80)
+	if !strings.Contains(out, "🌐") {
+		t.Fatalf("render = %q, want it to still contain the 🌐 icon", out)
+	}
+	if !strings.ContainsRune(out, spinnerGlyph(2)) {
+		t.Errorf("render = %q, want it to contain the frame-2 spinner glyph %q", out, spinnerGlyph(2))
+	}
+}
+
+// TestRender_SearchErrorDoesNotCountItsMessageAsMatches covers review fix
+// item 4: a failed glob/grep call shows just its pattern, never a bogus
+// match count derived from its own error message's lines.
+func TestRender_SearchErrorDoesNotCountItsMessageAsMatches(t *testing.T) {
+	t.Parallel()
+	set := darkSet()
+	r := newRenderer(&set)
+
+	block := transcript.Block{
+		Kind: transcript.KindTool, State: transcript.StateError,
+		Call:   toolCall("c1", "grep", `{"pattern":"("}`),
+		Result: toolResult("c1", "grep", "error parsing regexp: missing closing ): `(`", true),
+	}
+	out := renderOne(t, r, blockData{Block: block}, 80)
+	if strings.Contains(out, "matches") {
+		t.Errorf("render = %q, want it to not mention a match count", out)
+	}
 }
 
 // TestRender_UnknownItemDataReturnsNil checks render's guard against an

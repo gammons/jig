@@ -72,7 +72,9 @@ func (d *derived) touch(tool, p string) {
 }
 
 // browserURL returns the target of the last agent-browser navigation
-// (open, goto or navigate) in a bash command, or "".
+// (open, goto or navigate) in a bash command, walking every agent-browser
+// invocation the command chains together (&&, ||, ;, |, &) in order, so
+// the last navigation anywhere in the command wins.
 func browserURL(command string) string {
 	var url string
 	fields := strings.Fields(command)
@@ -80,38 +82,91 @@ func browserURL(command string) string {
 		if path.Base(f) != browserBin {
 			continue
 		}
-		args := operands(fields[i+1:], 2)
-		if len(args) == 2 && isNavigation(args[0]) {
-			url = args[1]
+		seg := browserSegment(fields[i:])
+		sub, args, ok := BrowserCommand(strings.Join(seg, " "))
+		if ok && isNavigation(sub) && len(args) >= 1 {
+			url = args[0]
 		}
 	}
 	return url
 }
 
-// operands returns up to n leading non-flag arguments of one shell
-// command, unquoted, stopping at a control operator.
-func operands(fields []string, n int) []string {
+// browserSegment returns the leading fields of one shell command up to
+// (not including) the next control operator, splitting a trailing ";"
+// off the last token it keeps.
+func browserSegment(fields []string) []string {
 	var out []string
 	for _, f := range fields {
-		if len(out) == n {
-			break
+		if trimmed, ok := strings.CutSuffix(f, ";"); ok {
+			if trimmed != "" {
+				out = append(out, trimmed)
+			}
+			return out
 		}
-		end := false
 		switch f {
 		case "&&", "||", ";", "|", "&":
 			return out
 		}
-		if trimmed, ok := strings.CutSuffix(f, ";"); ok {
-			f, end = trimmed, true
-		}
-		if f != "" && !strings.HasPrefix(f, "-") {
-			out = append(out, strings.Trim(f, shellQuoting))
-		}
-		if end {
-			break
-		}
+		out = append(out, f)
 	}
 	return out
+}
+
+// BrowserCommand parses cmd as one agent-browser invocation: cmd's first
+// field's base name must be "agent-browser" (a bare name or a path to
+// it, e.g. "/usr/bin/agent-browser"). It skips cmd's global flags before
+// the subcommand — each flag browserValueFlag recognizes also consumes
+// its following argument, unless the flag and its value are joined with
+// "=" ("--session=s1"), which needs no extra token — and returns the
+// subcommand and its remaining arguments, shell-quote characters
+// trimmed. ok is false when cmd is not an agent-browser invocation, or
+// there is no subcommand left after its flags.
+func BrowserCommand(cmd string) (sub string, args []string, ok bool) {
+	fields := strings.Fields(cmd)
+	if len(fields) == 0 || path.Base(fields[0]) != browserBin {
+		return "", nil, false
+	}
+	rest := fields[1:]
+	i := 0
+	for i < len(rest) && strings.HasPrefix(rest[i], "-") {
+		if browserValueFlag(rest[i]) {
+			i += 2
+			continue
+		}
+		i++
+	}
+	if i >= len(rest) {
+		return "", nil, false
+	}
+	sub = unquoteShell(rest[i])
+	for _, a := range rest[i+1:] {
+		args = append(args, unquoteShell(a))
+	}
+	return sub, args, true
+}
+
+// browserValueFlag reports whether f is one of agent-browser's global
+// flags that takes a separate following argument. Every other flag
+// (e.g. --headed, --json, --restore, --annotate) is boolean and consumes
+// nothing; a flag joined to its value with "=" also consumes nothing
+// extra, however it is spelled.
+func browserValueFlag(f string) bool {
+	if strings.Contains(f, "=") {
+		return false
+	}
+	switch f {
+	case "--session", "--profile", "--state", "--cdp", "--headers",
+		"--executable-path", "--proxy", "--allowed-domains", "--user-agent",
+		"--screenshot-dir", "--screenshot-format", "--screenshot-quality":
+		return true
+	}
+	return false
+}
+
+// unquoteShell trims shell quote characters strings.Fields does not
+// parse away.
+func unquoteShell(s string) string {
+	return strings.Trim(s, shellQuoting)
 }
 
 func isNavigation(sub string) bool {

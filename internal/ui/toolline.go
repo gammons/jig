@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/ui/transcript"
 )
@@ -37,29 +38,35 @@ const (
 )
 
 // toolLine formats a Tool block's icon, name, and summary per spec §5.3.
-// It applies no styling or state suffix; render adds those. b.Call is
-// assumed non-nil (every Tool block has one).
-func toolLine(b transcript.Block, dur time.Duration) (icon, name, summary string) {
+// It applies no styling or state suffix; render adds those, except that
+// hasStatus tells render whether the summary already embeds its own
+// finished-state indicator (only bash's "✓ exit 0"/"✗ exit N"/"✗ timed
+// out", when it actually ran) so render does not add a redundant one, but
+// also does not skip the generic one when bash never got that far (no
+// result yet, or an agent-browser call, whose summary never embeds a
+// status). b.Call is assumed non-nil (every Tool block has one).
+func toolLine(b transcript.Block, dur time.Duration) (icon, name, summary string, hasStatus bool) {
 	switch b.Call.Name {
 	case "read":
-		return readLine(b)
+		icon, name, summary = readLine(b)
 	case "write":
-		return writeLine(b)
+		icon, name, summary = writeLine(b)
 	case "edit":
-		return editLine(b)
+		icon, name, summary = editLine(b)
 	case "bash":
-		return bashLine(b, dur)
+		icon, name, summary, hasStatus = bashLine(b, dur)
 	case "glob":
-		return searchLine("glob", b)
+		icon, name, summary = searchLine("glob", b)
 	case "grep":
-		return searchLine("grep", b)
+		icon, name, summary = searchLine("grep", b)
 	case "todo":
-		return todoLine(b)
+		icon, name, summary = todoLine(b)
 	case "skill":
-		return skillLine(b)
+		icon, name, summary = skillLine(b)
 	default:
-		return unknownLine(b)
+		icon, name, summary = unknownLine(b)
 	}
+	return
 }
 
 func readLine(b transcript.Block) (icon, name, summary string) {
@@ -109,46 +116,46 @@ func editLine(b transcript.Block) (icon, name, summary string) {
 }
 
 // bashLine formats a bash call: agent-browser subcommands get the 🌐 icon
-// and no name (browserSummary already reads as a full command), other
-// commands show their truncated first line plus a finished-state suffix
-// once they have a real result. A denied or cancelled call's Output is a
-// sentinel ("user denied: …", "cancelled"), not the command's own output,
-// so it never reaches bashStatus; render's generic state suffix (⊘) is
-// the only indicator for those.
-func bashLine(b transcript.Block, dur time.Duration) (icon, name, summary string) {
+// and no name (browserSummary already reads as a full command; hasStatus
+// is always false for these, since it never embeds a status itself),
+// other commands show their truncated first line plus a finished-state
+// suffix once they have a real result (hasStatus true only then). A
+// denied or cancelled call's Output is a sentinel ("user denied: …",
+// "cancelled"), not the command's own output, so it never reaches
+// bashStatus; render's generic state suffix (⊘) is the only indicator
+// for those, same as when there is no result yet.
+func bashLine(b transcript.Block, dur time.Duration) (icon, name, summary string, hasStatus bool) {
 	var in struct {
 		Command string `json:"command"`
 	}
 	_ = json.Unmarshal(b.Call.Input, &in)
 	if strings.HasPrefix(in.Command, browserBinCmd) {
-		return browserIcon, "", browserSummary(in.Command)
+		return browserIcon, "", browserSummary(in.Command), false
 	}
 	first, _, _ := strings.Cut(in.Command, "\n")
-	cmd := truncateRunes(first, bashCmdRunes)
+	// Sanitize before truncating: escape-sequence bytes counted as runes
+	// could otherwise consume the whole budget, leaving little or no
+	// visible command once the summary is sanitized again downstream.
+	cmd := truncateRunes(ansi.SanitizeLine(first), bashCmdRunes)
 	switch {
 	case b.Result == nil, b.State == transcript.StateDenied, b.State == transcript.StateCancelled:
-		return defaultIcon, "bash", cmd
+		return defaultIcon, "bash", cmd, false
 	}
-	return defaultIcon, "bash", cmd + " " + bashStatus(b.Result, dur)
+	return defaultIcon, "bash", cmd + " " + bashStatus(b.Result, dur), true
 }
 
-// browserSummary strips agent-browser's global flags (each "--flag value"
-// pair before the subcommand) and returns the subcommand and its
-// remaining arguments, e.g. "--session s1 open x" -> "open x".
+// browserSummary formats an agent-browser bash command's subcommand and
+// remaining arguments, its global flags removed by
+// transcript.BrowserCommand, e.g. "--session s1 open x" -> "open x". A
+// command BrowserCommand can't parse (should not happen: bashLine only
+// calls this once the command starts with "agent-browser ") renders as
+// "".
 func browserSummary(command string) string {
-	fields := strings.Fields(command)
-	if len(fields) == 0 {
+	sub, args, ok := transcript.BrowserCommand(command)
+	if !ok {
 		return ""
 	}
-	rest := fields[1:]
-	i := 0
-	for i < len(rest) && strings.HasPrefix(rest[i], "-") {
-		i += 2
-	}
-	if i > len(rest) {
-		i = len(rest)
-	}
-	return strings.Join(rest[i:], " ")
+	return strings.Join(append([]string{sub}, args...), " ")
 }
 
 // bashStatus renders bash's finished-state suffix: "✓ exit 0", "✗ exit N",
@@ -180,7 +187,7 @@ func searchLine(name string, b transcript.Block) (icon, nm, summary string) {
 		Pattern string `json:"pattern"`
 	}
 	_ = json.Unmarshal(b.Call.Input, &in)
-	if b.Result == nil {
+	if b.Result == nil || b.Result.IsError {
 		return defaultIcon, name, fmt.Sprintf("%q", in.Pattern)
 	}
 	return defaultIcon, name, fmt.Sprintf("%q · %d matches", in.Pattern, matchCount(b.Result.Output))

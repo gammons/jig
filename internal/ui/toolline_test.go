@@ -22,12 +22,13 @@ func TestToolLine_Table(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		block       transcript.Block
-		dur         time.Duration
-		wantIcon    string
-		wantName    string
-		wantSummary string
+		name          string
+		block         transcript.Block
+		dur           time.Duration
+		wantIcon      string
+		wantName      string
+		wantSummary   string
+		wantHasStatus bool
 	}{
 		{
 			name:        "read",
@@ -58,27 +59,30 @@ func TestToolLine_Table(t *testing.T) {
 			wantSummary: "a.go +3 -2",
 		},
 		{
-			name:        "bash exit 0 with duration",
-			block:       toolBlock("bash", `{"command":"ls -la"}`, "file1\nfile2", false),
-			dur:         1200 * time.Millisecond,
-			wantIcon:    "▸",
-			wantName:    "bash",
-			wantSummary: "ls -la ✓ exit 0 · 1.2s",
+			name:          "bash exit 0 with duration",
+			block:         toolBlock("bash", `{"command":"ls -la"}`, "file1\nfile2", false),
+			dur:           1200 * time.Millisecond,
+			wantIcon:      "▸",
+			wantName:      "bash",
+			wantSummary:   "ls -la ✓ exit 0 · 1.2s",
+			wantHasStatus: true,
 		},
 		{
-			name:        "bash exit 3, no duration",
-			block:       toolBlock("bash", `{"command":"false"}`, "boom\n[exit code 3]", true),
-			wantIcon:    "▸",
-			wantName:    "bash",
-			wantSummary: "false ✗ exit 3",
+			name:          "bash exit 3, no duration",
+			block:         toolBlock("bash", `{"command":"false"}`, "boom\n[exit code 3]", true),
+			wantIcon:      "▸",
+			wantName:      "bash",
+			wantSummary:   "false ✗ exit 3",
+			wantHasStatus: true,
 		},
 		{
-			name:        "bash timed out",
-			block:       toolBlock("bash", `{"command":"sleep 99"}`, "\n[timed out after 5s]", true),
-			dur:         2500 * time.Millisecond,
-			wantIcon:    "▸",
-			wantName:    "bash",
-			wantSummary: "sleep 99 ✗ timed out · 2.5s",
+			name:          "bash timed out",
+			block:         toolBlock("bash", `{"command":"sleep 99"}`, "\n[timed out after 5s]", true),
+			dur:           2500 * time.Millisecond,
+			wantIcon:      "▸",
+			wantName:      "bash",
+			wantSummary:   "sleep 99 ✗ timed out · 2.5s",
+			wantHasStatus: true,
 		},
 		{
 			name: "bash first line truncated to 60 runes",
@@ -89,6 +93,22 @@ func TestToolLine_Table(t *testing.T) {
 			wantName: "bash",
 			wantSummary: "echo 0123456789012345678901234567890123456789012345678901234" +
 				"… ✓ exit 0",
+			wantHasStatus: true,
+		},
+		{
+			name:        "bash error with no result yet (settled by RunFailed) has no embedded status",
+			block:       transcript.Block{Kind: transcript.KindTool, State: transcript.StateError, Call: &core.ToolCall{ID: "c1", Name: "bash", Input: json.RawMessage(`{"command":"ls"}`)}},
+			wantIcon:    "▸",
+			wantName:    "bash",
+			wantSummary: "ls",
+		},
+		{
+			name:          "bash first line is sanitized before the 60-rune cut",
+			block:         toolBlock("bash", `{"command":"echo hi\u001b[2Jpadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpad"}`, "done", false),
+			wantIcon:      "▸",
+			wantName:      "bash",
+			wantSummary:   "echo hipadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpa… ✓ exit 0",
+			wantHasStatus: true,
 		},
 		{
 			name:        "agent-browser with global flags",
@@ -103,6 +123,13 @@ func TestToolLine_Table(t *testing.T) {
 			wantIcon:    "🌐",
 			wantName:    "",
 			wantSummary: "screenshot",
+		},
+		{
+			name:        "agent-browser error has no embedded status either",
+			block:       toolBlock("bash", `{"command":"agent-browser open evil.test"}`, "boom", true),
+			wantIcon:    "🌐",
+			wantName:    "",
+			wantSummary: "open evil.test",
 		},
 		{
 			name:        "glob matches",
@@ -124,6 +151,20 @@ func TestToolLine_Table(t *testing.T) {
 			wantIcon:    "▸",
 			wantName:    "grep",
 			wantSummary: `"foo" · 1 matches`,
+		},
+		{
+			name:        "grep error does not count its error message as matches",
+			block:       toolBlock("grep", `{"pattern":"("}`, "error parsing regexp: missing closing ): `(`", true),
+			wantIcon:    "▸",
+			wantName:    "grep",
+			wantSummary: `"("`,
+		},
+		{
+			name:        "glob error does not count its error message as matches",
+			block:       toolBlock("glob", `{"pattern":"[bad"}`, "syntax error in pattern", true),
+			wantIcon:    "▸",
+			wantName:    "glob",
+			wantSummary: `"[bad"`,
 		},
 		{
 			name:        "todo",
@@ -150,10 +191,10 @@ func TestToolLine_Table(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			icon, name, summary := toolLine(tt.block, tt.dur)
-			if icon != tt.wantIcon || name != tt.wantName || summary != tt.wantSummary {
-				t.Errorf("toolLine = (%q, %q, %q), want (%q, %q, %q)",
-					icon, name, summary, tt.wantIcon, tt.wantName, tt.wantSummary)
+			icon, name, summary, hasStatus := toolLine(tt.block, tt.dur)
+			if icon != tt.wantIcon || name != tt.wantName || summary != tt.wantSummary || hasStatus != tt.wantHasStatus {
+				t.Errorf("toolLine = (%q, %q, %q, %v), want (%q, %q, %q, %v)",
+					icon, name, summary, hasStatus, tt.wantIcon, tt.wantName, tt.wantSummary, tt.wantHasStatus)
 			}
 		})
 	}

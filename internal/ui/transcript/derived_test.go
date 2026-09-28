@@ -135,6 +135,7 @@ func TestLastBrowserURL(t *testing.T) {
 		{"navigate", []toolUse{browsed("agent-browser navigate http://a.test/p")}, "http://a.test/p"},
 		{"non-navigation keeps the last URL", []toolUse{browsed("agent-browser open a.test"), browsed("agent-browser snapshot -i")}, "a.test"},
 		{"flags are skipped", []toolUse{browsed("agent-browser --headed open b.test")}, "b.test"},
+		{"value flag's argument is not mistaken for the subcommand", []toolUse{browsed("agent-browser --session s1 open x")}, "x"},
 		{"quoted URL", []toolUse{browsed(`agent-browser open "https://q.test/?a=1"`)}, "https://q.test/?a=1"},
 		{"chained commands, last navigation wins", []toolUse{browsed("cd x && agent-browser open a.test && agent-browser goto b.test; agent-browser snapshot")}, "b.test"},
 		{"path to the binary", []toolUse{browsed("npx /usr/bin/agent-browser open c.test")}, "c.test"},
@@ -153,6 +154,43 @@ func TestLastBrowserURL(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestBrowserCommand(t *testing.T) {
+	tests := []struct {
+		name     string
+		cmd      string
+		wantSub  string
+		wantArgs []string
+		wantOK   bool
+	}{
+		{"no flags", "agent-browser open localhost:3000", "open", []string{"localhost:3000"}, true},
+		{"boolean flag consumes nothing", "agent-browser --headed open b.test", "open", []string{"b.test"}, true},
+		{"value flag consumes its argument", "agent-browser --session s1 open x", "open", []string{"x"}, true},
+		{
+			"value flag joined with a quoted shell variable, then a boolean flag",
+			`agent-browser --session "$S" --restore open twitter.com`,
+			"open", []string{"twitter.com"}, true,
+		},
+		{"unknown flag is treated as boolean", "agent-browser --json snapshot -i", "snapshot", []string{"-i"}, true},
+		{"flag=value form consumes no extra token", "agent-browser --session=s1 open x", "open", []string{"x"}, true},
+		{"multiple flags before the subcommand", "agent-browser --profile p1 --headed click @e2", "click", []string{"@e2"}, true},
+		{"no subcommand after the flags", "agent-browser --headed", "", nil, false},
+		{"no subcommand at all", "agent-browser", "", nil, false},
+		{"a path to the binary", "/usr/bin/agent-browser open c.test", "open", []string{"c.test"}, true},
+		{"quoted argument is unquoted", `agent-browser open "https://q.test/?a=1"`, "open", []string{"https://q.test/?a=1"}, true},
+		{"not agent-browser", "curl localhost:3000", "", nil, false},
+		{"empty", "", "", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sub, args, ok := BrowserCommand(tt.cmd)
+			if sub != tt.wantSub || !reflect.DeepEqual(args, tt.wantArgs) || ok != tt.wantOK {
+				t.Errorf("BrowserCommand(%q) = (%q, %q, %v), want (%q, %q, %v)",
+					tt.cmd, sub, args, ok, tt.wantSub, tt.wantArgs, tt.wantOK)
+			}
+		})
 	}
 }
 

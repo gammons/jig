@@ -103,16 +103,22 @@ func (r *renderer) renderReasoning(b transcript.Block) string {
 }
 
 // renderTool renders one Tool block's line via toolLine, then applies the
-// running spinner (replacing the default icon) and the finished-state
-// suffix and color (spec §5.3).
+// running spinner and the finished-state suffix and color (spec §5.3).
+// The spinner replaces the default icon, or, for an icon toolLine itself
+// picked (agent-browser's 🌐), is shown right after it instead.
 func (r *renderer) renderTool(b transcript.Block, dur time.Duration, frame int) string {
-	icon, name, summary := toolLine(b, dur)
+	icon, name, summary, hasStatus := toolLine(b, dur)
 	icon = ansi.SanitizeLine(icon)
 	name = ansi.SanitizeLine(name)
 	summary = ansi.SanitizeLine(summary)
 
-	if b.State == transcript.StateRunning && icon == defaultIcon {
-		icon = string(spinnerGlyph(frame))
+	if b.State == transcript.StateRunning {
+		switch icon {
+		case defaultIcon:
+			icon = string(spinnerGlyph(frame))
+		default:
+			summary = string(spinnerGlyph(frame)) + " " + summary
+		}
 	}
 
 	line := icon + " "
@@ -121,9 +127,13 @@ func (r *renderer) renderTool(b transcript.Block, dur time.Duration, frame int) 
 	}
 	line += summary
 
-	if b.Call.Name == "bash" && b.State == transcript.StateError {
-		// bashLine already embeds "✗ exit N" or "✗ timed out"; the
-		// generic error suffix styleState would add is redundant.
+	if b.Call.Name == "bash" && b.State == transcript.StateError && hasStatus {
+		// bashLine already embedded "✗ exit N" or "✗ timed out" (it had
+		// a real result to read); the generic error suffix styleState
+		// would add is redundant. Without hasStatus — no result yet
+		// (settled by RunFailed/a failed message with no answer), or an
+		// agent-browser call, which never embeds a status itself — the
+		// generic suffix is the only indicator, so it must still apply.
 		return r.set.Render.Error.Render(line)
 	}
 	return r.styleState(line, b.State)

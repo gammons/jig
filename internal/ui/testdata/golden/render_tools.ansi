@@ -7,3 +7,6 @@
 [38;2;224;64;64m▸ bash  false ✗ exit 1[m
 [38;2;224;64;64m▸ bash  curl evil.test ⊘[m
 [2;38;2;136;136;136m▸ bash  sleep 99 ⊘[m
+[38;2;224;64;64m▸ bash  ls ✗[m
+[38;2;224;64;64m🌐 open evil.test ✗[m
+[38;2;224;224;224m🌐 ⠹ open a.test[m
