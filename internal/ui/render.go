@@ -69,7 +69,7 @@ func (r *renderer) render(it blocklist.Item, width int, _ blocklist.Styles) []st
 	case transcript.KindUser:
 		lines = r.renderUser(b, width)
 	case transcript.KindText:
-		lines = r.md.Render(ansi.Sanitize(b.Text), width)
+		lines = r.renderText(b, width)
 	case transcript.KindReasoning:
 		lines = []string{r.fitLine(r.renderReasoning(data.Thinking, data.Duration, data.Frame), width)}
 	case transcript.KindTool:
@@ -84,6 +84,20 @@ func (r *renderer) render(it blocklist.Item, width int, _ blocklist.Styles) []st
 		lines = append(lines, strings.Split(data.Card, "\n")...)
 	}
 	return lines
+}
+
+// renderText renders a Text block's Markdown. While the block is still
+// streaming, only its unfinished tail is re-rendered each tick (its
+// finished paragraphs are cached under the block's ID), so a long reply
+// costs the same per tick as a short one; once its step ends (Streaming
+// cleared), the whole text is rendered once, exactly as a stored reply.
+func (r *renderer) renderText(b transcript.Block, width int) []string {
+	text := ansi.Sanitize(b.Text)
+	if b.Streaming {
+		return r.md.RenderStreaming(string(b.ID), text, width)
+	}
+	r.md.Forget(string(b.ID))
+	return r.md.Render(text, width)
 }
 
 // fitLine cuts a one-line block (tool, reasoning, subagent, notice) to

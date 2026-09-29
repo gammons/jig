@@ -10,11 +10,15 @@ import (
 
 // slot is one render of an item, memoized under the key (Version, width,
 // stylesVersion). lines is dropped on eviction; height and the search memo
-// survive it, so offsets and match counts never need a re-render.
+// survive it, so offsets and match counts never need a re-render. raw is
+// the RenderFunc's output split at newlines, which lines was fit from line
+// by line, so the next version's render at the same width re-fits only
+// the lines that changed; it is dropped with lines.
 type slot struct {
 	version, width, sv int
 	height             int
 	lines              []string // each exactly width cells; nil once evicted
+	raw                []string
 
 	matchQuery string // the query matched was computed for
 	matched    bool
@@ -36,6 +40,7 @@ type cache struct {
 	entries map[string]*entry
 	live    map[string]struct{} // IDs whose entry currently holds lines in a slot
 	renders int                 // RenderFunc calls, for tests
+	fits    int                 // lines fit rather than reused, for tests
 }
 
 func newCache() *cache {
@@ -65,18 +70,24 @@ func (e *entry) find(it Item, width, sv int) *slot {
 // stale, or evicted. An evicted slot re-rendered under the same key keeps
 // its recorded height, so offsets computed from it stay correct. A render
 // at a new width moves the current slot to prev; one at the current width
-// (a new version or styles) replaces it in place.
+// (a new version or styles) replaces it in place, re-fitting only the
+// lines that differ from the render it replaces.
 func (c *cache) get(it Item, width, sv int, st Styles, render RenderFunc) *slot {
 	e := c.entries[it.ID]
 	s := e.find(it, width, sv)
 	if s != nil && s.lines != nil {
 		return s
 	}
-	lines := fit(render(it, width, st), width)
+	var old *slot
+	if e != nil && e.cur.width == width && e.cur.lines != nil {
+		old = &e.cur
+	}
+	raw := splitRaw(render(it, width, st))
+	lines := c.fitFrom(raw, width, old)
 	c.renders++
 	c.live[it.ID] = struct{}{}
 	if s != nil {
-		s.lines = resize(lines, s.height, width)
+		s.lines, s.raw = resize(lines, s.height, width), raw
 		return s
 	}
 	if e == nil {
@@ -86,7 +97,7 @@ func (c *cache) get(it Item, width, sv int, st Styles, render RenderFunc) *slot 
 	if e.cur.width != width {
 		e.prev = e.cur
 	}
-	e.cur = slot{version: it.Version, width: width, sv: sv, height: len(lines), lines: lines}
+	e.cur = slot{version: it.Version, width: width, sv: sv, height: len(lines), lines: lines, raw: raw}
 	return &e.cur
 }
 
@@ -131,10 +142,10 @@ func (c *cache) evict(keep func(id string, s *slot) bool) {
 			continue
 		}
 		if e.cur.lines != nil && !keep(id, &e.cur) {
-			e.cur.lines = nil
+			e.cur.lines, e.cur.raw = nil, nil
 		}
 		if e.prev.lines != nil && !keep(id, &e.prev) {
-			e.prev.lines = nil
+			e.prev.lines, e.prev.raw = nil, nil
 		}
 		if e.cur.lines == nil && e.prev.lines == nil {
 			delete(c.live, id)
@@ -160,11 +171,36 @@ func (c *cache) cachedLines() int { return len(c.live) }
 // (closing any open style), short ones are padded. It never returns fewer
 // than one line.
 func fit(raw []string, width int) []string {
+	var c cache
+	return c.fitFrom(splitRaw(raw), width, nil)
+}
+
+// splitRaw splits a RenderFunc result at embedded newlines, one entry per
+// line.
+func splitRaw(raw []string) []string {
 	out := make([]string, 0, len(raw))
 	for _, r := range raw {
-		for l := range strings.SplitSeq(r, "\n") {
-			out = append(out, fitLine(l, width))
+		if !strings.Contains(r, "\n") {
+			out = append(out, r)
+			continue
 		}
+		out = append(out, strings.Split(r, "\n")...)
+	}
+	return out
+}
+
+// fitFrom fits split lines to width (see fit), reusing old's fitted line
+// wherever the line equals the one old's was fit from: fitting is a pure
+// function of the line and the width, and old is at width.
+func (c *cache) fitFrom(split []string, width int, old *slot) []string {
+	out := make([]string, len(split))
+	for i, l := range split {
+		if old != nil && i < len(old.raw) && i < len(old.lines) && old.raw[i] == l {
+			out[i] = old.lines[i]
+			continue
+		}
+		out[i] = fitLine(l, width)
+		c.fits++
 	}
 	if len(out) == 0 {
 		out = append(out, strings.Repeat(" ", width))

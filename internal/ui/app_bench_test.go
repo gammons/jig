@@ -8,7 +8,49 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/jig/internal/core"
+	"github.com/gammons/jig/internal/core/event"
 )
+
+// streamChunk is one paragraph of a streamed reply: prose with inline
+// styling, a fenced block, and a list, ending in a blank line.
+const streamChunk = "Some prose with `code` and **bold** words that wraps across the line.\n\n" +
+	"```go\nfunc f() int { return 42 }\n```\n\n- a list item\n\n"
+
+// BenchmarkApp_StreamTick2000 measures one streaming tick (a delta, the
+// tick that renders it, and the next View) on a resumed 2,000-block
+// session, with the reply already ~16 KB long: a tick's cost must not grow
+// with the reply. Each reply is ended at 32 KB and a new one started, so
+// the result doesn't depend on how many iterations run.
+func BenchmarkApp_StreamTick2000(b *testing.B) {
+	ta := newTestApp(b, withSize(150, 40), withResume(core.Session{ID: "ses_1", Agent: "build"}, benchHistory(2000), nil))
+	_ = ta.view()
+	ta.typeText("go")
+	ta.key("enter")
+	reply, size := 0, 0
+	start := func() {
+		reply++
+		size = 0
+		ta.event(event.MessageStarted{Base: rootBase(), MessageID: core.MessageID(fmt.Sprintf("live%d", reply))})
+		for size < 16<<10 {
+			ta.event(event.TextDelta{Base: rootBase(), MessageID: core.MessageID(fmt.Sprintf("live%d", reply)), Text: streamChunk})
+			size += len(streamChunk)
+		}
+		ta.fire()
+		_ = ta.view()
+	}
+	start()
+	b.ReportAllocs()
+	for b.Loop() {
+		if size >= 32<<10 {
+			ta.event(event.StepFinished{Base: rootBase(), MessageID: core.MessageID(fmt.Sprintf("live%d", reply))})
+			start()
+		}
+		ta.event(event.TextDelta{Base: rootBase(), MessageID: core.MessageID(fmt.Sprintf("live%d", reply)), Text: "word "})
+		size += 5
+		ta.fire()
+		_ = ta.view()
+	}
+}
 
 // benchHistory is a stored session of n messages alternating user and
 // assistant, the assistant ones 1–12 lines of Markdown, so every text

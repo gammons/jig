@@ -299,6 +299,26 @@ func TestBlocklist_WarmViewDoesNotRender(t *testing.T) {
 	}
 }
 
+// TestBlocklist_RefitsOnlyChangedLines: a new version of an item (a
+// streaming block growing) re-fits only the lines that differ from its
+// previous render at that width; the result is the same as a fresh fit.
+func TestBlocklist_RefitsOnlyChangedLines(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("a line of text\n", 200)
+	m := newList(40, 10, []Item{{ID: "a", Version: 1, Data: long + "tail"}})
+	_ = m.View()
+	before := m.c.fits
+	m.Upsert(Item{ID: "a", Version: 2, Data: long + "tail grows\nnew line\t tab"})
+	_ = m.View()
+	if got := m.c.fits - before; got != 2 {
+		t.Errorf("re-fitting a grown item fit %d lines, want 2 (the changed and the new one)", got)
+	}
+	want := fit(strings.Split(long+"tail grows\nnew line\t tab", "\n"), 38)
+	if got := Lines(m, "a"); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("reused lines differ from a fresh fit")
+	}
+}
+
 func TestBlocklist_PreviousWidthStaysCached(t *testing.T) {
 	t.Parallel()
 	m := newList(40, 10, oneLiners(500))

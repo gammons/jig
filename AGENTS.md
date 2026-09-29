@@ -334,6 +334,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Overlay a proportional scrollbar gutter onto rendered rows | `scrollbar.Overlay(visible, width, total, yOffset, visibleHeight, bg, trackFg, thumbFg)` / `scrollbar.Visible(total, visibleHeight)` in `internal/bubbles/scrollbar` |
 | Vim-style window split tree (layout, split/close/navigate) | `wintree.New()` / `(*Tree).Split`, `.Close`, `.Only`, `.Cycle`, `.NavigateDir`, `.SetFixed`, `.Layout`, `.ComputeRects` in `internal/bubbles/wintree` |
 | Render Markdown to width-wrapped terminal lines | `mdrender.New(opts...)` / `(*Renderer).Render(md, width)`, `.SetStyles(Styles)` in `internal/bubbles/mdrender` |
+| Render a still-streaming Markdown reply without re-rendering its finished paragraphs | `(*mdrender.Renderer).RenderStreaming(key, md, width)` / `.Forget(key)` |
 | Syntax-highlight source code / render a styled unified diff | `coderender.Highlight(path, code, st)` / `coderender.Diff(path, before, after, context, st)`, `coderender.DiffText(before, after, context)` in `internal/bubbles/coderender` |
 | Pick the terminal image protocol / decode untrusted image bytes (bomb-guarded) / render an image into a cell box | `imgrender.Detect(env, terminalName)` / `imgrender.Decode(data)` / `imgrender.New(p, WithCellSize(w, h), WithTmux(on)).Render(key, img, maxCols, maxRows)` (send `Result.Upload` / `Place(res, x, y)` via `tea.Raw`) in `internal/bubbles/imgrender` |
 | Map a theme `Palette` into every widget's `Styles` | `theme.Build(p, version) theme.Set` |
@@ -358,6 +359,7 @@ the budget. Run with `go test -run XXX -bench . -benchmem <pkg>`.
 | `BenchmarkApp_DetailsToggle2000` — `enter` then `q` (each with the debounce and a `View`), both widths already cached | < 50 ms/op | 4.3 ms/op |
 | `BenchmarkApp_Keystroke2000` — one character typed into the prompt, then `View` | < 1.5 ms/op | 0.83 ms/op |
 | `BenchmarkApp_Wheel2000` — one wheel notch over the transcript, then `View` | < 1.5 ms/op | 1.16 ms/op |
+| `BenchmarkApp_StreamTick2000` — one streaming delta, its tick, and `View`, with the reply already ~16 KB | < 5 ms/op | 1.9 ms/op |
 
 Every keystroke and wheel notch re-renders the whole frame, so
 `compose` (`internal/ui/layout.go`) measures each widget's output once:
@@ -373,6 +375,14 @@ height change applies at once (it re-renders nothing). Streaming deltas
 only mark blocks dirty; one `streamTick` upserts them all, every 80 ms
 or 3× the last tick's render pass (App clock), whichever is longer,
 capped at 1 s (`nextInterval`).
+A tick's cost must not grow with the reply's length: while a Text block
+is `Streaming`, `mdrender.RenderStreaming` renders each finished
+paragraph (ended by a blank line outside a code fence) once, caches its
+lines under the block ID, and re-renders only the unfinished tail; when
+the step ends the block renders once in full with `Render` (paragraphs
+rendered apart can differ in blank-line spacing until then). The
+blocklist then re-fits only the lines that differ from the block's
+previous render at that width.
 In the theme picker, a highlight change previews its palette 120 ms
 after the last one (`themeDebounce`, keyed by `themeState.gen`); `esc`
 (restore) and a choice apply at once.

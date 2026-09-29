@@ -47,10 +47,14 @@ func WithStyles(st Styles) Option {
 
 // Renderer renders Markdown to terminal lines at a given width. It is safe
 // for concurrent use, though the App only ever calls Render from Update.
+// streams holds RenderStreaming's per-key caches; renders counts glamour
+// renders, for tests.
 type Renderer struct {
 	mu        sync.Mutex
 	styles    Styles
 	renderers map[int]*glamour.TermRenderer
+	streams   map[string]*stream
+	renders   int
 }
 
 // New builds a Renderer. With no options it uses DefaultStyles.
@@ -58,6 +62,7 @@ func New(opts ...Option) *Renderer {
 	r := &Renderer{
 		styles:    DefaultStyles(),
 		renderers: map[int]*glamour.TermRenderer{},
+		streams:   map[string]*stream{},
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -65,13 +70,14 @@ func New(opts ...Option) *Renderer {
 	return r
 }
 
-// SetStyles replaces r's Styles and drops every cached TermRenderer, so the
-// next Render at any width rebuilds with the new colors.
+// SetStyles replaces r's Styles and drops every cached TermRenderer and
+// streaming cache, so the next render at any width uses the new colors.
 func (r *Renderer) SetStyles(st Styles) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.styles = st
 	r.renderers = map[int]*glamour.TermRenderer{}
+	r.streams = map[string]*stream{}
 }
 
 // Render renders md at width, returning its lines with leading and trailing
@@ -87,7 +93,12 @@ func (r *Renderer) Render(md string, width int) []string {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.render(md, width)
+}
 
+// render is Render with r.mu held.
+func (r *Renderer) render(md string, width int) []string {
+	r.renders++
 	tr, err := r.rendererForWidth(width)
 	if err != nil {
 		return trimBlankLines(ansi.Wrap(md, width))
