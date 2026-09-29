@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
+	"log/slog"
 	"strconv"
 	"strings"
 	"testing"
@@ -280,6 +282,32 @@ func TestRunnerLog_ToolDuration(t *testing.T) {
 	r.execute(context.Background(), execRC(), []ext.Tool{slow}, []core.ToolCall{llmtest.Call("c1", "slow", `{}`)})
 
 	wantContains(t, only(t, buf, "tool call"), "dur=2s")
+}
+
+// attrsLLM records the log attrs of the ctx each Stream call receives.
+type attrsLLM struct {
+	next  core.LLM
+	attrs *[]slog.Attr
+}
+
+func (a attrsLLM) Stream(ctx context.Context, req core.LLMRequest) iter.Seq2[core.StreamEvent, error] {
+	*a.attrs = core.LogAttrs(ctx)
+	return a.next.Stream(ctx, req)
+}
+
+func TestRunnerLog_StreamContextCarriesAttrs(t *testing.T) {
+	var got []slog.Attr
+	f := newFixture(t, nil)
+	f.deps.LLMs = fakeSource{llm: attrsLLM{next: llmtest.New(llmtest.Text("hi")), attrs: &got}, info: testInfo()}
+	f.rc.RootID = ""
+	r := NewRunner(f.deps)
+
+	if _, err := r.Run(context.Background(), f.rc, "hi"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	got0 := fmt.Sprint(got)
+	wantContains(t, got0, "root=ses_test", "session=ses_test", "depth=0")
 }
 
 func TestRunnerLog_StepTiming(t *testing.T) {
