@@ -102,6 +102,15 @@ type ProviderFactory interface {
 	New(info core.ProviderInfo, cfg core.ProviderConfig, model string) (core.LLM, error)
 }
 
+// ToolSource supplies tools whose set changes at runtime (MCP). The
+// registry holds at most one; it is registered before Freeze like every
+// other extension, but Tools is called on every model step and may return
+// a different set each time. Implementations own their own locking and
+// must not do I/O in Tools.
+type ToolSource interface {
+	Tools() []Tool
+}
+
 // ErrFrozen is returned by every Registry Add* method once Freeze has been
 // called.
 var ErrFrozen = errors.New("ext: registry is frozen")

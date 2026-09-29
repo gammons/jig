@@ -142,6 +142,17 @@ type RunFailed struct {
 	Err string
 }
 
+// MCPServerChanged announces a change in an MCP server's connection state
+// or tool list. Base is left empty (zero SessionID/RootID): unlike every
+// other event, it isn't scoped to a session or run.
+type MCPServerChanged struct {
+	Base
+	Name  string
+	State core.MCPState
+	Tools int
+	Err   string
+}
+
 // Publisher is the narrow interface services depend on to emit events,
 // without needing to know about subscriptions.
 type Publisher interface {
