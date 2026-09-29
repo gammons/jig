@@ -21,7 +21,10 @@ func Overlay(lo, hi core.PermissionRules) core.PermissionRules {
 
 // Tighten splits add into the entries that can be overlaid on baseline
 // (already Effective, Defaults included) without loosening any decision,
-// and the entries it drops (R7). Per tool:
+// and the entries it drops (R7). Per tool (an add key may itself be a
+// glob; it is matched against baseline via RuleFor, so a glob key ties
+// against whatever baseline entry — exact or glob — actually governs that
+// key):
 //
 //   - a Default is kept iff it ranks at least the baseline's Default
 //     (empty means ask);
@@ -37,7 +40,7 @@ func Overlay(lo, hi core.PermissionRules) core.PermissionRules {
 // Defaults(). kept and dropped are fresh maps, nil when empty.
 func Tighten(baseline, add core.PermissionRules) (kept, dropped core.PermissionRules) {
 	for tool, r := range add {
-		base := baseline[tool]
+		base := RuleFor(baseline, tool)
 		var k, d core.Rule
 		if r.Default != "" {
 			if validAction(r.Default) && actionRank(r.Default) >= actionRank(defaultOf(base)) {

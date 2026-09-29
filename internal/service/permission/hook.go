@@ -85,7 +85,7 @@ func (h *Hook) decide(rc ext.RunContext, tool, subject string) core.Action {
 // An ask from the tool's Default may be relaxed by h.preset (see
 // WithPreset), under the same downgrade.
 func (h *Hook) decideOne(agent core.PermissionRules, tool, subject string) core.Action {
-	rule := Effective(agent, h.cfg)[tool]
+	rule := RuleFor(Effective(agent, h.cfg), tool)
 	action, fromPattern := evaluate(rule, subject)
 	if action == core.Ask && !fromPattern && rule.Default != core.Deny {
 		if pa, matched := evaluate(core.Rule{Patterns: h.preset[tool].Patterns}, subject); matched && pa == core.Allow {

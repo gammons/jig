@@ -113,3 +113,45 @@ func TestToolsFor_AllowlistSpawnAndDeny(t *testing.T) {
 		}
 	})
 }
+
+func mcpFakeTools() []ext.Tool {
+	names := []string{"read", "mcp__gh__get_issue", "mcp__gh__push"}
+	out := make([]ext.Tool, 0, len(names))
+	for _, n := range names {
+		out = append(out, fakeTool{name: n})
+	}
+	return out
+}
+
+func TestToolsFor_GlobTools(t *testing.T) {
+	a := core.Agent{Name: "explore", Tools: []string{"read", "mcp__gh__get_*"}}
+	got := toolNames(ToolsFor(a, mcpFakeTools()))
+	want := []string{"read", "mcp__gh__get_issue"}
+	if len(got) != len(want) {
+		t.Fatalf("ToolsFor() = %v, want %v", got, want)
+	}
+	for _, n := range want {
+		if !containsName(got, n) {
+			t.Errorf("ToolsFor() = %v, missing %q", got, n)
+		}
+	}
+	if containsName(got, "mcp__gh__push") {
+		t.Errorf("ToolsFor() = %v, want mcp__gh__push dropped (not matched by any glob)", got)
+	}
+}
+
+func TestToolsFor_GlobDeny(t *testing.T) {
+	a := core.Agent{
+		Name: "restricted",
+		Permissions: core.PermissionRules{
+			"mcp__gh__*": {Default: core.Deny},
+		},
+	}
+	got := toolNames(ToolsFor(a, mcpFakeTools()))
+	if containsName(got, "mcp__gh__get_issue") || containsName(got, "mcp__gh__push") {
+		t.Errorf("ToolsFor() = %v, want every mcp__gh__ tool dropped (glob deny)", got)
+	}
+	if !containsName(got, "read") {
+		t.Errorf("ToolsFor() = %v, want read kept", got)
+	}
+}
