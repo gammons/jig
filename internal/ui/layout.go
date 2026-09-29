@@ -24,6 +24,8 @@ const (
 	// gapRows blank rows separate the transcript from the prompt, so model
 	// output doesn't butt against the input box.
 	gapRows = 1
+	// belowRows blank rows separate the prompt from the status bar.
+	belowRows = 1
 	// margin blank cells surround the whole frame on every side, so
 	// nothing butts against the terminal's edges.
 	margin = 1
@@ -40,27 +42,29 @@ const splitBounds = 1000
 
 // rects is one frame's layout, in terminal coordinates: the transcript,
 // the side slot (sidebar or details split), the blank gap above the
-// prompt, the prompt, and the status bar, inside an MX-column left/right
-// and MY-row top/bottom margin. When SideSpans, the side slot runs from
-// the top margin down beside the gap and the prompt to the status bar, and
-// the gap and prompt are only as wide as the transcript column; the status
-// bar always spans the full inner width. Narrow is terminal width < 120;
+// prompt, the prompt, the blank row(s) below it, and the status bar,
+// inside an MX-column left/right and MY-row top/bottom margin. When
+// SideSpans, the side slot runs from the top margin down beside the gap,
+// the prompt, and the row below it to the status bar, and those are only
+// as wide as the transcript column; the status bar always spans the full
+// inner width. Narrow is terminal width < 120;
 // SideVisible is whether the sidebar is shown (never while the details
 // split holds the side slot).
 type rects struct {
-	Transcript, Side, Gap, Prompt, Status       wintree.Rect
-	MX, MY                                      int
-	Narrow, SideVisible, DetailsOpen, SideSpans bool
+	Transcript, Side, Gap, Prompt, Below, Status wintree.Rect
+	MX, MY                                       int
+	Narrow, SideVisible, DetailsOpen, SideSpans  bool
 }
 
 // computeLayout lays out a w×h terminal with a promptH-row prompt. The
 // sidebar is visible iff w ≥ 120 and sidebarPref is nil or true; the
 // details split, when open, takes the side slot at 50% of the width, or
 // the whole transcript region when narrow. The margin rows are kept only
-// while the body still keeps its gap and a transcript row, and the gap
-// only while the transcript keeps a row, so on a short terminal the
-// margin goes first, then the gap, and neither ever squeezes the prompt
-// or status bar. The side margin goes below marginMinW columns. Negative
+// while the body still keeps both blank rows and a transcript row; the
+// row below the prompt only while the gap and a transcript row stay; the
+// gap only while the transcript keeps a row. So on a short terminal the
+// margin goes first, then the row below the prompt, then the gap, and
+// none ever squeezes the prompt or status bar. The side margin goes below marginMinW columns. Negative
 // sizes count as 0.
 func computeLayout(w, h, promptH int, sidebarPref *bool, detailsOpen bool) rects {
 	w, h = max(w, 0), max(h, 0)
@@ -71,7 +75,7 @@ func computeLayout(w, h, promptH int, sidebarPref *bool, detailsOpen bool) rects
 	narrow := w < sidebarMinTerm
 	if h > 2*margin {
 		r := layoutBody(w-2*mx, h-2*margin, promptH, sidebarPref, detailsOpen, narrow)
-		if r.Gap.H == gapRows {
+		if r.Below.H == belowRows {
 			return r.shift(mx, margin)
 		}
 	}
@@ -81,7 +85,7 @@ func computeLayout(w, h, promptH int, sidebarPref *bool, detailsOpen bool) rects
 // shift moves every rect of r right by mx and down by my, recording them
 // as its margins.
 func (r rects) shift(mx, my int) rects {
-	for _, rc := range []*wintree.Rect{&r.Transcript, &r.Side, &r.Gap, &r.Prompt, &r.Status} {
+	for _, rc := range []*wintree.Rect{&r.Transcript, &r.Side, &r.Gap, &r.Prompt, &r.Below, &r.Status} {
 		if rc.W > 0 || rc.H > 0 {
 			rc.X += mx
 			rc.Y += my
@@ -126,22 +130,35 @@ func layoutBody(w, h, promptH int, sidebarPref *bool, detailsOpen, narrow bool) 
 		r.Side = all[sideID]
 	}
 	// The transcript and side slot share one row span; the gap takes the
-	// bottom gapRows of it.
-	region := max(r.Transcript.H, r.Side.H)
-	if region > gapRows {
-		top := r.Prompt.Y - gapRows
-		r.Gap = wintree.Rect{X: 0, Y: top, W: w, H: gapRows}
-		r.Transcript.H = max(r.Transcript.H-gapRows, 0)
+	// bottom gapRows of it, and then, while a transcript row and the gap
+	// remain, the row below the prompt takes belowRows more, moving the
+	// gap and prompt up.
+	carve := func(n int) bool {
+		if max(r.Transcript.H, r.Side.H) <= n {
+			return false
+		}
+		r.Transcript.H = max(r.Transcript.H-n, 0)
 		if side > 0 {
-			r.Side.H = max(r.Side.H-gapRows, 0)
+			r.Side.H = max(r.Side.H-n, 0)
+		}
+		return true
+	}
+	if carve(gapRows) {
+		r.Gap = wintree.Rect{X: 0, Y: r.Prompt.Y - gapRows, W: w, H: gapRows}
+		if carve(belowRows) {
+			r.Gap.Y -= belowRows
+			r.Prompt.Y -= belowRows
+			r.Below = wintree.Rect{X: 0, Y: r.Prompt.Y + r.Prompt.H, W: w, H: belowRows}
 		}
 	}
 	// Beside a transcript column, the side slot runs on down beside the
-	// gap and the prompt, which narrow to the transcript's blocks.
+	// gap, the prompt, and the row below it, which narrow to the
+	// transcript's blocks.
 	if side > 0 && r.Transcript.W > 0 {
 		r.SideSpans = true
-		r.Side.H += r.Gap.H + r.Prompt.H
+		r.Side.H += r.Gap.H + r.Prompt.H + r.Below.H
 		r.Gap.W = r.Transcript.W
+		r.Below.W = r.Transcript.W
 		r.Prompt.W = max(r.Transcript.W-1-rightPad, 0)
 	}
 	return r
@@ -200,9 +217,9 @@ func fit(s string, w, h int) string {
 
 // compose joins the regions of one frame per lay, inside its margins:
 // the transcript beside the side slot; below the transcript, the blank
-// gap and the prompt (when SideSpans, these sit in the transcript's
-// column, each row ending in border, and the side slot runs on beside
-// them); then the full-width status bar. Each region is fit to its rect
+// gap, the prompt, and the blank row below it (when SideSpans, these sit
+// in the transcript's column, each row ending in border, and the side
+// slot runs on beside them); then the full-width status bar. Each region is fit to its rect
 // first, so the frame is exactly the terminal's size.
 func compose(lay rects, transcript, side, prompt, status, border string) string {
 	left := []string{}
@@ -228,6 +245,7 @@ func compose(lay rects, transcript, side, prompt, status, border string) string 
 	}
 	under("", lay.Gap)
 	under(prompt, lay.Prompt)
+	under("", lay.Below)
 
 	var rows []string
 	body := lipgloss.JoinVertical(lipgloss.Left, left...)

@@ -54,7 +54,8 @@ func TestLayout_Table(t *testing.T) {
 			if r.Status != wantStatus {
 				t.Errorf("status %+v; want %+v", r.Status, wantStatus)
 			}
-			top := wantStatus.Y - promptH
+			// belowRows blank rows separate the prompt from the status bar.
+			top := wantStatus.Y - belowRows - promptH
 			// With the side slot beside it, the prompt lines up with the
 			// transcript's blocks: one column less than the transcript
 			// (its scrollbar/border column) and rightPad less again.
@@ -80,14 +81,19 @@ func TestLayout_Table(t *testing.T) {
 			if r.Gap != wantGap {
 				t.Errorf("gap %+v; want %+v (blank rows between transcript and prompt)", r.Gap, wantGap)
 			}
+			wantBelow := wintree.Rect{X: margin, Y: top + promptH, W: gapW, H: belowRows}
+			if r.Below != wantBelow {
+				t.Errorf("below %+v; want %+v (blank rows between prompt and status bar)", r.Below, wantBelow)
+			}
 			if r.Side.W == 0 {
 				return
 			}
 			// Beside a transcript, the side slot runs from the top margin
-			// down beside the gap and the prompt, to the status bar.
+			// down beside the gap, the prompt, and the row below it, to
+			// the status bar.
 			wantSide := wintree.Rect{X: margin + tt.transW, Y: margin, W: tt.sideW, H: transH}
 			if tt.transW > 0 {
-				wantSide.H = transH + gapRows + promptH
+				wantSide.H = transH + gapRows + promptH + belowRows
 			}
 			if r.Side != wantSide {
 				t.Errorf("side %+v; want %+v", r.Side, wantSide)
@@ -103,12 +109,12 @@ func TestLayout_TinySizesNeverNegative(t *testing.T) {
 	t.Parallel()
 	for _, sz := range [][2]int{{0, 0}, {1, 1}, {20, 5}, {5, 2}, {-3, -1}} {
 		r := computeLayout(sz[0], sz[1], 3, nil, true)
-		for _, rc := range []wintree.Rect{r.Transcript, r.Side, r.Prompt, r.Status, r.Gap} {
+		for _, rc := range []wintree.Rect{r.Transcript, r.Side, r.Prompt, r.Status, r.Gap, r.Below} {
 			if rc.W < 0 || rc.H < 0 || rc.X < 0 || rc.Y < 0 {
 				t.Errorf("%dx%d: negative rect %+v", sz[0], sz[1], rc)
 			}
 		}
-		if total := 2*r.MY + r.Transcript.H + r.Gap.H + r.Prompt.H + r.Status.H; total > max(sz[1], 0) {
+		if total := 2*r.MY + r.Transcript.H + r.Gap.H + r.Prompt.H + r.Below.H + r.Status.H; total > max(sz[1], 0) {
 			t.Errorf("%dx%d: rows %d exceed height", sz[0], sz[1], total)
 		}
 		if total := 2*r.MX + max(r.Transcript.W+r.Side.W, r.Status.W); total > max(sz[0], 0) {
@@ -117,27 +123,32 @@ func TestLayout_TinySizesNeverNegative(t *testing.T) {
 	}
 }
 
-// TestLayout_MarginAndGapYieldFirst: when the terminal is too short, the
-// top/bottom margin and then the gap are dropped before the transcript
-// loses its last row, and neither ever takes rows from the prompt or
-// status bar.
-func TestLayout_MarginAndGapYieldFirst(t *testing.T) {
+// TestLayout_MarginAndGapsYieldFirst: when the terminal is too short, the
+// top/bottom margin goes first, then the row below the prompt, then the
+// gap above it, before the transcript loses its last row; none ever takes
+// rows from the prompt or status bar.
+func TestLayout_MarginAndGapsYieldFirst(t *testing.T) {
 	t.Parallel()
 	const promptH = 3
 	tests := []struct {
-		h, transH, gapH, promptH, my int
+		h, transH, gapH, belowH, promptH, my int
 	}{
-		{h: 8, transH: 1, gapH: 1, promptH: 3, my: 1}, // room for everything
-		{h: 7, transH: 2, gapH: 1, promptH: 3, my: 0}, // the margin goes first
-		{h: 5, transH: 1, gapH: 0, promptH: 3, my: 0}, // then the gap
-		{h: 4, transH: 0, gapH: 0, promptH: 3, my: 0}, // no transcript, no gap
-		{h: 2, transH: 0, gapH: 0, promptH: 2, my: 0}, // prompt squeezed, gap still 0
+		{h: 9, transH: 1, gapH: 1, belowH: 1, promptH: 3, my: 1}, // room for everything
+		{h: 8, transH: 2, gapH: 1, belowH: 1, promptH: 3, my: 0}, // the margin goes first
+		{h: 7, transH: 1, gapH: 1, belowH: 1, promptH: 3, my: 0},
+		{h: 6, transH: 1, gapH: 1, belowH: 0, promptH: 3, my: 0}, // then the row below the prompt
+		{h: 5, transH: 1, gapH: 0, belowH: 0, promptH: 3, my: 0}, // then the gap
+		{h: 4, transH: 0, gapH: 0, belowH: 0, promptH: 3, my: 0}, // no transcript, no gaps
+		{h: 2, transH: 0, gapH: 0, belowH: 0, promptH: 2, my: 0}, // prompt squeezed, gaps still 0
 	}
 	for _, tt := range tests {
 		r := computeLayout(80, tt.h, promptH, nil, false)
-		if r.Transcript.H != tt.transH || r.Gap.H != tt.gapH || r.Prompt.H != tt.promptH || r.MY != tt.my {
-			t.Errorf("h=%d: transcript %d gap %d prompt %d margin %d; want %d %d %d %d",
-				tt.h, r.Transcript.H, r.Gap.H, r.Prompt.H, r.MY, tt.transH, tt.gapH, tt.promptH, tt.my)
+		if r.Transcript.H != tt.transH || r.Gap.H != tt.gapH || r.Below.H != tt.belowH || r.Prompt.H != tt.promptH || r.MY != tt.my {
+			t.Errorf("h=%d: transcript %d gap %d below %d prompt %d margin %d; want %d %d %d %d %d",
+				tt.h, r.Transcript.H, r.Gap.H, r.Below.H, r.Prompt.H, r.MY, tt.transH, tt.gapH, tt.belowH, tt.promptH, tt.my)
+		}
+		if r.Below.H > 0 && (r.Below.Y != r.Prompt.Y+r.Prompt.H || r.Status.Y != r.Below.Y+r.Below.H) {
+			t.Errorf("h=%d: below %+v not between prompt %+v and status %+v", tt.h, r.Below, r.Prompt, r.Status)
 		}
 	}
 }
@@ -182,11 +193,18 @@ func TestCompose_MarginOnEverySide(t *testing.T) {
 	if !strings.HasPrefix(rows[8], " S") {
 		t.Errorf("row 8 = %q, want the status bar just above the bottom margin", rows[8])
 	}
+	if strings.TrimSpace(rows[7]) != "" {
+		t.Errorf("row 7 = %q, want a blank row between the prompt and the status bar", rows[7])
+	}
+	if !strings.HasPrefix(rows[6], " P") && strings.TrimSpace(rows[6]) != "" {
+		t.Errorf("row 6 = %q, want the prompt's last row", rows[6])
+	}
 }
 
-// TestCompose_SideRunsBesideThePrompt: with a sidebar, the gap and prompt
-// rows carry the transcript's border column, then the side slot, which
-// runs down to the status bar; the status bar spans the full width.
+// TestCompose_SideRunsBesideThePrompt: with a sidebar, the gap, prompt,
+// and below-prompt rows carry the transcript's border column, then the
+// side slot, which runs down to the status bar; the status bar spans the
+// full width.
 func TestCompose_SideRunsBesideThePrompt(t *testing.T) {
 	t.Parallel()
 	lay := computeLayout(130, 12, 3, nil, false)
@@ -196,7 +214,7 @@ func TestCompose_SideRunsBesideThePrompt(t *testing.T) {
 	side := strings.Repeat("S\n", lay.Side.H)
 	rows := strings.Split(compose(lay, "T", side, "P", "STATUS", "|"), "\n")
 	bx := lay.Transcript.X + lay.Transcript.W - 1 // the border column
-	for y := lay.Gap.Y; y < lay.Prompt.Y+lay.Prompt.H; y++ {
+	for y := lay.Gap.Y; y < lay.Below.Y+lay.Below.H; y++ {
 		r := []rune(rows[y])
 		if r[bx] != '|' {
 			t.Errorf("row %d col %d = %q, want the border beside the gap/prompt: %q", y, bx, r[bx], rows[y])
