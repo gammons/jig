@@ -50,6 +50,10 @@ type TokenAction struct{ Agent, Tool, Pattern, Token string }
 //     where agentGlobal is the built-in overlaid with the global TOML and
 //     markdown layers; the markdown layer's baseline also includes the
 //     kept TOML entries for that agent. Other agent fields are kept.
+//   - Project.MCP goes through restrictMCP: Disabled entries and
+//     enabled = false toggles only tighten and are kept; every full
+//     server entry and enabled = true toggle could start a process or
+//     reach a URL the user never approved, so it is dropped.
 //
 // Restrict never mutates l, and its Project and ProjectMD share no maps,
 // slices, or pointers with l. Dropped fields are nil, never empty.
@@ -59,6 +63,7 @@ func Restrict(l Layers) (Layers, []Effect) {
 
 	out.Project, drop.Project = restrictScalars(l.Project)
 	out.Project.Permissions, drop.Project.Permissions = restrictTopLevel(l)
+	out.Project.MCP, drop.Project.MCP = restrictMCP(l)
 
 	mergedCfg := permission.Overlay(l.Global.Permissions, out.Project.Permissions)
 	out.Project.Agents, drop.Project.Agents = restrictAgents(l, l.Project.Agents, mergedCfg, nil)
