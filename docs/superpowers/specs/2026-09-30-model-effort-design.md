@@ -82,8 +82,9 @@ const (
 )
 ```
 
-- `ParseEffort(s string) (Effort, error)`: `""` → `""`, a scale value → itself, anything else → an error naming the valid levels.
-- `(Effort).rank() int`: the position on the scale above; used only by the helpers.
+- `ParseEffort(s string) (Effort, error)`: trims and lowercases `s` (so `--effort High` works); `""` → `""`, a scale value → itself, anything else → an error naming the valid levels.
+- `EffortLevels() []Effort`: the scale, lowest first (a fresh slice; no package var).
+- `(Effort).Known() bool`: whether it is on the scale; `(Effort).rank() int`: its position, -1 if not.
 - `ModelInfo` gains `Efforts []Effort` (ordered as the catalog lists them) and `DefaultEffort Effort`.
 - `EffectiveEffort(info ModelInfo, want Effort) Effort`:
   - `len(info.Efforts) == 0` → `""`.
@@ -113,7 +114,7 @@ const (
 
 - Migration `0002_session_effort.sql`: `ALTER TABLE sessions ADD COLUMN effort TEXT NOT NULL DEFAULT ''`.
 - `core.Session` gains `Effort Effort`; `sessions.go` reads and writes it with `Model`.
-- A stored value that fails `ParseEffort` (hand-edited DB, a level removed from the scale) is treated as `""` by the resolver and logged at debug level (`cat=run`); it never blocks a resume.
+- A stored value that fails `ParseEffort` (hand-edited DB, a level removed from the scale) is skipped by `ResolveEffort` as if unset; it never blocks a resume. The Runner's `run start` line shows the requested level that resulted.
 
 ### 4.4 Ports (`internal/core/ports.go`)
 
@@ -129,14 +130,14 @@ const (
 
 **Requested level**
 
-- `agents.Service.ResolveEffort(a core.Agent, session core.Effort) core.Effort`: the first non-empty of `session`, `a.Effort`, `cfg.DefaultEffort`; else `""`.
+- `agents.Service.ResolveEffort(a core.Agent, session core.Effort) core.Effort`: the first `Known()` value of `session`, `a.Effort`, `cfg.DefaultEffort`; else `""`.
 - `ext.RunContext` gains `Effort core.Effort`: the *requested* level.
 - **Primary run:** `chat.prepare` sets `rc.Effort = ResolveEffort(agent, sessionEffort)`, where `sessionEffort` is the parsed `req.Effort` if set, else the session's stored effort.
 - **Subagent:** the `task` tool sets `childRC.Effort = ResolveEffort(sub, "")` (agent `effort`, then `default_effort`). It never reads the parent's `rc.Effort`.
 
 **Effective level**
 
-- The Runner already calls `LLMs.For(rc.Model)` and holds the `ModelInfo` in its step state. `agent/request.go` sets `LLMRequest.Effort = core.EffectiveEffort(st.info, rc.Effort)` on every request, so a catalog refresh between steps is picked up.
+- The Runner already calls `LLMs.For(rc.Model)` once per run and holds the `ModelInfo` in its run state. `agent/request.go` sets `LLMRequest.Effort = core.EffectiveEffort(st.info, rc.Effort)` on every request of the run; a catalog refresh applies from the next run.
 - `core.LLMRequest` gains `Effort Effort`: always the effective level (`""` means send nothing).
 - **Small model:** `session.complete` computes `core.LowestEffort(info)` from the `ModelInfo` that `LLMs.For(model)` already returns, and passes it through a new `effort core.Effort` parameter on `agent.Complete`.
 - **Debug log:** the Runner's `run start` line gains `effort=<requested>` and `effort_sent=<effective>`.
