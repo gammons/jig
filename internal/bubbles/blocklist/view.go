@@ -73,7 +73,7 @@ func (m Model) visibleRows(iw int, rows []string) []string {
 			if k < len(e.lines) {
 				line = e.lines[k]
 			}
-			rows = append(rows, p.line(line, i == m.sel && !m.noHL, match))
+			rows = append(rows, p.line(line, i == m.sel && !m.noHL, match, edgeOf(m.items[i], k, ht)))
 		}
 		for g := range gap {
 			if i == len(m.items)-1 || len(rows) >= m.h {
@@ -111,12 +111,42 @@ func newPainter(st Styles, query string) painter {
 	return p
 }
 
-func (p painter) line(s string, selected, match bool) string {
+// edge values for painter.line: which half-filled edge row of a
+// HalfEdges item a line is, if any.
+const (
+	edgeNone = iota
+	edgeTop
+	edgeBottom
+)
+
+// edgeOf reports whether line k of an ht-line item is one of its
+// half-filled edge rows.
+func edgeOf(it Item, k, ht int) int {
+	switch {
+	case !it.HalfEdges || ht < 2:
+		return edgeNone
+	case k == 0:
+		return edgeTop
+	case k == ht-1:
+		return edgeBottom
+	}
+	return edgeNone
+}
+
+func (p painter) line(s string, selected, match bool, edge int) string {
 	if match {
 		s = ansi.Highlight(s, p.query, p.st.MatchOn, p.st.MatchOff)
 	}
 	if !selected {
 		return p.prefix + s
+	}
+	// A half-filled edge row gets the matching half of the bar, and no
+	// SelectedBg: the tint would show in the edge's empty half.
+	switch edge {
+	case edgeTop:
+		return p.st.Bar.Render("▖") + s
+	case edgeBottom:
+		return p.st.Bar.Render("▘") + s
 	}
 	if p.reBg != nil {
 		s = p.reBg.Replace(s)

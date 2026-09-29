@@ -139,6 +139,9 @@ func (h normalKeys) openDetailsFor(id transcript.BlockID) tea.Cmd {
 	}
 	a.view.detailsFor = id
 	a.img.shown = nil
+	// Only the side slot's size is needed: the prompt beside it wraps
+	// the same at either width to within its height, and relayout sizes
+	// the prompt for real.
 	lay := computeLayout(a.width, a.height, a.w.prompt.Height(), a.view.sidebarPref, true)
 	content, cmd := buildDetails(a.ctx, b, lay.Side.W, lay.Side.H, a.w.render, a.ports, a.img)
 	a.w.details.SetContent(content)

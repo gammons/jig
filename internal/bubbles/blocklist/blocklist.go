@@ -25,6 +25,11 @@ type Item struct {
 	ID      string
 	Version int
 	Data    any
+	// HalfEdges marks an item whose first and last lines are half-filled
+	// edges (▄/▀, a panel's half-row border). Selected, those rows get
+	// the lower/upper half of the bar (▖/▘) and no SelectedBg, so the bar
+	// spans exactly the panel.
+	HalfEdges bool
 }
 
 // RenderFunc renders an item into lines at most width cells wide (wider

@@ -215,7 +215,9 @@ func TestImages_SixelNotPlacedWithoutBodyRow(t *testing.T) {
 	ta.key("esc")
 	ta.key("enter")
 	n := len(ta.raws)
-	ta.send(tea.WindowSizeMsg{Width: 120, Height: 5})
+	// The side slot runs beside the prompt too, so squeeze the whole
+	// frame down to leave the pane no body row.
+	ta.send(tea.WindowSizeMsg{Width: 120, Height: 2})
 	if _, _, ok := ta.app.w.details.BodyOrigin(); ok {
 		t.Fatalf("test setup: the details pane (%+v) still has a body row", ta.app.lay.Side)
 	}

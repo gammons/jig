@@ -99,9 +99,9 @@ func (r *renderer) fitLine(s string, width int) string {
 }
 
 // renderUser renders a User block as a filled panel, the same look as
-// the prompt it was typed in: a ▄ edge row, the text wrapped in full with
-// one column of padding each side, a dim attachments line (R26) when
-// present, and a ▀ edge row. The edges are drawn in the fill color, so
+// the prompt it was typed in: a ▄ edge row, a blank fill row, the text
+// wrapped in full with one column of padding each side, a dim attachments
+// line (R26) when present, a blank fill row, and a ▀ edge row. The edges are drawn in the fill color, so
 // the panel gets a half-row margin without a border; every content cell
 // carries the fill (Render.User's background).
 func (r *renderer) renderUser(b transcript.Block, width int) []string {
@@ -116,6 +116,9 @@ func (r *renderer) renderUser(b transcript.Block, width int) []string {
 	}
 
 	lines := []string{edge.Render(strings.Repeat("▄", width))}
+	for range userPadY {
+		lines = append(lines, row(""))
+	}
 	// Expand tabs before wrapping, so the wrap measures what is drawn.
 	text := strings.ReplaceAll(ansi.Sanitize(b.Text), "\t", "    ")
 	for _, l := range strings.Split(ansi.Wrap(text, inner), "\n") {
@@ -129,12 +132,20 @@ func (r *renderer) renderUser(b transcript.Block, width int) []string {
 		line := ansi.Truncate("  + "+strings.Join(atts, ", "), inner, "…")
 		lines = append(lines, row(rs.Dim.Render(line)))
 	}
+	for range userPadY {
+		lines = append(lines, row(""))
+	}
 	return append(lines, edge.Render(strings.Repeat("▀", width)))
 }
 
-// userPadX is the number of blank, filled columns inside each side of a
-// user block's panel, matching the prompt's own padding.
-const userPadX = 1
+// userPadX and userPadY are the blank, filled columns inside each side
+// and rows above and below the text of a user block's panel, matching the
+// prompt's own padding, so a sent message is the same shape as the box it
+// was typed in.
+const (
+	userPadX = 1
+	userPadY = 1
+)
 
 // renderReasoning renders "∴ thought for <dur>" once the model has
 // finished thinking in this block, or "∴ thinking" while it still is and

@@ -315,6 +315,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Golden-frame assertion | `golden.Assert(t, name, got)`; update with `JIG_UPDATE_GOLDEN=1` |
 | Drive a `ui.App` in tests: fake ports, fake clock, Cmds run synchronously, ticks collected (not slept) | `newTestApp(t, opts...)` / `.send`, `.key`, `.typeText`, `.event`, `.fire` in `internal/ui/apptest_test.go` |
 | Clip/pad a styled string to exactly w×h cells | `fit(s, w, h)` in `internal/ui/layout.go` |
+| Lay out the frame (1-cell margin, side slot running down beside the prompt) and size the prompt to it | `layoutFor(a)` / `computeLayout(w, h, promptH, sidebarPref, detailsOpen)` in `internal/ui/layout.go` |
+| A panel item with ▄/▀ half-filled edge rows, so the selection bar spans only the panel (▖/▘ on its edges) | `blocklist.Item{..., HalfEdges: true}` |
 | Changed-file paths resolved against the workdir and de-duplicated | `normalizeChanges(workDir, projection.ChangedFiles())` in `internal/ui/sidebar.go` |
 | Make untrusted text (model/tool/file/store) safe to render | `ansi.Sanitize(s)` in `internal/bubbles/ansi` (keeps `\n`, `\t`) |
 | Same, for single-line contexts (titles, paths, list rows) | `ansi.SanitizeLine(s)` (`\n`/`\t` → space) |

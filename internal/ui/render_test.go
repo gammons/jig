@@ -353,9 +353,10 @@ func TestRender_BashErrorAlwaysShowsAnErrorIcon(t *testing.T) {
 }
 
 // TestRender_UserPanel: a user block is a filled panel as wide as the
-// content area: a ▄ edge, the text with one column of padding each side
-// and no "›" prefix, the attachments line inside the panel, then a ▀ edge.
-// The fill sits behind every content cell, padding included.
+// content area, the same shape as the prompt: a ▄ edge, a blank fill row,
+// the text with one column of padding each side and no "›" prefix, the
+// attachments line inside the panel, a blank fill row, then a ▀ edge. The
+// fill sits behind every content cell, padding and fill rows included.
 func TestRender_UserPanel(t *testing.T) {
 	t.Parallel()
 	set := darkSet()
@@ -373,10 +374,13 @@ func TestRender_UserPanel(t *testing.T) {
 			t.Errorf("row %d is %d cells, want %d: %q", i, w, inner, plain[i])
 		}
 	}
+	blank := strings.Repeat(" ", inner)
 	want := []string{
 		strings.Repeat("▄", inner),
+		blank,
 		" clean up the build" + strings.Repeat(" ", inner-19),
 		"   + a.png" + strings.Repeat(" ", inner-10),
+		blank,
 		strings.Repeat("▀", inner),
 	}
 	if !slices.Equal(plain, want) {
@@ -385,7 +389,7 @@ func TestRender_UserPanel(t *testing.T) {
 	fill := set.Render.User.GetBackground()
 	c := lipgloss.NewCanvas(inner, len(rows))
 	c.Compose(lipgloss.NewLayer(out))
-	for _, y := range []int{1, 2} {
+	for _, y := range []int{1, 2, 3, 4} {
 		for _, x := range []int{0, inner - 1} {
 			if got := c.CellAt(x, y).Style.Bg; !reflect.DeepEqual(got, fill) {
 				t.Errorf("cell (%d,%d) bg = %v, want %v", x, y, got, fill)

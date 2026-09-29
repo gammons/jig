@@ -221,7 +221,7 @@ func (a *App) View() tea.View {
 	if a.view.searching {
 		status = a.w.search.View()
 	}
-	v.Content = compose(a.lay, a.w.list.View(), side, a.w.prompt.View(), status)
+	v.Content = compose(a.lay, a.w.list.View(), side, a.w.prompt.View(), status, borderCell(a.theme.set.Blocklist))
 	if a.w.picker.IsOpen() {
 		v.Content = overlay.Center(v.Content, a.width, a.height, a.w.picker.View(), overlayDim)
 	}
@@ -355,10 +355,7 @@ func (a *App) onPortResult(msg tea.Msg) {
 // and sizes every widget to it. The transcript list's height applies at
 // once; a width change is debounced (it re-renders every block).
 func (a *App) relayout() tea.Cmd {
-	if a.lay.Prompt.W != a.width {
-		a.w.prompt.SetWidth(a.width)
-	}
-	a.lay = computeLayout(a.width, a.height, a.w.prompt.Height(), a.view.sidebarPref, a.view.detailsOpen)
+	a.lay = layoutFor(a)
 	a.w.status.SetWidth(a.lay.Status.W)
 	a.w.search.SetWidth(max(a.lay.Status.W-2, 0))
 	a.w.side.SetSize(a.lay.Side.W, a.lay.Side.H)

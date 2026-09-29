@@ -930,7 +930,8 @@ func TestApp_ResizeDebouncesListWidth(t *testing.T) {
 	if ta.app.view.listW != w0 {
 		t.Fatalf("list width changed to %d before the debounce tick", ta.app.view.listW)
 	}
-	if ta.app.lay.Transcript.W != 102 {
+	// 150 columns less the 2-cell margin, less the 47-column sidebar.
+	if ta.app.lay.Transcript.W != 101 {
 		t.Fatalf("layout not applied at once: %+v", ta.app.lay.Transcript)
 	}
 	if ta.app.view.listH != ta.app.lay.Transcript.H {
@@ -942,8 +943,8 @@ func TestApp_ResizeDebouncesListWidth(t *testing.T) {
 		}
 	}
 	ta.fire()
-	if ta.app.view.listW != 102 {
-		t.Errorf("list width = %d after the debounce, want 102", ta.app.view.listW)
+	if ta.app.view.listW != 101 {
+		t.Errorf("list width = %d after the debounce, want 101", ta.app.view.listW)
 	}
 }
 
@@ -1009,6 +1010,29 @@ func TestApp_GoldenIdle(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
 	golden.Assert(t, "app_idle", ta.view())
+}
+
+// TestApp_SelectedUserBlockBarMatchesPanel: selected in NORMAL, a user
+// block's bar spans exactly its panel, like the focused prompt's: ▖ on
+// the ▄ edge, ▌ on the rows between, ▘ on the ▀ edge.
+func TestApp_SelectedUserBlockBarMatchesPanel(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("Explain the build")
+	ta.key("esc")
+	rows := strings.Split(xansi.Strip(ta.view()), "\n")
+	x := ta.app.lay.Transcript.X
+	var bar []string
+	for _, r := range rows[ta.app.lay.Transcript.Y : ta.app.lay.Transcript.Y+ta.app.lay.Transcript.H] {
+		c := string([]rune(r)[x])
+		if c != " " {
+			bar = append(bar, c)
+		}
+	}
+	want := []string{"▖", "▌", "▌", "▌", "▘"}
+	if !slices.Equal(bar, want) {
+		t.Errorf("bar column = %q, want %q:\n%s", bar, want, strings.Join(rows, "\n"))
+	}
 }
 
 // TestApp_SelectionHighlightOnlyInNormal: the ▌ bar marks where input
@@ -1133,10 +1157,15 @@ func TestApp_GapAbovePrompt(t *testing.T) {
 	if edge < 2 || !strings.Contains(rows[edge], "▄▄▄") {
 		t.Fatalf("prompt top edge not at row %d in:\n%s", edge, strings.Join(rows, "\n"))
 	}
-	if got := strings.TrimSpace(rows[edge-1]); got != "" {
+	// Only the prompt's own columns: the sidebar runs on beside it.
+	cols := func(row string) string {
+		r := []rune(row)
+		return strings.TrimSpace(string(r[ta.app.lay.Prompt.X : ta.app.lay.Prompt.X+ta.app.lay.Prompt.W]))
+	}
+	if got := cols(rows[edge-1]); got != "" {
 		t.Errorf("row above the prompt = %q, want blank", rows[edge-1])
 	}
-	if got := strings.TrimSpace(rows[edge-2]); got == "" {
+	if got := cols(rows[edge-2]); got == "" {
 		t.Errorf("row two above the prompt is blank; want transcript output there (full, bottom-pinned transcript)")
 	}
 }
