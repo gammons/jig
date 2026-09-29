@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -63,7 +64,11 @@ func appendTail(tail, b []byte, max int) []byte {
 // dialStdio starts s.Command as a child process in its own session and
 // process group (so Close and a failed/timed-out Dial can kill it and
 // every descendant), and connects the SDK client to it over stdio.
-func dialStdio(ctx context.Context, s Spec, onToolsChanged func()) (*Conn, error) {
+// onStart, if non-nil, is called with the child's pid as soon as it is
+// known (after Start, whether or not Connect goes on to succeed); it
+// exists only so tests can observe the pid of a connection that Dial
+// ultimately fails to establish (e.g. a startup timeout).
+func dialStdio(ctx context.Context, s Spec, onToolsChanged func(), onStart func(pid int)) (*Conn, error) {
 	cmd := exec.CommandContext(ctx, s.Command, s.Args...)
 	cmd.Dir = s.Dir
 	cmd.Env = s.Env
@@ -76,8 +81,17 @@ func dialStdio(ctx context.Context, s Spec, onToolsChanged func()) (*Conn, error
 	cmd.Stderr = proc
 
 	client := newClient(s, onToolsChanged)
-	transport := &sdkmcp.CommandTransport{Command: cmd}
+	// TerminateDuration bounds how long a failed Connect's internal
+	// session.Close waits (stdin close, then this long, then SIGTERM)
+	// before giving up on a graceful exit. Keeping it short means a
+	// startup timeout returns promptly even if shell.KillGroup below is
+	// slow or ever regresses, instead of silently riding on the SDK's
+	// default 5s wait.
+	transport := &sdkmcp.CommandTransport{Command: cmd, TerminateDuration: 500 * time.Millisecond}
 	session, err := client.Connect(ctx, transport, nil)
+	if onStart != nil && cmd.Process != nil {
+		onStart(cmd.Process.Pid)
+	}
 	if err != nil {
 		proc.close()
 		return nil, err

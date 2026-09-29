@@ -109,7 +109,7 @@ func (b *endErrBox) get() error {
 func Dial(ctx context.Context, s Spec, onToolsChanged func()) (*Conn, error) {
 	switch s.Transport {
 	case core.MCPStdio:
-		return dialStdio(ctx, s, onToolsChanged)
+		return dialStdio(ctx, s, onToolsChanged, nil)
 	case core.MCPHTTP:
 		return dialTransport(ctx, streamableTransport(s), s, onToolsChanged)
 	case core.MCPSSE:

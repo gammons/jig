@@ -189,14 +189,42 @@ func TestStdio_CrashClosesDone(t *testing.T) {
 func TestStdio_StartupTimeout(t *testing.T) {
 	scriptPath := writeScript(t, fakeScript{HangInitialize: true, Stderr: "hanging"})
 
+	var pid int
+	onStart := func(p int) { pid = p }
+
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	conn, err := dialFake(ctx, scriptPath)
-	if err == nil {
-		conn.Close()
+
+	type dialOutcome struct {
+		conn *Conn
+		err  error
+	}
+	done := make(chan dialOutcome, 1)
+	go func() {
+		conn, err := dialStdio(ctx, Spec{
+			Name:      "fake",
+			Transport: core.MCPStdio,
+			Command:   mcpfakeBin,
+			Env:       append(os.Environ(), "MCPFAKE_SCRIPT="+scriptPath),
+		}, nil, onStart)
+		done <- dialOutcome{conn, err}
+	}()
+
+	var outcome dialOutcome
+	select {
+	case outcome = <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Dial did not return within 2s of its 200ms deadline")
+	}
+	if outcome.err == nil {
+		outcome.conn.Close()
 		t.Fatal("Dial succeeded, want context.DeadlineExceeded")
 	}
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("Dial err = %v, want context.DeadlineExceeded", err)
+	if !errors.Is(outcome.err, context.DeadlineExceeded) {
+		t.Errorf("Dial err = %v, want context.DeadlineExceeded", outcome.err)
 	}
+	if pid == 0 {
+		t.Fatal("onStart was never called; can't check the process group")
+	}
+	waitForPgidEmpty(t, pid)
 }
