@@ -31,6 +31,38 @@ func TestE2E_TextReply(t *testing.T) {
 	}
 }
 
+func TestE2E_DebugLog(t *testing.T) {
+	setup := func() *testEnv {
+		env := newEnv(t)
+		script := writeScript(t, env, "script.json", jigtest.Script{Models: map[string][]jigtest.Turn{
+			"m1": {{Text: "hello from jigtest"}},
+		}})
+		writeConfig(t, env, jigtestConfig(script, ""))
+		return env
+	}
+
+	env := setup()
+	env.vars = append(env.vars, "JIG_DEBUG=1")
+	stdout, stderr, code := runPrompt(t, env, "say hello")
+	wantCode(t, code, 0, stdout, stderr)
+	got, err := os.ReadFile(filepath.Join(env.work, "jig-debug.log"))
+	if err != nil {
+		t.Fatalf("read jig-debug.log: %v", err)
+	}
+	for _, want := range []string{"cat=app", `msg="run start"`, `msg="step end"`, "outcome=done"} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("jig-debug.log = %q, want it to contain %q", got, want)
+		}
+	}
+
+	off := setup()
+	stdout, stderr, code = runPrompt(t, off, "say hello")
+	wantCode(t, code, 0, stdout, stderr)
+	if _, err := os.Stat(filepath.Join(off.work, "jig-debug.log")); !os.IsNotExist(err) {
+		t.Errorf("jig-debug.log without JIG_DEBUG: stat err = %v, want not-exist", err)
+	}
+}
+
 // writeScriptedWrite configures env so m1 writes out.txt, then finishes.
 func writeScriptedWrite(t *testing.T, env *testEnv) {
 	t.Helper()
