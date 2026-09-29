@@ -13,6 +13,7 @@ import (
 	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/gammons/jig/internal/bubbles/ansi"
+	"github.com/gammons/jig/internal/bubbles/wintree"
 	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
@@ -1010,24 +1011,36 @@ func TestApp_GoldenIdle(t *testing.T) {
 	golden.Assert(t, "app_idle", ta.view())
 }
 
-// TestApp_SelectionHighlightOnlyInNormal: the transcript's selected block
-// shows its bar only in NORMAL mode, not in INSERT.
+// TestApp_SelectionHighlightOnlyInNormal: the ▌ bar marks where input
+// goes: on the transcript's selected block only in NORMAL mode, and on the
+// prompt only in INSERT.
 func TestApp_SelectionHighlightOnlyInNormal(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
 	ta.sendAndAdopt("Explain the build")
-	hasBar := func() bool { return strings.Contains(xansi.Strip(ta.view()), "▌") }
-	if hasBar() {
-		t.Errorf("INSERT mode shows the selection bar:\n%s", xansi.Strip(ta.view()))
+	barIn := func(r wintree.Rect) bool {
+		rows := strings.Split(xansi.Strip(ta.view()), "\n")
+		for _, row := range rows[r.Y : r.Y+r.H] {
+			if strings.Contains(row, "▌") {
+				return true
+			}
+		}
+		return false
 	}
+	check := func(mode string, transcript, prompt bool) {
+		t.Helper()
+		if got := barIn(ta.app.lay.Transcript); got != transcript {
+			t.Errorf("%s: transcript bar = %v, want %v:\n%s", mode, got, transcript, xansi.Strip(ta.view()))
+		}
+		if got := barIn(ta.app.lay.Prompt); got != prompt {
+			t.Errorf("%s: prompt bar = %v, want %v:\n%s", mode, got, prompt, xansi.Strip(ta.view()))
+		}
+	}
+	check("INSERT", false, true)
 	ta.key("esc")
-	if !hasBar() {
-		t.Errorf("NORMAL mode lacks the selection bar:\n%s", xansi.Strip(ta.view()))
-	}
+	check("NORMAL", true, false)
 	ta.key("i")
-	if hasBar() {
-		t.Errorf("back in INSERT, the selection bar is still shown")
-	}
+	check("back in INSERT", false, true)
 }
 
 // TestApp_ThinkingSpinnerAnimatesUntilTextStarts: a reasoning block's
@@ -1116,16 +1129,9 @@ func TestApp_GapAbovePrompt(t *testing.T) {
 	ta.fire()
 
 	rows := strings.Split(xansi.Strip(ta.view()), "\n")
-	// The prompt's ▄ edge is the last one on screen; a user block's panel
-	// edge above it would be an earlier one.
-	edge := -1
-	for i, r := range rows {
-		if strings.HasPrefix(r, "▄▄▄") {
-			edge = i
-		}
-	}
-	if edge < 2 {
-		t.Fatalf("prompt top edge not found (or at the top) in:\n%s", strings.Join(rows, "\n"))
+	edge := ta.app.lay.Prompt.Y
+	if edge < 2 || !strings.Contains(rows[edge], "▄▄▄") {
+		t.Fatalf("prompt top edge not at row %d in:\n%s", edge, strings.Join(rows, "\n"))
 	}
 	if got := strings.TrimSpace(rows[edge-1]); got != "" {
 		t.Errorf("row above the prompt = %q, want blank", rows[edge-1])

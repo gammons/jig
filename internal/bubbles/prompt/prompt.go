@@ -25,9 +25,23 @@ const (
 	maxContentLines = 8
 )
 
-// padX is the number of blank columns between each side border and the
-// text, so the input doesn't sit flush against the border.
+// padX is the number of blank, filled columns inside each side of the
+// panel, so the input doesn't sit flush against its edge.
 const padX = 1
+
+// padY is the number of blank, filled rows above and below the text,
+// inside the ▄/▀ edges, so the panel doesn't read as a thin stripe.
+const padY = 1
+
+// barW is the width of the bar column left of the panel: the ▌ focus bar
+// while focused, blank otherwise. It lines the panel up with the
+// transcript's blocks, which leave the same column for their selection
+// bar.
+const barW = 1
+
+// chromeRows is the number of rows around the text: the two edges and
+// padY fill rows above and below.
+const chromeRows = 2 + 2*padY
 
 // EditFunc opens $EDITOR (or similar) over text. It must yield an
 // EditedMsg via its returned Cmd; the widget never does I/O itself.
@@ -53,7 +67,7 @@ type MentionMsg struct{}
 // Styles holds the prompt's look.
 type Styles struct {
 	Fill        lipgloss.Style // panel background
-	FocusFill   lipgloss.Style // panel background while focused (INSERT mode)
+	Bar         lipgloss.Style // the ▌ focus bar left of the panel (INSERT mode)
 	Title       lipgloss.Style // top-edge label text (e.g. "⏳ queued")
 	Text        lipgloss.Style // typed/pasted text
 	Placeholder lipgloss.Style // placeholder text
@@ -63,7 +77,7 @@ type Styles struct {
 func DefaultStyles() Styles {
 	return Styles{
 		Fill:        lipgloss.NewStyle(),
-		FocusFill:   lipgloss.NewStyle(),
+		Bar:         lipgloss.NewStyle(),
 		Title:       lipgloss.NewStyle().Bold(true),
 		Text:        lipgloss.NewStyle(),
 		Placeholder: lipgloss.NewStyle().Faint(true),
@@ -137,18 +151,19 @@ func (m *Model) SetStyles(st Styles) {
 	m.ta.SetStyles(taStyles(st))
 }
 
-// SetWidth sets the outer width, including the padX columns of padding
-// inside each side of the panel.
+// SetWidth sets the outer width, including the bar column and the padX
+// columns of padding inside each side of the panel.
 func (m *Model) SetWidth(w int) {
 	m.width = w
-	m.ta.SetWidth(w - 2*padX)
+	m.ta.SetWidth(w - barW - 2*padX)
 	m.syncPlaceholder()
 }
 
 // Height returns the total height: the textarea's current content height
-// (1-8 lines) plus the top and bottom half-block edges.
+// (1-8 lines) plus the padY fill rows and the half-block edge above and
+// below it.
 func (m Model) Height() int {
-	return m.ta.Height() + 2
+	return m.ta.Height() + chromeRows
 }
 
 // SetAgent sets the agent name shown in the placeholder.
@@ -361,37 +376,48 @@ func (m Model) handleEdited(msg EditedMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the filled panel: a row of ▄ above the content and ▀
-// below it, drawn in the fill color, so the panel gets a half-row edge
-// without a border. The fill is FocusFill while focused, else Fill; it
-// sits behind every content cell, the text included. The top edge carries
-// the "⏳ queued" label, right-aligned, when queued.
+// View renders the filled panel: a row of ▄ above and ▀ below, drawn in
+// the Fill color, so the panel gets a half-row edge without a border, and
+// padY blank fill rows between each edge and the text. The fill sits
+// behind every content cell, the text included, focused or not. Column 0
+// is the bar column: the ▌ focus bar on every row while focused (INSERT
+// mode), blank otherwise. The top edge carries the "⏳ queued" label,
+// right-aligned, when queued.
 func (m Model) View() string {
 	w := m.width
 	if w <= 0 {
-		w = m.ta.Width() + 2*padX
+		w = m.ta.Width() + barW + 2*padX
 	}
-	fill := m.styles.Fill
-	if m.ta.Focused() {
-		fill = m.styles.FocusFill
-	}
-	bg := fill.GetBackground()
+	pw := max(w-barW, 0)
+	bg := m.styles.Fill.GetBackground()
 	edge := lipgloss.NewStyle().Foreground(bg)
+	bar := strings.Repeat(" ", barW)
+	if m.ta.Focused() {
+		bar = m.styles.Bar.Render("▌")
+	}
 
 	title := ""
 	if m.queued {
 		title = "⏳ queued"
 	}
-	lines := strings.Split(m.ta.View(), "\n")
-	rows := make([]string, 0, len(lines)+2)
-	rows = append(rows, edgeRow(w, "▄", title, edge, m.styles.Title))
 	pad := strings.Repeat(" ", padX)
-	for _, l := range lines {
-		row := pad + l
-		row += strings.Repeat(" ", max(0, w-ansi.Width(row)))
-		rows = append(rows, overlay.Fill(row, bg))
+	fillRow := func(s string) string {
+		s += strings.Repeat(" ", max(0, pw-ansi.Width(s)))
+		return bar + overlay.Fill(s, bg)
 	}
-	rows = append(rows, edgeRow(w, "▀", "", edge, m.styles.Title))
+	lines := strings.Split(m.ta.View(), "\n")
+	rows := make([]string, 0, len(lines)+chromeRows)
+	rows = append(rows, bar+edgeRow(pw, "▄", title, edge, m.styles.Title))
+	for range padY {
+		rows = append(rows, fillRow(""))
+	}
+	for _, l := range lines {
+		rows = append(rows, fillRow(pad+l))
+	}
+	for range padY {
+		rows = append(rows, fillRow(""))
+	}
+	rows = append(rows, bar+edgeRow(pw, "▀", "", edge, m.styles.Title))
 	return strings.Join(rows, "\n")
 }
 

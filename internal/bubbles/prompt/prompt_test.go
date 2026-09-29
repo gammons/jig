@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"image/color"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,7 +17,7 @@ import (
 func pinnedStyles() Styles {
 	return Styles{
 		Fill:        lipgloss.NewStyle().Background(lipgloss.Color("#303030")),
-		FocusFill:   lipgloss.NewStyle().Background(lipgloss.Color("#1c3a4a")),
+		Bar:         lipgloss.NewStyle().Foreground(lipgloss.Color("#5fafff")),
 		Title:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ffaf00")),
 		Text:        lipgloss.NewStyle().Foreground(lipgloss.Color("#e0e0e0")),
 		Placeholder: lipgloss.NewStyle().Foreground(lipgloss.Color("#606060")),
@@ -147,17 +148,17 @@ func TestPrompt_GrowsToEightLines(t *testing.T) {
 			t.Errorf("%s: Height() = %d, want %d", step, got, want)
 		}
 	}
-	check("1 line", 3) // 1 content line + 2 border
+	check("1 line", 5) // 1 content line + 2 fill rows + 2 edges
 
 	for range 4 {
 		m, _ = m.Update(keyMsg("shift+enter"))
 	}
-	check("5 lines", 7)
+	check("5 lines", 9)
 
 	for range 7 {
 		m, _ = m.Update(keyMsg("shift+enter"))
 	}
-	check("12 lines requested", 10) // the visible viewport clamps to 8 content lines + 2 border
+	check("12 lines requested", 12) // the visible viewport clamps to 8 content lines + 4
 }
 
 // TestPrompt_NeverDropsPastHeightCap covers the review's critical #1: past
@@ -198,8 +199,8 @@ func TestPrompt_NeverDropsPastHeightCap(t *testing.T) {
 	if got := m.ta.Height(); got != maxContentLines {
 		t.Errorf("ta.Height() = %d, want the visible cap %d", got, maxContentLines)
 	}
-	if got, want := m.Height(), maxContentLines+2; got != want {
-		t.Errorf("Height() = %d, want %d (%d content lines + border)", got, want, maxContentLines)
+	if got, want := m.Height(), maxContentLines+4; got != want {
+		t.Errorf("Height() = %d, want %d (%d content lines + fill rows + edges)", got, want, maxContentLines)
 	}
 	if !strings.Contains(m.View(), "last") {
 		t.Errorf("cursor line not scrolled into view:\n%s", m.View())
@@ -226,6 +227,9 @@ func TestPrompt_PasteAtCapNeverDropped(t *testing.T) {
 	}
 }
 
+// TestPrompt_PanelShape: column 0 is the bar column (blank while
+// blurred); the panel fills the rest: a ▄ edge, a blank fill row, the text
+// with one column of padding each side, a blank fill row, a ▀ edge.
 func TestPrompt_PanelShape(t *testing.T) {
 	t.Parallel()
 
@@ -233,23 +237,45 @@ func TestPrompt_PanelShape(t *testing.T) {
 	m.SetWidth(20)
 	m.Focus()
 	m = typeText(m, "hi")
+	m.Blur()
 	rows := strings.Split(xansi.Strip(m.View()), "\n")
-	if len(rows) != 3 {
-		t.Fatalf("got %d rows, want 3: %q", len(rows), rows)
+	blank := strings.Repeat(" ", 20)
+	want := []string{
+		" " + strings.Repeat("▄", 19),
+		blank,
+		"  hi" + strings.Repeat(" ", 16),
+		blank,
+		" " + strings.Repeat("▀", 19),
 	}
-	for i, r := range rows {
-		if w := xansi.StringWidth(r); w != 20 {
-			t.Errorf("row %d width = %d, want 20: %q", i, w, r)
+	if !slices.Equal(rows, want) {
+		t.Fatalf("rows = %q, want %q", rows, want)
+	}
+}
+
+// TestPrompt_BarOnlyWhileFocused: in INSERT (focused) every row's column 0
+// is the ▌ bar in the Bar color; blurred, column 0 is blank.
+func TestPrompt_BarOnlyWhileFocused(t *testing.T) {
+	t.Parallel()
+
+	st := pinnedStyles()
+	m := New(nil, WithStyles(st))
+	m.SetWidth(20)
+	m.Focus()
+	view := m.View()
+	rows := strings.Split(xansi.Strip(view), "\n")
+	for y, r := range rows {
+		if !strings.HasPrefix(r, "▌") {
+			t.Errorf("focused row %d = %q, want it to start with ▌", y, r)
+		}
+		if got := cellFg(t, view, 0, y); !sameColor(got, st.Bar.GetForeground()) {
+			t.Errorf("focused row %d bar fg = %v, want %v", y, got, st.Bar.GetForeground())
 		}
 	}
-	if rows[0] != strings.Repeat("▄", 20) {
-		t.Errorf("top edge = %q, want 20 ▄", rows[0])
-	}
-	if rows[2] != strings.Repeat("▀", 20) {
-		t.Errorf("bottom edge = %q, want 20 ▀", rows[2])
-	}
-	if !strings.HasPrefix(rows[1], " hi") || !strings.HasSuffix(rows[1], " ") {
-		t.Errorf("content row = %q, want one space of padding inside each side", rows[1])
+	m.Blur()
+	for y, r := range strings.Split(xansi.Strip(m.View()), "\n") {
+		if !strings.HasPrefix(r, " ") {
+			t.Errorf("blurred row %d = %q, want a blank bar column", y, r)
+		}
 	}
 }
 
@@ -287,35 +313,36 @@ func sameColor(a, b color.Color) bool {
 	return ar == br && ag == bg && ab == bb && aa == ba
 }
 
-func TestPrompt_FocusedUsesFocusFill(t *testing.T) {
+// TestPrompt_FillIsTheSameFocusedOrNot: the panel always uses Fill (the
+// bar, not the fill, shows focus): behind every content cell, padding and
+// fill rows included, and as the ▄/▀ edges' color.
+func TestPrompt_FillIsTheSameFocusedOrNot(t *testing.T) {
 	t.Parallel()
 
 	st := pinnedStyles()
+	fill := st.Fill.GetBackground()
 	m := New(nil, WithStyles(st))
 	m.SetWidth(20)
-	check := func(label string, want lipgloss.Style) {
+	check := func(label string) {
 		t.Helper()
 		view := m.View()
-		// The padding cell and the last cell of the content row both carry
-		// the fill, not just the typed text.
-		for _, x := range []int{0, 19} {
-			if got := cellBg(t, view, x, 1); !sameColor(got, want.GetBackground()) {
-				t.Errorf("%s: content cell %d bg = %v, want %v", label, x, got, want.GetBackground())
+		for _, y := range []int{1, 2, 3} {
+			for _, x := range []int{1, 19} {
+				if got := cellBg(t, view, x, y); !sameColor(got, fill) {
+					t.Errorf("%s: cell (%d,%d) bg = %v, want %v", label, x, y, got, fill)
+				}
 			}
 		}
-		// The ▄/▀ edges are drawn in the fill color.
-		for _, y := range []int{0, 2} {
-			if got := cellFg(t, view, 0, y); !sameColor(got, want.GetBackground()) {
-				t.Errorf("%s: edge row %d fg = %v, want %v", label, y, got, want.GetBackground())
+		for _, y := range []int{0, 4} {
+			if got := cellFg(t, view, 1, y); !sameColor(got, fill) {
+				t.Errorf("%s: edge row %d fg = %v, want %v", label, y, got, fill)
 			}
 		}
 	}
 
-	check("blurred", st.Fill)
+	check("blurred")
 	m.Focus()
-	check("focused", st.FocusFill)
-	m.Blur()
-	check("re-blurred", st.Fill)
+	check("focused")
 }
 
 func TestPrompt_QueuedLabelOnTopEdge(t *testing.T) {
@@ -477,11 +504,12 @@ func TestPrompt_PlaceholderTruncatesNarrow(t *testing.T) {
 	view := m.View()
 
 	lines := strings.Split(view, "\n")
-	if len(lines) != 3 { // top border + 1 content line + bottom border
-		t.Fatalf("View() has %d lines, want 3 (placeholder must stay on one line):\n%s", len(lines), view)
+	if len(lines) != 1+chromeRows { // 1 content line + fill rows + edges
+		t.Fatalf("View() has %d lines, want %d (placeholder must stay on one line):\n%s", len(lines), 1+chromeRows, view)
 	}
-	if !strings.Contains(xansi.Strip(lines[1]), "…") {
-		t.Errorf("content line does not end in an ellipsis: %q", lines[1])
+	content := lines[1+padY]
+	if !strings.Contains(xansi.Strip(content), "…") {
+		t.Errorf("content line does not end in an ellipsis: %q", content)
 	}
 	if strings.Contains(xansi.Strip(view), "files)") {
 		t.Errorf("full placeholder text leaked through at a too-narrow width:\n%s", view)

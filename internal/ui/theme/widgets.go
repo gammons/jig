@@ -141,14 +141,15 @@ func cardStyles(p Palette) permcard.Styles {
 
 // promptStyles maps p onto prompt.Styles: the panel fill is panelFill
 // (the same color as a sent user block, so what you type looks like what
-// you sent), switching to ComposeInsertBG while focused (INSERT mode) so
-// the active input stands out; the top-edge label (used for "⏳ queued")
-// uses Warning to stand out as a state indicator, and text/placeholder
-// mirror the message pane's text and its muted, faint variant.
+// you sent), and the focus bar shown in INSERT mode is Accent, the
+// transcript's own selection bar color (blocklistStyles); the top-edge
+// label (used for "⏳ queued") uses Warning to stand out as a state
+// indicator, and text/placeholder mirror the message pane's text and its
+// muted, faint variant.
 func promptStyles(p Palette) prompt.Styles {
 	return prompt.Styles{
 		Fill:        lipgloss.NewStyle().Background(lipgloss.Color(panelFill(p))),
-		FocusFill:   lipgloss.NewStyle().Background(lipgloss.Color(p.ComposeInsertBG)),
+		Bar:         lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
 		Title:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Warning)),
 		Text:        lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
 		Placeholder: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
