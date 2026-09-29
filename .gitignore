@@ -6,3 +6,4 @@ testdata/**/*.actual
 .worktrees/
 .jig
 jig-debug.log
+.worktrees/
