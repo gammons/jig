@@ -77,7 +77,7 @@ func addTools(r *ext.Registry, d registryDeps) error {
 		tools.NewGrep(srch),
 		tools.NewTodo(d.store, d.bus),
 		d.skills.Tool(),
-		task.New(d.sessions, d.agents, d.proxy, d.bus),
+		task.New(d.sessions, d.agents, d.proxy, d.bus, d.clk, nil),
 	}
 	for _, t := range all {
 		if err := r.AddTool(t); err != nil {
