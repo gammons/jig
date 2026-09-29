@@ -290,3 +290,199 @@ func TestMouse_ClickOnCardDisarms(t *testing.T) {
 		t.Errorf("replies = %+v, want one reply once armed", ta.perms.replies)
 	}
 }
+
+func TestMouse_AutoScrollAtEdge(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withSize(120, 30), withResume(core.Session{ID: "ses_1", Agent: "build"}, twentyTextMessages(), nil))
+	ta.key("esc")
+
+	r := ta.app.lay.Transcript
+	if r.H < 8 {
+		t.Fatalf("test setup: transcript too short (%d rows)", r.H)
+	}
+	before := xansi.Strip(ta.app.w.list.View())
+
+	// Press mid-transcript, then drag onto row 0 (the top edge).
+	ta.mouse(tea.MouseClickMsg{X: r.X + 2, Y: r.Y + 5, Button: tea.MouseLeft})
+	ta.mouse(tea.MouseMotionMsg{X: r.X + 2, Y: r.Y, Button: tea.MouseLeft})
+
+	ticks := deferredOf[mouseScrollMsg](ta)
+	if len(ticks) != 1 {
+		t.Fatalf("auto-scroll ticks scheduled = %d, want 1", len(ticks))
+	}
+	if got, want := ticks[0].d, autoScrollEvery; got != want {
+		t.Errorf("tick delay = %v, want %v", got, want)
+	}
+	selBefore := ta.app.view.mouse.sel
+
+	// Each tick scrolls up one line and extends the range. (Items are one
+	// line with a one-line gap between them, so a single tick's End can
+	// land on the same block via the gap-row snap; two ticks always
+	// cover a full item and its gap, and so always move it.)
+	ta.clk.Advance(autoScrollEvery)
+	ta.fire()
+	ta.clk.Advance(autoScrollEvery)
+	ta.fire()
+
+	after := xansi.Strip(ta.app.w.list.View())
+	if after == before {
+		t.Error("auto-scroll ticks did not scroll the transcript")
+	}
+	selAfter := ta.app.view.mouse.sel
+	if selAfter.End == selBefore.End {
+		t.Errorf("auto-scroll ticks did not extend the range: End unchanged at %+v", selAfter.End)
+	}
+
+	// After release, a further fire scrolls nothing.
+	ta.mouse(tea.MouseReleaseMsg{X: r.X + 2, Y: r.Y, Button: tea.MouseLeft})
+	before3 := ta.app.w.list.View()
+	ta.clk.Advance(autoScrollEvery)
+	ta.fire()
+	after3 := ta.app.w.list.View()
+	if after3 != before3 {
+		t.Error("auto-scroll continued after release")
+	}
+}
+
+func TestMouse_EscClearsSelection(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withResume(core.Session{ID: "ses_1", Agent: "build"}, twoTextMessages(), nil))
+	ta.key("esc")
+
+	r := ta.app.lay.Transcript
+	drag := func() {
+		ta.mouse(tea.MouseClickMsg{X: r.X + 2, Y: r.Y, Button: tea.MouseLeft})
+		ta.mouse(tea.MouseMotionMsg{X: r.X + 6, Y: r.Y, Button: tea.MouseLeft})
+		ta.mouse(tea.MouseReleaseMsg{X: r.X + 6, Y: r.Y, Button: tea.MouseLeft})
+	}
+
+	drag()
+	if !ta.app.view.mouse.sel.Active {
+		t.Fatal("test setup: no active selection after the drag")
+	}
+	if !strings.Contains(ta.view(), ta.app.theme.set.Selection.On) {
+		t.Fatal("test setup: selection not painted")
+	}
+
+	ta.key("esc")
+	if ta.app.view.mouse.sel.Active {
+		t.Error("esc in NORMAL did not clear the selection")
+	}
+	if strings.Contains(ta.view(), ta.app.theme.set.Selection.On) {
+		t.Error("frame still shows the selection escape after esc")
+	}
+	if ta.app.mode != modeNormal {
+		t.Errorf("mode after esc with no selection left = %v, want unchanged NORMAL", ta.app.mode)
+	}
+
+	// esc in INSERT clears the selection and still switches to NORMAL.
+	drag()
+	ta.key("i")
+	if ta.app.mode != modeInsert {
+		t.Fatal("test setup: i did not switch to INSERT")
+	}
+	if !ta.app.view.mouse.sel.Active {
+		t.Fatal("test setup: switching to INSERT cleared the selection")
+	}
+	ta.key("esc")
+	if ta.app.view.mouse.sel.Active {
+		t.Error("esc in INSERT did not clear the selection")
+	}
+	if ta.app.mode != modeNormal {
+		t.Error("esc in INSERT did not still switch to NORMAL")
+	}
+}
+
+func TestMouse_PickerCancelsDrag(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withResume(core.Session{ID: "ses_1", Agent: "build"}, twoTextMessages(), nil))
+	ta.key("esc")
+
+	r := ta.app.lay.Transcript
+	ta.mouse(tea.MouseClickMsg{X: r.X + 2, Y: r.Y, Button: tea.MouseLeft})
+	ta.mouse(tea.MouseMotionMsg{X: r.X + 6, Y: r.Y, Button: tea.MouseLeft})
+	if !ta.app.view.mouse.sel.Active {
+		t.Fatal("test setup: no active selection before opening the picker")
+	}
+
+	ta.key("ctrl+p")
+	if ta.app.mode != modePicker {
+		t.Fatal("ctrl+p did not open the picker")
+	}
+	if ta.app.view.mouse.sel.Active {
+		t.Error("opening the picker did not clear the selection")
+	}
+
+	ta.mouse(tea.MouseReleaseMsg{X: r.X + 6, Y: r.Y, Button: tea.MouseLeft})
+	if ta.app.view.hint != "" {
+		t.Errorf("hint = %q, want none: a release after the picker cancelled the drag copies nothing", ta.app.view.hint)
+	}
+}
+
+func TestMouse_DetailsSelection(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withResume(core.Session{ID: "ses_1", Agent: "build"}, twoTextMessages(), nil))
+	ta.key("esc")
+	ta.key("enter") // opens details for the selected (last) block: "second message"
+	if !ta.app.view.detailsOpen {
+		t.Fatal("enter did not open the details split")
+	}
+	got := xansi.Strip(ta.app.w.details.View())
+	if !strings.Contains(got, "second message") {
+		t.Fatalf("details = %q, want the selected block's text", got)
+	}
+	if line, _, ok := ta.app.w.details.HitTest(0, 2); !ok || line != 0 {
+		t.Fatalf("test setup: HitTest(0,2) = line %d ok %v, want line 0", line, ok)
+	}
+
+	r := ta.app.lay.Side
+	ta.mouse(tea.MouseClickMsg{X: r.X, Y: r.Y + 2, Button: tea.MouseLeft})
+	ta.mouse(tea.MouseMotionMsg{X: r.X + 6, Y: r.Y + 2, Button: tea.MouseLeft})
+	ta.mouse(tea.MouseReleaseMsg{X: r.X + 6, Y: r.Y + 2, Button: tea.MouseLeft})
+
+	if got, want := ta.app.view.hint, "copied 6 chars"; got != want {
+		t.Errorf("hint = %q, want %q", got, want)
+	}
+	if !ta.app.view.mouse.sel.Active {
+		t.Fatal("test setup: selection not left active after release")
+	}
+
+	// Moving the selection to another block rebuilds the details
+	// (SetContent), clearing the selection.
+	ta.key("k")
+	if ta.app.view.mouse.sel.Active {
+		t.Error("opening another block's details did not clear the selection")
+	}
+}
+
+func TestMouse_SelectionSurvivesStreaming(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("go")
+	ta.event(event.TextDelta{Base: rootBase(), MessageID: "m1", Text: "hello world"})
+	ta.key("esc")
+
+	r := ta.app.lay.Transcript
+	if r.H < 4 {
+		t.Fatalf("test setup: transcript too short (%d rows)", r.H)
+	}
+	// Row 2 (not an edge row) maps back to the only block's only line
+	// (HitTest snaps a row past its content to the block's last line).
+	ta.mouse(tea.MouseClickMsg{X: r.X + 1, Y: r.Y + 2, Button: tea.MouseLeft})
+	ta.mouse(tea.MouseMotionMsg{X: r.X + 5, Y: r.Y + 2, Button: tea.MouseLeft})
+	if !ta.app.view.mouse.sel.Active {
+		t.Fatal("test setup: no active selection")
+	}
+	before := ta.app.view.mouse.sel
+
+	ta.event(event.TextDelta{Base: rootBase(), MessageID: "m1", Text: " more"})
+	ta.fire()
+
+	after := ta.app.view.mouse.sel
+	if before != after {
+		t.Errorf("selection changed after streaming: before %+v, after %+v", before, after)
+	}
+	if !strings.Contains(ta.view(), ta.app.theme.set.Selection.On) {
+		t.Error("highlight missing after the streaming delta")
+	}
+}

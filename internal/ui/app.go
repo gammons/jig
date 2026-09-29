@@ -186,7 +186,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.gen == a.view.resizeGen {
 			a.applyListWidth()
 		}
-	case tea.MouseMsg:
+	case tea.MouseMsg, mouseScrollMsg:
 		cmd = mouseCtl{a}.handle(msg)
 	default:
 		cmd = a.onResult(msg)
@@ -218,7 +218,7 @@ func (a *App) View() tea.View {
 	side := ""
 	switch {
 	case a.lay.DetailsOpen:
-		side = a.w.details.View()
+		side = paintSelection(a, paneDetails, a.w.details.View(), a.lay.Side)
 	case a.lay.SideVisible:
 		side = a.w.side.View()
 	}

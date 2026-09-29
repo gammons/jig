@@ -58,6 +58,7 @@ type pickerCtl struct{ a *App }
 // mention marks an open by @ in the prompt.
 func (p pickerCtl) open(level picker.Level, mention bool) tea.Cmd {
 	a := p.a
+	a.view.mouse = mouseState{}
 	if a.mode != modePicker {
 		a.view.pick.prev = a.mode
 	}

@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/jig/internal/bubbles/blocklist"
+	"github.com/gammons/jig/internal/bubbles/selection"
 	"github.com/gammons/jig/internal/ui/transcript"
 )
 
@@ -36,6 +37,10 @@ func (h normalKeys) handle(k tea.KeyPressMsg) tea.Cmd {
 	key := k.String()
 	if a.w.card.Typing() && key != "ctrl+c" {
 		return permCtl{a}.key(k) // the deny message, enter, esc
+	}
+	if key == "esc" && a.view.mouse.sel.Active {
+		a.view.mouse.sel = selection.Range{}
+		return nil
 	}
 	switch key {
 	case "ctrl+c": // spec §6.3: cancel the run only; never clear or quit
@@ -145,6 +150,9 @@ func (h normalKeys) openDetailsFor(id transcript.BlockID) tea.Cmd {
 	lay := computeLayout(a.width, a.height, a.w.prompt.Height(), a.view.sidebarPref, true)
 	content, cmd := buildDetails(a.ctx, b, lay.Side.W, lay.Side.H, a.w.render, a.ports, a.img)
 	a.w.details.SetContent(content)
+	if a.view.mouse.pane == paneDetails {
+		a.view.mouse.sel = selection.Range{}
+	}
 	return cmd
 }
 

@@ -2,6 +2,8 @@ package ui
 
 import (
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/gammons/jig/internal/bubbles/selection"
 )
 
 // insertMode is the keymap mode name for INSERT.
@@ -20,6 +22,7 @@ func (h insertKeys) handle(k tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+c":
 		return a.sender().ctrlC()
 	case "esc":
+		a.view.mouse.sel = selection.Range{}
 		return a.setMode(modeNormal)
 	case "tab":
 		return a.cycleAgent(1)
