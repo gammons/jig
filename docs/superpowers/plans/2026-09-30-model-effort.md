@@ -31,6 +31,8 @@
 - A custom provider with `efforts = [...]` and no `default_effort` sends nothing until a level is chosen (not its lowest level). → Task 1 `TestEffectiveEffort` ("levels, no default" row) and Task 2 `TestCustomProvider_Efforts`.
 - Choosing "Model default" in the TUI when the agent has its own `effort` falls back to the agent's level, and the status bar says so. → Task 11 `TestPicker_EffortDefaultFallsBackToAgent`.
 
+**Behavior note:** Opus 5 / Sonnet 5 already think today (at the API's default effort, with thinking text hidden: the stored reasoning parts are all empty). After this change they get the catalog default effort (`medium` for `claude-opus-5-5`, `high` for most others) and summarized, visible thinking. This is intended (spec §1, decision 2).
+
 **Known risk (not testable offline):** fantasy sends Anthropic effort as adaptive thinking plus `output_config.effort`. Older Claude models that the catalog lists with levels (e.g. `claude-opus-4-5-20251101`) may reject adaptive thinking. Per the spec, such a rejection surfaces as an ordinary `LLMError`; note it in the final report if a live check shows it.
 
 ---
@@ -637,7 +639,8 @@ func validateEfforts(cfg core.Config) error {
 # nor --effort picks one: none, minimal, low, medium, high, xhigh, or
 # max. It is clamped to the nearest level the model supports; models
 # without effort levels ignore it. Unset, each model uses its catalog
-# default (e.g. "high" for recent Claude models).
+# default ("high" for most recent Claude models, but "medium" for
+# claude-opus-5-5), which may differ from the provider's own default.
 default_effort = "high"
 ```
 After the `[providers.<id>.options]` comment add:

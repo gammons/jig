@@ -16,7 +16,7 @@ jig never sends an effort or thinking setting. `llm.ToFantasy` sets only the pro
 
 | Provider type | Sent today | Effect |
 |---|---|---|
-| `anthropic` | no `thinking`, no `output_config.effort` | Extended thinking is **off** for almost every Claude model (fantasy only turns on adaptive thinking by default for `claude-mythos-preview`). |
+| `anthropic` | no `thinking`, no `output_config.effort` | The API's server-side defaults. The Opus 5 / Sonnet 5 families **already think** on every turn, at the API's default effort (not verified here; Anthropic documents `high`), with thinking display **omitted**: the local store holds 111 reasoning parts across 175 `claude-opus-5-5` assistant messages and 527 for `claude-sonnet-5`, every one `{"text":""}`. That is why the TUI shows empty "thinking" lines. (fantasy asks for a summarized display only when jig sends thinking or effort options.) Older models without adaptive thinking do not think unless asked. |
 | `openai` | no `reasoning_effort` (Chat Completions; the Responses API is not enabled) | OpenAI's per-model default. |
 | `google` | no `thinking_config` | Gemini's default thinking; thought text is not returned. |
 | `openrouter`, `openai-compat` | no `reasoning` field | The upstream model's default. |
@@ -29,7 +29,7 @@ The data needed already exists and is dropped:
 **Decisions made in review**
 
 1. **Effort mirrors model.** A global config default (`default_effort`), a per-agent `effort`, a `jig run --effort` flag, and a per-session "Switch effort…" picker action in the TUI, persisted on the session.
-2. **When nothing is chosen, jig sends the model's catalog `default_reasoning_effort`.** This turns thinking on for Claude by default: a deliberate behavior and cost change from today.
+2. **When nothing is chosen, jig sends the model's catalog `default_reasoning_effort`.** For the Opus 5 / Sonnet 5 families this does not turn thinking on (they already think); it makes the effort explicit and makes the thinking visible as a summary. It can also *change* the level: catwalk's default for `claude-opus-5-5` is `medium`, possibly below the API's own default. This is accepted; set `default_effort` (or an agent `effort`) to pin a level. For Claude models that only think when asked, it does turn thinking on: a behavior and cost change.
 3. **Subagents** use their agent's `effort`, else `default_effort`, else the catalog default. They never inherit the parent session's choice.
 4. **Small-model calls** (titles, compaction) send the model's lowest level.
 5. **An unsupported level is clamped** to the nearest supported level on the scale `none < minimal < low < medium < high < xhigh < max`; on a tie, the lower one. The stored choice is kept, so switching back to a model that supports it restores it.
@@ -39,7 +39,7 @@ The data needed already exists and is dropped:
 
 **Success criteria**
 
-- With no config, a Claude model that has catalog levels runs with adaptive thinking at its catalog default effort, and its thinking shows as reasoning blocks in the TUI.
+- With no config, a Claude model that has catalog levels runs with adaptive thinking at its catalog default effort, and its thinking shows as summarized text in the TUI's reasoning blocks (today those blocks are empty for Opus 5 / Sonnet 5).
 - `jig run --effort low …` sends `low` (or the nearest supported level) to the provider, and stores it on the session.
 - In the TUI, "Switch effort…" lists the current model's levels, the status bar shows `agent · model · <level>`, and the choice survives a restart (it is on the session).
 - Switching to a model without the chosen level clamps; switching back restores it.
