@@ -6,6 +6,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -44,6 +45,7 @@ type Deps struct {
 	Clock    clock.Clock
 	IDs      *ids.Gen
 	ToolsFor func(core.Agent, []ext.Tool) []ext.Tool
+	Log      *slog.Logger // debug log; nil discards
 }
 
 // Runner drives agent turns, at most one at a time per session.
@@ -56,6 +58,9 @@ type Runner struct {
 
 // NewRunner returns a Runner over d.
 func NewRunner(d Deps) *Runner {
+	if d.Log == nil {
+		d.Log = slog.New(slog.DiscardHandler)
+	}
 	return &Runner{d: d, running: make(map[core.SessionID]context.CancelFunc)}
 }
 
@@ -72,12 +77,15 @@ type run struct {
 // history and drives the model until it stops calling tools, max steps is
 // reached, the run fails, or it is cancelled. It returns the last
 // assistant message.
-func (r *Runner) Run(ctx context.Context, rc ext.RunContext, userText string, atts ...core.Attachment) (core.Message, error) {
+func (r *Runner) Run(ctx context.Context, rc ext.RunContext, userText string, atts ...core.Attachment) (_ core.Message, err error) {
 	ctx, release, err := r.register(ctx, rc.SessionID)
 	if err != nil {
 		return core.Message{}, err
 	}
 	defer release()
+	ctx = withRunLog(ctx, rc)
+	rs := &runStats{started: r.d.Clock.Now()}
+	defer func() { logRunEnd(ctx, r.d.Log, r.d.Clock.Now(), rs, err) }()
 
 	user := r.newMessage(rc, core.RoleUser)
 	user.Parts = append([]core.Part{{Kind: core.PartText, Text: userText}}, attachmentParts(atts)...)
@@ -94,18 +102,18 @@ func (r *Runner) Run(ctx context.Context, rc ext.RunContext, userText string, at
 	if st.maxSteps <= 0 {
 		st.maxSteps = defaultMaxSteps
 	}
+	debug(ctx, r.d.Log, "run", "run start", "model", rc.Model.String(), "max_steps", st.maxSteps)
 
 	var last core.Message
-	var usage core.Usage
-	var cost float64
 	for n := 1; n <= st.maxSteps; n++ {
-		msg, err := r.step(ctx, st)
+		rs.steps = n
+		msg, err := r.step(ctx, st, n)
 		if err != nil {
 			return msg, err
 		}
 		last = msg
-		usage = addUsage(usage, msg.Usage)
-		cost += msg.CostUSD
+		rs.usage = addUsage(rs.usage, msg.Usage)
+		rs.cost += msg.CostUSD
 		if !hasToolCalls(msg) {
 			break
 		}
@@ -113,9 +121,10 @@ func (r *Runner) Run(ctx context.Context, rc ext.RunContext, userText string, at
 			if last, err = r.stopAtMaxSteps(ctx, st, last); err != nil {
 				return last, err
 			}
+			rs.maxed = true
 		}
 	}
-	return r.finish(rc, last, usage, cost), nil
+	return r.finish(rc, last, rs.usage, rs.cost), nil
 }
 
 // Exclusive runs fn while holding id's slot in the running map: a Run on id
@@ -161,7 +170,11 @@ func (r *Runner) register(ctx context.Context, id core.SessionID) (context.Conte
 
 // step runs one model request into one assistant message, executes any
 // tool calls it made, and saves it.
-func (r *Runner) step(ctx context.Context, st *run) (core.Message, error) {
+func (r *Runner) step(ctx context.Context, st *run, n int) (out core.Message, err error) {
+	var tm stepTiming
+	var streamDur, toolsDur time.Duration
+	defer func() { logStepEnd(ctx, r.d.Log, n, out, &tm, streamDur, toolsDur) }()
+
 	msg := r.newMessage(st.rc, core.RoleAssistant)
 	msg.Status = core.StatusStreaming
 	r.d.Bus.Publish(event.MessageStarted{
@@ -174,15 +187,21 @@ func (r *Runner) step(ctx context.Context, st *run) (core.Message, error) {
 	if err != nil {
 		return r.abort(ctx, msg, rc.RootID, err)
 	}
-	if err := r.stream(ctx, st, req, &msg); err != nil {
-		return r.abort(ctx, msg, rc.RootID, err)
+	debug(ctx, r.d.Log, "step", "step start", "step", n, "messages", len(req.Messages), "tools", len(req.Tools))
+	streamStart := r.d.Clock.Now()
+	streamErr := r.stream(ctx, st, req, &msg, &tm)
+	streamDur = r.d.Clock.Now().Sub(streamStart)
+	if streamErr != nil {
+		return r.abort(ctx, msg, rc.RootID, streamErr)
 	}
 	msg.CostUSD = st.info.Cost(msg.Usage)
 
 	if calls := toolCalls(msg); len(calls) > 0 {
+		toolsStart := r.d.Clock.Now()
 		for _, res := range r.execute(ctx, rc, st.allowed, calls) {
 			msg.Parts = append(msg.Parts, core.Part{Kind: core.PartToolResult, Result: &res})
 		}
+		toolsDur = r.d.Clock.Now().Sub(toolsStart)
 		if err := ctx.Err(); err != nil {
 			return r.abort(ctx, msg, rc.RootID, err)
 		}
