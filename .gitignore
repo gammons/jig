@@ -5,3 +5,4 @@ testdata/**/*.actual
 .superpowers/
 .worktrees/
 .jig
+jig-debug.log

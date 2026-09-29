@@ -59,6 +59,7 @@ internal/core/                          value types + ports (no services)
 internal/core/event/                    events + Bus
 internal/core/ext/                      extension points + Registry
 internal/core/llmtest/                  scripted fake core.LLM
+internal/core/logtest/                  slog test logger (Buffer, Find)
 internal/data/paths/                    XDG path resolution
 internal/data/fsroot/                   git root + ancestor walking
 internal/data/frontmatter/              YAML frontmatter parsing
@@ -284,6 +285,20 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   forked concurrently; `agentbrowser` cancels through it too.
 - bash attaches a screenshot only from the workdir or `screenshot*` files
   in the OS temp dir, after resolving symlinks.
+- The debug log (`JIG_DEBUG`, any non-empty value → `jig-debug.log` in the
+  workdir, truncated each start) is opened only by `newRuntime`
+  (`internal/app/debuglog.go`: `openDebugLog`, `startDebugLog`), so only
+  the TUI and `jig run` have it. The `*slog.Logger` is always passed in
+  (`agent.Deps.Log`, `task.New`'s `log`, `llm.NewLoggingTransport`),
+  never stored in a package var, and nil means discard. Every line has
+  `cat=` (`app`, `run`, `step`, `retry`, `http`, `task`, `tool`); a run's
+  lines, HTTP ones included, also carry `root`/`session`/`depth`/`agent`
+  from `core.WithLogAttrs`. With `JIG_DEBUG` unset the provider HTTP
+  client is the default one (`debugHTTPClient` returns nil). Nothing logs
+  headers, prompts, tool input or output, or streamed text; the only
+  body logged is a non-2xx response, capped at 4 KB. Every string value
+  (and error) passes `ansi.SanitizeLine` in `internal/app`'s handler
+  (`replaceDebugAttr`), so loggers elsewhere pass raw text.
 
 ## Shared code — check here before writing a helper
 
@@ -294,6 +309,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Value types shared across layers (Message, Session, ModelRef, Agent, Config, Rule, ...) | `internal/core` |
 | Service ports the UIs call (`ChatService`, `SessionService`, `PermissionService`) | `internal/core` (`ports.go`) |
 | Fake LLM for service tests | `llmtest.New(llmtest.Text(...), ...)` |
+| Tag log lines with the run's session (`root`/`session`/`depth`/`agent`; a same-key attr replaces, so a child run overrides its parent's) | `core.WithLogAttrs(ctx, ...)` / `core.LogAttrs(ctx)`, `core.LogArgs(ctx)` (the same as `[]any` for `Logger.Debug`) in `internal/core/logctx.go` |
+| Assert on debug log lines in a test (`time` dropped, so lines are stable) | `logtest.New()` returns a `*slog.Logger` and `*Buffer`; `buf.Find(msg)` / `buf.Lines()` in `internal/core/logtest` |
 | Scripted model for e2e tests (tag `jigtest`) | `jigtest.Script` + `writeScript`/`jigtestConfig` in `e2e/harness_test.go` |
 | Drive the real TUI binary under a pseudo-terminal and wait for screen text | `pty.StartWithSize` + `newScreen`/`.read`/`.waitFor(ctx, t, from, text)`/`.mark` in `e2e/tui_test.go` |
 | One-shot, tool-less LLM call returning joined text | `agent.Complete(ctx, llm, system, user)` |
