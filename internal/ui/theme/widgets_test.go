@@ -351,13 +351,15 @@ func TestBuild_RenderFromPalette(t *testing.T) {
 	set := Build(p, 3)
 
 	want := RenderStyles{
-		Tool:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
-		OK:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
-		Error:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
-		Denied: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
-		Warn:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
-		Dim:    lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
-		User:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
+		Tool:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
+		OK:      lipgloss.NewStyle().Foreground(lipgloss.Color(p.TextMuted)),
+		Error:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
+		Denied:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
+		Warn:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
+		Dim:     lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		User:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
+		Added:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Removed: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
 	}
 	if !reflect.DeepEqual(set.Render, want) {
 		t.Errorf("Render = %+v, want %+v", set.Render, want)

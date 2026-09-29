@@ -7,6 +7,7 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -176,7 +177,28 @@ func (r *renderer) renderTool(b transcript.Block, dur time.Duration, frame int) 
 		// generic suffix is the only indicator, so it must still apply.
 		return r.set.Render.Error.Render(line)
 	}
+	if b.State == transcript.StateOK && (b.Call.Name == "edit" || b.Call.Name == "write") {
+		if m := regexp.MustCompile(countsPattern).FindStringSubmatch(line); m != nil {
+			return r.styleCounts(m[1], m[2], m[3])
+		}
+	}
 	return r.styleState(line, b.State)
+}
+
+// countsPattern splits a finished edit/write line into its head and its
+// trailing "+N" and (edit only) "-N" counts, as editLine/writeLine format
+// them.
+const countsPattern = `^(.* )(\+\d+)(?: (-\d+))?$`
+
+// styleCounts renders a finished edit/write line: head in the OK color,
+// "+N" in Added, and "-N" (if any) in Removed.
+func (r *renderer) styleCounts(head, added, removed string) string {
+	rs := r.set.Render
+	out := rs.OK.Render(head) + rs.Added.Render(added)
+	if removed != "" {
+		out += rs.OK.Render(" ") + rs.Removed.Render(removed)
+	}
+	return out
 }
 
 // renderSubagent renders "↳ <agent>  <description>  <spinner> N tools ·

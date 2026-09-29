@@ -14,23 +14,29 @@ type RenderStyles struct {
 	Warn   lipgloss.Style // a tool/subagent awaiting permission
 	Dim    lipgloss.Style // cancelled/pending states, notices, reasoning
 	User   lipgloss.Style // the "›" user block prefix
+	// Added and Removed color an edit/write line's "+N" and "-N" counts.
+	Added   lipgloss.Style
+	Removed lipgloss.Style
 }
 
-// renderStyles maps p onto RenderStyles: OK reuses Accent (the palette's
-// one stand-out-success color, the same role it plays for sidebar.Success
-// in sidebarStyles), Error and Denied share the palette's Error color
-// (jig has no separate "denied" hue), Warn uses Warning like every other
-// awaiting/pending indicator, and Tool/Dim/User fall back to
-// Text/TextMuted/Primary like every other one-liner and hint text
-// elsewhere in this file.
+// renderStyles maps p onto RenderStyles: OK is TextMuted (a finished tool
+// line recedes to gray; only its outcome detail stands out), Added reuses
+// Accent (the palette's one stand-out-success color, the same role it
+// plays for sidebar.Success in sidebarStyles), Error, Denied, and Removed
+// share the palette's Error color (jig has no separate "denied" hue),
+// Warn uses Warning like every other awaiting/pending indicator, and
+// Tool/Dim/User fall back to Text/TextMuted/Primary like every other
+// one-liner and hint text elsewhere in this file.
 func renderStyles(p Palette) RenderStyles {
 	return RenderStyles{
-		Tool:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
-		OK:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
-		Error:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
-		Denied: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
-		Warn:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
-		Dim:    lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
-		User:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
+		Tool:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
+		OK:      lipgloss.NewStyle().Foreground(lipgloss.Color(p.TextMuted)),
+		Error:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
+		Denied:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
+		Warn:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
+		Dim:     lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		User:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
+		Added:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Removed: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
 	}
 }

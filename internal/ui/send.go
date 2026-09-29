@@ -49,11 +49,15 @@ func (s sender) send(text string) tea.Cmd {
 	// token (by coincidence, or by re-typing it) must not re-attach it.
 	a.sess.attach = nil
 	id := a.sess.proj.AddUser(text, req.Attachments)
+	before, _ := a.w.list.Selected()
 	a.flush(a.sess.withDirty([]transcript.BlockID{id}))
+	// Sending always jumps the view to the bottom, even if the user had
+	// scrolled up, so the new message and the reply are in view.
+	a.w.list.Bottom()
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.sess.startRun(id, text, cancel)
 	a.w.prompt.Reset()
-	cmds := []tea.Cmd{sendCmd(ctx, a.ports, req), s.remember(text)}
+	cmds := []tea.Cmd{sendCmd(ctx, a.ports, req), s.remember(text), normalKeys{a}.syncDetails(before)}
 	if !a.view.stream.ticking {
 		a.view.stream.ticking = true
 		cmds = append(cmds, a.after(streamInterval, streamTickMsg{}))

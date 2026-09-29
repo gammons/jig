@@ -421,6 +421,36 @@ func TestRender_RunningAgentBrowserShowsSpinner(t *testing.T) {
 	}
 }
 
+// TestRender_FinishedFileToolsAreGrayWithColoredCounts: a finished read,
+// write, or edit renders in the OK (gray) style, and an edit's/write's
+// trailing line counts are colored: "+N" Added (green), "-N" Removed
+// (red).
+func TestRender_FinishedFileToolsAreGrayWithColoredCounts(t *testing.T) {
+	t.Parallel()
+	set := darkSet()
+	r := newRenderer(&set)
+	rs := set.Render
+	ok := func(name, input, output string) blockData {
+		return blockData{Block: transcript.Block{
+			Kind: transcript.KindTool, State: transcript.StateOK,
+			Call: toolCall("c1", name, input), Result: toolResult("c1", name, output, false),
+		}}
+	}
+
+	edit := renderOne(t, r, ok("edit", `{"path":"a.go","old_string":"a\nb","new_string":"x\ny\nz"}`, "replaced"), 80)
+	if want := rs.OK.Render("▸ edit  a.go ") + rs.Added.Render("+3") + rs.OK.Render(" ") + rs.Removed.Render("-2"); edit != want {
+		t.Errorf("edit renders\n %q, want\n %q", edit, want)
+	}
+	write := renderOne(t, r, ok("write", `{"path":"a.go","content":"a\nb"}`, "wrote"), 80)
+	if want := rs.OK.Render("▸ write  a.go ") + rs.Added.Render("+2"); write != want {
+		t.Errorf("write renders\n %q, want\n %q", write, want)
+	}
+	read := renderOne(t, r, ok("read", `{"path":"a.go"}`, "1: x"), 80)
+	if want := rs.OK.Render("▸ read  a.go · 1 lines"); read != want {
+		t.Errorf("read renders\n %q, want\n %q", read, want)
+	}
+}
+
 // TestRender_SearchErrorDoesNotCountItsMessageAsMatches covers review fix
 // item 4: a failed glob/grep call shows just its pattern, never a bogus
 // match count derived from its own error message's lines.

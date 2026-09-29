@@ -60,6 +60,37 @@ func assertFits(t *testing.T, view string, w, h int) {
 	}
 }
 
+// TestApp_SendScrollsToBottom: after scrolling up the transcript, sending
+// a message jumps the view back to the bottom, showing the new user block.
+func TestApp_SendScrollsToBottom(t *testing.T) {
+	t.Parallel()
+	var msgs []core.Message
+	for i := range 60 {
+		msgs = append(msgs, core.Message{
+			ID: core.MessageID(fmt.Sprintf("a%d", i)), SessionID: "ses_1", Role: core.RoleAssistant,
+			Parts: []core.Part{{Kind: core.PartText, Text: fmt.Sprintf("message %d", i)}},
+		})
+	}
+	ta := newTestApp(t, withResume(core.Session{ID: "ses_1", Agent: "build"}, msgs, nil))
+	ta.key("esc")
+	ta.key("g")
+	ta.key("g")
+	if strings.Contains(ta.view(), "message 59") {
+		t.Fatal("setup: gg did not scroll the last message out of view")
+	}
+
+	ta.key("i")
+	ta.typeText("scroll me")
+	ta.key("enter")
+
+	if sel, ok := ta.app.w.list.Selected(); !ok || !strings.HasPrefix(sel.ID, "u/") {
+		t.Errorf("selection = %+v, want the new user block", sel)
+	}
+	if v := ta.view(); !strings.Contains(v, "scroll me") {
+		t.Errorf("view does not show the sent message:\n%s", v)
+	}
+}
+
 func TestApp_SendNewSessionAdoptsRoot(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
