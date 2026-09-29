@@ -315,7 +315,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Session events/messages → display blocks | `transcript.New(root)`, `Load`, `Apply` |
 | Golden-frame assertion | `golden.Assert(t, name, got)`; update with `JIG_UPDATE_GOLDEN=1` |
 | Drive a `ui.App` in tests: fake ports, fake clock, Cmds run synchronously, ticks collected (not slept) | `newTestApp(t, opts...)` / `.send`, `.key`, `.typeText`, `.event`, `.fire` in `internal/ui/apptest_test.go` |
-| Clip/pad a styled string to exactly w×h cells | `fit(s, w, h)` in `internal/ui/layout.go` |
+| Clip/pad a styled string to exactly w×h cells (as rows of known width, to join with `hjoin`/`vjoin`) | `fitRows(s, w, h)` in `internal/ui/layout.go` |
 | Lay out the frame (1-cell margin, side slot running down beside the prompt) and size the prompt to it | `layoutFor(a)` / `computeLayout(w, h, promptH, sidebarPref, detailsOpen)` in `internal/ui/layout.go` |
 | Changed-file paths resolved against the workdir and de-duplicated | `normalizeChanges(workDir, projection.ChangedFiles())` in `internal/ui/sidebar.go` |
 | Make untrusted text (model/tool/file/store) safe to render | `ansi.Sanitize(s)` in `internal/bubbles/ansi` (keeps `\n`, `\t`) |
@@ -356,6 +356,15 @@ the budget. Run with `go test -run XXX -bench . -benchmem <pkg>`.
 |---|---|---|
 | `BenchmarkApp_Resize2000` — a burst of 3 width changes, the debounce, then `View` (a third width each step, so every block is re-rendered once at the new width) | < 1.5 s/op | 1.0 s/op |
 | `BenchmarkApp_DetailsToggle2000` — `enter` then `q` (each with the debounce and a `View`), both widths already cached | < 50 ms/op | 4.3 ms/op |
+| `BenchmarkApp_Keystroke2000` — one character typed into the prompt, then `View` | < 1.5 ms/op | 0.83 ms/op |
+| `BenchmarkApp_Wheel2000` — one wheel notch over the transcript, then `View` | < 1.5 ms/op | 1.16 ms/op |
+
+Every keystroke and wheel notch re-renders the whole frame, so
+`compose` (`internal/ui/layout.go`) measures each widget's output once:
+`fitRows` cuts/pads every line to its rect, and the joins (`hjoin`,
+`vjoin`, `frame`) concatenate rows of known width without re-measuring.
+Don't compose frames with `lipgloss.JoinHorizontal`/`JoinVertical`,
+which re-measure every line on each call.
 
 The App applies a width change to the transcript list 50 ms after the
 last one of a burst (`resizeDebounce`, keyed by a generation counter),

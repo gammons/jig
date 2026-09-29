@@ -59,6 +59,46 @@ func BenchmarkApp_Resize2000(b *testing.B) {
 	}
 }
 
+// BenchmarkApp_Keystroke2000 measures typing one character into the
+// prompt on a resumed 2,000-block session: the Update and the next View.
+// Nothing in the transcript changes, so the frame's cost is composing it.
+// The prompt is emptied every 80 characters, so the result doesn't depend
+// on how many iterations run.
+func BenchmarkApp_Keystroke2000(b *testing.B) {
+	ta := newTestApp(b, withSize(150, 40), withResume(core.Session{ID: "ses_big", Agent: "build"}, benchHistory(2000), nil))
+	_ = ta.view()
+	b.ReportAllocs()
+	n := 0
+	for b.Loop() {
+		if n++; n%80 == 0 {
+			ta.app.w.prompt.Reset()
+		}
+		ta.send(tea.KeyPressMsg{Code: 'x', Text: "x"})
+		_ = ta.view()
+	}
+}
+
+// BenchmarkApp_Wheel2000 measures one mouse-wheel notch over the
+// transcript of a resumed 2,000-block session and the next View, scrolling
+// up and down in sweeps of 200 notches (so warm and newly shown blocks
+// both count).
+func BenchmarkApp_Wheel2000(b *testing.B) {
+	ta := newTestApp(b, withSize(150, 40), withResume(core.Session{ID: "ses_big", Agent: "build"}, benchHistory(2000), nil))
+	_ = ta.view()
+	x, y := ta.app.lay.Transcript.X+2, ta.app.lay.Transcript.Y+2
+	b.ReportAllocs()
+	n := 0
+	for b.Loop() {
+		btn := tea.MouseWheelUp
+		if (n/200)%2 == 1 {
+			btn = tea.MouseWheelDown
+		}
+		n++
+		ta.mouse(tea.MouseWheelMsg{X: x, Y: y, Button: btn})
+		_ = ta.view()
+	}
+}
+
 // BenchmarkApp_DetailsToggle2000 measures opening and closing the details
 // split (enter, then q, each followed by the width debounce and a View)
 // on a resumed 2,000-block session, after one warm-up pair: both widths

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/bubbles/wintree"
 )
 
@@ -228,5 +229,32 @@ func TestCompose_SideRunsBesideThePrompt(t *testing.T) {
 	}
 	if !strings.HasPrefix(rows[lay.Status.Y], " STATUS") {
 		t.Errorf("status row = %q, want the full-width status bar", rows[lay.Status.Y])
+	}
+}
+
+// TestCompose_ExactFrameSize: whatever the regions hold (wide runes,
+// styles, tabs, lines far too long or too many), the frame is exactly
+// w×h cells, for every layout shape.
+func TestCompose_ExactFrameSize(t *testing.T) {
+	t.Parallel()
+	off := false
+	lines := func(n int, s string) string { return strings.TrimSuffix(strings.Repeat(s+"\n", n), "\n") }
+	long := "\x1b[31m世界🙂\x1b[0m\tx" + strings.Repeat("w", 300)
+	for _, sz := range [][2]int{{200, 50}, {130, 12}, {119, 30}, {30, 10}, {19, 6}, {5, 3}} {
+		for _, pref := range []*bool{nil, &off} {
+			for _, details := range []bool{false, true} {
+				lay := computeLayout(sz[0], sz[1], 3, pref, details)
+				out := compose(lay, lines(sz[1]+5, long), lines(sz[1]+5, long), lines(4, long), long, "\x1b[34m│\x1b[0m")
+				rows := strings.Split(out, "\n")
+				if len(rows) != sz[1] {
+					t.Fatalf("%v pref=%v details=%v: %d rows, want %d", sz, pref, details, len(rows), sz[1])
+				}
+				for i, r := range rows {
+					if w := ansi.Width(r); w != sz[0] {
+						t.Errorf("%v pref=%v details=%v: row %d is %d cells, want %d", sz, pref, details, i, w, sz[0])
+					}
+				}
+			}
+		}
 	}
 }

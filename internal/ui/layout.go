@@ -193,26 +193,110 @@ func orNoColor(c color.Color) color.Color {
 	return c
 }
 
-// fit clips or pads s to exactly w×h cells: at most h lines, each cut or
-// space-padded to width w. It returns "" when h is 0.
-func fit(s string, w, h int) string {
+// region is a block of rendered rows, each exactly w cells wide. Joining
+// regions needs no measuring: every row's width is already known, which
+// keeps composing a frame to one width pass over each widget's output.
+type region struct {
+	rows []string
+	w    int
+}
+
+// fitRows clips or pads s to exactly w×h cells: h rows (missing ones
+// blank), each with tabs expanded to 4 spaces, then cut or space-padded
+// to width w. Each line is measured once (twice when it is cut). It
+// returns an empty region when h is 0.
+func fitRows(s string, w, h int) region {
 	if h <= 0 {
-		return ""
+		return region{}
 	}
 	w = max(w, 0)
-	lines := strings.Split(s, "\n")
-	out := make([]string, h)
-	for i := range out {
-		line := ""
-		if i < len(lines) {
-			line = ansi.Truncate(lines[i], w, "")
+	r := region{rows: make([]string, h), w: w}
+	blank := strings.Repeat(" ", w)
+	rest, more := s, true
+	for i := range r.rows {
+		if !more {
+			r.rows[i] = blank
+			continue
 		}
-		if pad := w - ansi.Width(line); pad > 0 {
-			line += strings.Repeat(" ", pad)
-		}
-		out[i] = line
+		var line string
+		line, rest, more = strings.Cut(rest, "\n")
+		r.rows[i] = fitRow(line, w, blank)
 	}
-	return strings.Join(out, "\n")
+	return r
+}
+
+// fitRow cuts or pads one line to exactly w cells; blank is w spaces.
+func fitRow(line string, w int, blank string) string {
+	if line == "" {
+		return blank
+	}
+	if strings.Contains(line, "\t") {
+		line = strings.ReplaceAll(line, "\t", "    ")
+	}
+	lw := ansi.Width(line)
+	if lw > w {
+		line = ansi.Truncate(line, w, "")
+		lw = ansi.Width(line)
+	}
+	if lw < w {
+		line += blank[:w-lw]
+	}
+	return line
+}
+
+// repeatRows is h rows of cell, a string one cell wide.
+func repeatRows(cell string, h int) region {
+	r := region{rows: make([]string, max(h, 0)), w: 1}
+	for i := range r.rows {
+		r.rows[i] = cell
+	}
+	return r
+}
+
+// hjoin places parts side by side, top-aligned: as tall as the tallest,
+// the missing rows of a shorter part blank.
+func hjoin(parts ...region) region {
+	h, w := 0, 0
+	for _, p := range parts {
+		h = max(h, len(p.rows))
+		w += p.w
+	}
+	out := region{rows: make([]string, h), w: w}
+	var b strings.Builder
+	for i := range out.rows {
+		b.Reset()
+		b.Grow(w * 2)
+		for _, p := range parts {
+			if i < len(p.rows) {
+				b.WriteString(p.rows[i])
+			} else {
+				b.WriteString(strings.Repeat(" ", p.w))
+			}
+		}
+		out.rows[i] = b.String()
+	}
+	return out
+}
+
+// vjoin stacks parts, left-aligned, padding every row to the widest part.
+// No parts is one empty row.
+func vjoin(parts ...region) region {
+	if len(parts) == 0 {
+		return region{rows: []string{""}}
+	}
+	n, w := 0, 0
+	for _, p := range parts {
+		n += len(p.rows)
+		w = max(w, p.w)
+	}
+	out := region{rows: make([]string, 0, n), w: w}
+	for _, p := range parts {
+		pad := strings.Repeat(" ", w-p.w)
+		for _, row := range p.rows {
+			out.rows = append(out.rows, row+pad)
+		}
+	}
+	return out
 }
 
 // compose joins the regions of one frame per lay, inside its margins:
@@ -222,16 +306,17 @@ func fit(s string, w, h int) string {
 // slot runs on beside them); then the full-width status bar. Each region is fit to its rect
 // first, so the frame is exactly the terminal's size.
 func compose(lay rects, transcript, side, prompt, status, border string) string {
-	left := []string{}
+	left := []region{}
 	if lay.Transcript.H > 0 {
-		left = append(left, fit(transcript, lay.Transcript.W, lay.Transcript.H))
+		left = append(left, fitRows(transcript, lay.Transcript.W, lay.Transcript.H))
 	}
+	borderCol := fitRow(border, 1, " ")
 	under := func(s string, rc wintree.Rect) {
 		if rc.H <= 0 {
 			return
 		}
 		if !lay.SideSpans {
-			left = append(left, fit(s, rc.W, rc.H))
+			left = append(left, fitRows(s, rc.W, rc.H))
 			return
 		}
 		// Fill the transcript column exactly: the content (never into
@@ -239,59 +324,63 @@ func compose(lay rects, transcript, side, prompt, status, border string) string 
 		// the border.
 		w := lay.Transcript.W
 		cw := min(rc.W, max(w-1, 0))
-		pad := fit("", max(w-1-cw, 0), rc.H)
-		col := fit(strings.TrimSuffix(strings.Repeat(border+"\n", rc.H), "\n"), 1, rc.H)
-		left = append(left, lipgloss.JoinHorizontal(lipgloss.Top, fit(s, cw, rc.H), pad, col))
+		pad := fitRows("", max(w-1-cw, 0), rc.H)
+		left = append(left, hjoin(fitRows(s, cw, rc.H), pad, repeatRows(borderCol, rc.H)))
 	}
 	under("", lay.Gap)
 	under(prompt, lay.Prompt)
 	under("", lay.Below)
 
-	var rows []string
-	body := lipgloss.JoinVertical(lipgloss.Left, left...)
+	var rows []region
 	switch {
 	case lay.SideSpans:
-		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, body, fit(side, lay.Side.W, lay.Side.H)))
+		rows = append(rows, hjoin(vjoin(left...), fitRows(side, lay.Side.W, lay.Side.H)))
 	case lay.Side.W > 0 && lay.Side.H > 0:
-		top := fit(side, lay.Side.W, lay.Side.H)
+		top := fitRows(side, lay.Side.W, lay.Side.H)
 		if lay.Transcript.W > 0 && lay.Transcript.H > 0 {
-			top = lipgloss.JoinHorizontal(lipgloss.Top, left[0], top)
+			top = hjoin(left[0], top)
 		}
 		rows = append(rows, top)
 		if len(left) > 1 {
 			rows = append(rows, left[1:]...)
 		}
 	case len(left) > 0:
-		rows = append(rows, body)
+		rows = append(rows, vjoin(left...))
 	}
 	if lay.Status.H > 0 {
-		rows = append(rows, fit(status, lay.Status.W, lay.Status.H))
+		rows = append(rows, fitRows(status, lay.Status.W, lay.Status.H))
 	}
-	return frame(lay, lipgloss.JoinVertical(lipgloss.Left, rows...))
+	return frame(lay, vjoin(rows...))
 }
 
-// frame surrounds body with lay's margins: MY blank rows above and below,
-// MX blank columns left and right.
-func frame(lay rects, body string) string {
+// frame surrounds body with lay's margins, MY blank rows above and below
+// and MX blank columns left and right, and joins the frame's rows.
+func frame(lay rects, body region) string {
 	if lay.MX == 0 && lay.MY == 0 {
-		return body
-	}
-	lines := strings.Split(body, "\n")
-	w := 0
-	for _, l := range lines {
-		w = max(w, ansi.Width(l))
+		return strings.Join(body.rows, "\n")
 	}
 	side := strings.Repeat(" ", lay.MX)
-	blank := strings.Repeat(" ", w+2*lay.MX)
-	out := make([]string, 0, len(lines)+2*lay.MY)
+	blank := strings.Repeat(" ", body.w+2*lay.MX)
+	var b strings.Builder
+	b.Grow((len(body.rows) + 2*lay.MY) * (len(blank) + 1) * 2)
+	first := true
+	row := func(parts ...string) {
+		if !first {
+			b.WriteByte('\n')
+		}
+		first = false
+		for _, p := range parts {
+			b.WriteString(p)
+		}
+	}
 	for range lay.MY {
-		out = append(out, blank)
+		row(blank)
 	}
-	for _, l := range lines {
-		out = append(out, side+l+strings.Repeat(" ", max(w-ansi.Width(l), 0))+side)
+	for _, l := range body.rows {
+		row(side, l, side)
 	}
 	for range lay.MY {
-		out = append(out, blank)
+		row(blank)
 	}
-	return strings.Join(out, "\n")
+	return b.String()
 }
