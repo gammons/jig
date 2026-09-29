@@ -468,7 +468,9 @@ Each mode has one key handler that runs its fixed R21 keys first, then
   the run (and drop the queue), else clear the prompt, else quit; for
   1 s after a press that cancelled a run (`cancelGrace`, App clock),
   further presses do nothing. The mouse wheel scrolls the transcript or
-  the open details split (`mouse.go`'s `mouseCtl`), and a press-drag-
+  the open details split (`mouse.go`'s `mouseCtl`): 3 lines a notch,
+  more in a fast streak (`wheelaccel.go`, opencode's curve, up to 6×,
+  App clock), and a press-drag-
   release over either selects and, on release, copies text to the
   clipboard (OSC 52) — both work without changing the mode.
 - NORMAL (`mode_normal.go`, `normalKeys`): `ctrl+c` only cancels a

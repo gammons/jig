@@ -59,13 +59,16 @@ const (
 // pane-local pointer cell as of the most recent press or motion (a
 // sentinel {-1,-1} right after a press, before any motion); it drives
 // auto-scroll. autoGen increases on every armed tick, release, and press,
-// so a stale tick is a no-op.
+// so a stale tick is a no-op. wheel is the wheel's acceleration streak
+// (wheelAccel); resetting mouseState (a press, the picker opening) just
+// starts the next notch on a new streak.
 type mouseState struct {
 	phase   dragPhase
 	pane    pane
 	sel     selection.Range
 	last    mouseCell
 	autoGen int
+	wheel   wheelAccel
 }
 
 // mouseCtl handles the App's mouse messages.
@@ -168,10 +171,11 @@ func scrollEdge(a *App, p pane, y int) {
 	}
 }
 
-// wheel scrolls the pane under the pointer by wheelLines, moving the
-// highlight (blocklist.ScrollBy/details.ScrollBy do this themselves), and
-// clears any selection. It does nothing while the picker is open, or
-// outside the transcript and the (open) details split.
+// wheel scrolls the pane under the pointer, moving the highlight
+// (blocklist.ScrollBy/details.ScrollBy do this themselves), and clears
+// any selection. A slow notch scrolls wheelLines; a fast streak scrolls
+// further (wheelAccel, timed on the App clock). It does nothing while the
+// picker is open, or outside the transcript and the (open) details split.
 func (m mouseCtl) wheel(msg tea.MouseWheelMsg) tea.Cmd {
 	a := m.a
 	a.view.mouse.sel = selection.Range{}
@@ -179,15 +183,15 @@ func (m mouseCtl) wheel(msg tea.MouseWheelMsg) tea.Cmd {
 		return nil
 	}
 	ms := msg.Mouse()
-	n := wheelLines
+	dir := 1
 	if ms.Button == tea.MouseWheelUp {
-		n = -wheelLines
+		dir = -1
 	}
-	switch paneAt(a, ms.X, ms.Y) {
+	switch p := paneAt(a, ms.X, ms.Y); p {
 	case paneTranscript:
-		a.w.list.ScrollBy(n)
+		a.w.list.ScrollBy(a.view.mouse.wheel.lines(a.opts.Clock.Now(), dir, p))
 	case paneDetails:
-		a.w.details.ScrollBy(n)
+		a.w.details.ScrollBy(a.view.mouse.wheel.lines(a.opts.Clock.Now(), dir, p))
 	}
 	return nil
 }
