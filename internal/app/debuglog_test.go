@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
+
+	"github.com/gammons/jig/internal/clock"
 )
 
 func debugGetenv(v string) func(string) string {
@@ -99,6 +102,112 @@ func TestDebugLog_SanitizesStrings(t *testing.T) {
 	}
 	if n := strings.Count(out, "\n"); n != 1 {
 		t.Errorf("output has %d newlines, want 1: %q", n, out)
+	}
+}
+
+func TestDebugLog_CapsAndRedacts(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, debugHandlerOptions()))
+	log.Debug("x", "big", strings.Repeat("x", 10000),
+		"err", errors.New(`POST "https://alice:s3cret@proxy.example/v1": 502`),
+		"multi", "x"+strings.Repeat("é", debugMaxValue))
+	out := buf.String()
+	if want := "big=" + strings.Repeat("x", 4096) + "…[truncated]"; !strings.Contains(out, want) {
+		t.Errorf("big value not capped to 4096 bytes plus marker: %.120q", out)
+	}
+	if !strings.Contains(out, "https://…@proxy.example/v1") {
+		t.Error("userinfo not redacted")
+	}
+	for _, leak := range []string{"alice", "s3cret"} {
+		if strings.Contains(out, leak) {
+			t.Errorf("output leaks %q", leak)
+		}
+	}
+	if !utf8.ValidString(out) {
+		t.Error("output is not valid UTF-8; cap cut a rune")
+	}
+}
+
+func TestRedactUserinfo(t *testing.T) {
+	for in, want := range map[string]string{
+		"no url here":                         "no url here",
+		"https://host/path":                   "https://host/path",
+		"https://u:p@host/path":               "https://…@host/path",
+		"https://u@host":                      "https://…@host",
+		"https://u:p@ss@host/x":               "https://…@host/x",
+		"a http://u:p@h1/ b ftp://v@h2/":      "a http://…@h1/ b ftp://…@h2/",
+		"https://host/path?to=me@example.com": "https://host/path?to=me@example.com",
+		"see mailto:me@example.com":           "see mailto:me@example.com",
+	} {
+		if got := redactUserinfo(in); got != want {
+			t.Errorf("redactUserinfo(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestDebugLog_RefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.WriteFile(target, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "jig-debug.log")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	log, closer, err := openDebugLog(debugGetenv("1"), dir)
+	if err == nil {
+		t.Fatal("openDebugLog: want an error for a symlink")
+	}
+	if log == nil || log.Enabled(t.Context(), slog.LevelDebug) {
+		t.Error("want a non-nil, disabled logger on error")
+	}
+	if err := closer.Close(); err != nil {
+		t.Errorf("close: %v", err)
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != "keep" {
+		t.Errorf("target = %q, %v; want %q", got, err, "keep")
+	}
+}
+
+func TestDebugLog_RefusesDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "jig-debug.log"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := openDebugLog(debugGetenv("1"), dir); err == nil {
+		t.Fatal("openDebugLog: want an error for a directory")
+	}
+}
+
+func TestDebugHTTPClient_OnlyWhenLogOpened(t *testing.T) {
+	off, _, err := openDebugLog(debugGetenv(""), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hc := debugHTTPClient(off, clock.Real()); hc != nil {
+		t.Error("client built for a disabled logger")
+	}
+	on, closer, err := openDebugLog(debugGetenv("1"), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closer.Close()
+	if hc := debugHTTPClient(on, clock.Real()); hc == nil {
+		t.Error("no client for an open log")
+	}
+}
+
+func TestDebugHTTPClient_NilAfterFailedOpen(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "jig-debug.log"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	log, _, err := openDebugLog(debugGetenv("1"), dir)
+	if err == nil {
+		t.Fatal("openDebugLog: want an error")
+	}
+	if hc := debugHTTPClient(log, clock.Real()); hc != nil {
+		t.Error("client built after the log failed to open")
 	}
 }
 

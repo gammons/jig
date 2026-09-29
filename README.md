@@ -315,9 +315,16 @@ Lines from a run carry `root=`, `session=`, `depth=`, and `agent=`, HTTP
 lines included, so `grep session=<id> jig-debug.log` shows one
 subagent's whole timeline.
 
-The log never contains API keys or other headers, prompts, tool input or
-output, or streamed text. The one body it records is the first 4 KB of a
-non-2xx HTTP response. Add `jig-debug.log` to your `.gitignore`.
+The log never contains API keys or other headers (the one exception is the
+provider's request-ID header value, logged as `req_id=`), prompts, tool
+input or output, or streamed text. The one body it records is the first
+4 KB of a non-2xx HTTP response. `err=` carries the provider's error
+message, which may include the request URL and the error body. Every
+string value is sanitized to one line, has any URL userinfo
+(`https://user:pass@host`) replaced with `https://…@host`, and is capped
+at 4 KB. If `jig-debug.log` already exists and is not a regular file (a
+symlink, say), jig refuses it with a warning and logs nothing. Add
+`jig-debug.log` to your `.gitignore`.
 
 ## Development
 

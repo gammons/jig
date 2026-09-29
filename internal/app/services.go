@@ -95,7 +95,7 @@ func newChat(e env, rt *runtime, cat *catalog.Catalog, asker permission.Asker, e
 		return nil, configError{err}
 	}
 	clk := clock.Real()
-	hc := debugHTTPClient(e.getenv, rt.log, clk)
+	hc := debugHTTPClient(rt.log, clk)
 	pv, err := providerView(hc)
 	if err != nil {
 		return nil, err

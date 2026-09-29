@@ -296,9 +296,15 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   from `core.WithLogAttrs`. With `JIG_DEBUG` unset the provider HTTP
   client is the default one (`debugHTTPClient` returns nil). Nothing logs
   headers, prompts, tool input or output, or streamed text; the only
-  body logged is a non-2xx response, capped at 4 KB. Every string value
-  (and error) passes `ansi.SanitizeLine` in `internal/app`'s handler
-  (`replaceDebugAttr`), so loggers elsewhere pass raw text.
+  body logged is a non-2xx response, capped at 4 KB; the provider's
+  request-ID header value (`req_id`) is logged. `err=` carries the
+  provider's error message, which may include the request URL and error
+  body. Every string value (and error) passes `ansi.SanitizeLine`, has URL
+  userinfo redacted (`scheme://…@`), and is capped at 4 KB
+  (`debugMaxValue`) in `internal/app`'s handler (`replaceDebugAttr`), so
+  loggers elsewhere pass raw text. An existing non-regular `jig-debug.log`
+  (a symlink, say) is refused with a warning and never followed
+  (`O_NOFOLLOW`).
 
 ## Shared code — check here before writing a helper
 
