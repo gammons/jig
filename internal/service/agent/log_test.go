@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"iter"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core"
+	"github.com/gammons/jig/internal/core/ext"
 	"github.com/gammons/jig/internal/core/llmtest"
 	"github.com/gammons/jig/internal/core/logtest"
 )
@@ -159,6 +162,124 @@ func TestRunnerLog_SetupFailure(t *testing.T) {
 		t.Errorf("run start lines = %d, want 0", n)
 	}
 	wantContains(t, only(t, buf, "run end"), "outcome=failed", "steps=0")
+}
+
+func lineFor(t *testing.T, lines []string, sub string) string {
+	t.Helper()
+	for _, l := range lines {
+		if strings.Contains(l, sub) {
+			return l
+		}
+	}
+	t.Fatalf("no line contains %q: %q", sub, lines)
+	return ""
+}
+
+func TestRunnerLog_ToolCall(t *testing.T) {
+	big := stubTool{name: "big", run: func(context.Context, core.ToolCall) (core.ToolResult, error) {
+		return core.ToolResult{Output: strings.Repeat("x", 60*1024)}, nil
+	}}
+	llm := llmtest.New(llmtest.Calls(llmtest.Call("c1", "big", `{}`)), llmtest.Text("done"))
+	f := newFixture(t, llm, withTools(big))
+	var buf *logtest.Buffer
+	f.deps.Log, buf = logtest.New()
+	r := NewRunner(f.deps)
+
+	if _, err := r.Run(context.Background(), f.rc, "hi"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	capped := len(capOutput(strings.Repeat("x", 60*1024)))
+	wantContains(t, only(t, buf, "tool call"), "cat=tool", "tool=big", "call_id=c1", "out_bytes=61440",
+		"out_bytes_capped="+strconv.Itoa(capped), "is_error=false", "blocked=false", "session=ses_test")
+}
+
+type blockHook struct{}
+
+func (blockHook) Before(_ context.Context, _ ext.RunContext, tool ext.Tool, call core.ToolCall) (core.ToolCall, ext.Verdict, error) {
+	return call, ext.Verdict{Block: tool.Name() == "echo", Reason: "denied"}, nil
+}
+
+func (blockHook) After(_ context.Context, _ ext.RunContext, _ ext.Tool, _ core.ToolCall, res core.ToolResult) core.ToolResult {
+	return res
+}
+
+func TestRunnerLog_ToolBlockedAndUnknown(t *testing.T) {
+	llm := llmtest.New(
+		llmtest.Calls(llmtest.Call("c1", "echo", `{}`), llmtest.Call("c2", "nope", `{}`)),
+		llmtest.Text("done"),
+	)
+	f := newFixture(t, llm, withTools(echoTool{name: "echo"}), func(r *ext.Registry) {
+		if err := r.AddToolHook(blockHook{}); err != nil {
+			panic(err)
+		}
+	})
+	var buf *logtest.Buffer
+	f.deps.Log, buf = logtest.New()
+	r := NewRunner(f.deps)
+
+	if _, err := r.Run(context.Background(), f.rc, "hi"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	lines := buf.Find("tool call")
+	if len(lines) != 2 {
+		t.Fatalf("tool call lines = %d, want 2: %q", len(lines), lines)
+	}
+	c1 := lineFor(t, lines, "call_id=c1")
+	wantContains(t, c1, "blocked=true", "is_error=true")
+	if strings.Contains(c1, "reason=") {
+		t.Errorf("blocked line %q has a reason", c1)
+	}
+	wantContains(t, lineFor(t, lines, "call_id=c2"), "is_error=true", "blocked=false", "reason=unknown")
+}
+
+func TestRunnerLog_ToolInvalidAndCancelled(t *testing.T) {
+	r, _ := newExecRunner()
+	var buf *logtest.Buffer
+	r.d.Log, buf = logtest.New()
+
+	tools := []ext.Tool{echoTool{name: "echo"}}
+	r.execute(context.Background(), execRC(), tools, []core.ToolCall{llmtest.Call("c1", "echo", `[1]`)})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r.execute(ctx, execRC(), tools, []core.ToolCall{llmtest.Call("c2", "echo", `{}`)})
+
+	lines := buf.Find("tool call")
+	wantContains(t, lineFor(t, lines, "call_id=c1"), "reason=invalid", "is_error=true")
+	wantContains(t, lineFor(t, lines, "call_id=c2"), "reason=cancelled", "is_error=true")
+}
+
+func TestRunnerLog_ToolPanicCountsAsRan(t *testing.T) {
+	boom := stubTool{name: "boom", run: func(context.Context, core.ToolCall) (core.ToolResult, error) {
+		panic("kaboom")
+	}}
+	r, _ := newExecRunner()
+	var buf *logtest.Buffer
+	r.d.Log, buf = logtest.New()
+
+	r.execute(context.Background(), execRC(), []ext.Tool{boom}, []core.ToolCall{llmtest.Call("c1", "boom", `{}`)})
+
+	line := only(t, buf, "tool call")
+	wantContains(t, line, "is_error=true", "blocked=false")
+	if strings.Contains(line, "reason=") {
+		t.Errorf("line %q has a reason", line)
+	}
+}
+
+func TestRunnerLog_ToolDuration(t *testing.T) {
+	r, _ := newExecRunner()
+	clk := r.d.Clock.(*clock.Fake)
+	var buf *logtest.Buffer
+	r.d.Log, buf = logtest.New()
+	slow := stubTool{name: "slow", run: func(context.Context, core.ToolCall) (core.ToolResult, error) {
+		clk.Advance(2 * time.Second)
+		return core.ToolResult{Output: "ok"}, nil
+	}}
+
+	r.execute(context.Background(), execRC(), []ext.Tool{slow}, []core.ToolCall{llmtest.Call("c1", "slow", `{}`)})
+
+	wantContains(t, only(t, buf, "tool call"), "dur=2s")
 }
 
 func TestRunnerLog_StepTiming(t *testing.T) {

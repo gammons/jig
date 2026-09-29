@@ -87,20 +87,25 @@ func (ex *executor) batch(ctx context.Context, calls []core.ToolCall, out []core
 func (ex *executor) call(ctx context.Context, call core.ToolCall) core.ToolResult {
 	base := event.Base{SessionID: ex.rc.SessionID, RootID: ex.rc.RootID}
 	ex.r.d.Bus.Publish(event.ToolCallStarted{Base: base, MessageID: ex.rc.MessageID, Call: call})
-	res := ex.guarded(ctx, call)
+	start := ex.r.d.Clock.Now()
+	res, outcome := ex.guarded(ctx, call)
+	dur := ex.r.d.Clock.Now().Sub(start)
+	raw := len(res.Output)
 	res.Output = capOutput(res.Output)
 	res.CallID, res.Name = call.ID, call.Name
+	logToolCall(ctx, ex.r.d.Log, call, res, outcome, dur, raw)
 	ex.r.d.Bus.Publish(event.ToolCallFinished{Base: base, MessageID: ex.rc.MessageID, Result: res})
 	return res
 }
 
 // guarded runs resolveAndRun, turning a panic anywhere in the pipeline (a
 // Before hook, the tool, or an After hook) into an error result, so one
-// misbehaving extension cannot crash a parallel batch.
-func (ex *executor) guarded(ctx context.Context, call core.ToolCall) (res core.ToolResult) {
+// misbehaving extension cannot crash a parallel batch. A panic counts as
+// the call having run.
+func (ex *executor) guarded(ctx context.Context, call core.ToolCall) (res core.ToolResult, outcome callOutcome) {
 	defer func() {
 		if v := recover(); v != nil {
-			res = errorResult(fmt.Sprintf("tool %s panicked: %v", call.Name, v))
+			res, outcome = errorResult(fmt.Sprintf("tool %s panicked: %v", call.Name, v)), outcomeRan
 		}
 	}()
 	return ex.resolveAndRun(ctx, call)
@@ -108,48 +113,48 @@ func (ex *executor) guarded(ctx context.Context, call core.ToolCall) (res core.T
 
 // resolveAndRun resolves call's tool, validates its input, runs the Before
 // hooks, the tool, and the After hooks.
-func (ex *executor) resolveAndRun(ctx context.Context, call core.ToolCall) core.ToolResult {
+func (ex *executor) resolveAndRun(ctx context.Context, call core.ToolCall) (core.ToolResult, callOutcome) {
 	if ctx.Err() != nil {
-		return cancelledResult()
+		return cancelledResult(), outcomeCancelled
 	}
 	tool, ok := ex.byName[call.Name]
 	if !ok {
-		return errorResult(ex.unavailable(call.Name))
+		return errorResult(ex.unavailable(call.Name)), outcomeUnknown
 	}
 	input, err := objectInput(call.Input)
 	if err != nil {
-		return errorResult(fmt.Sprintf("invalid JSON input for %s: %v", call.Name, err))
+		return errorResult(fmt.Sprintf("invalid JSON input for %s: %v", call.Name, err)), outcomeInvalid
 	}
 	call.Input = input
 
-	call, blocked, stop := ex.before(ctx, tool, call)
+	call, blocked, outcome, stop := ex.before(ctx, tool, call)
 	if stop {
-		return blocked
+		return blocked, outcome
 	}
 	res := runTool(ctx, ex.rc, tool, call)
 	for _, h := range ex.hooks {
 		res = h.After(ctx, ex.rc, tool, call, res)
 	}
-	return res
+	return res, outcomeRan
 }
 
 // before runs every Before hook in order, threading rewritten calls
-// through. It reports stop with the result to use when a hook blocks the
-// call or fails.
-func (ex *executor) before(ctx context.Context, tool ext.Tool, call core.ToolCall) (core.ToolCall, core.ToolResult, bool) {
+// through. It reports stop with the result and outcome to use when a hook
+// blocks the call or fails (cancelled if the failure is ctx's).
+func (ex *executor) before(ctx context.Context, tool ext.Tool, call core.ToolCall) (core.ToolCall, core.ToolResult, callOutcome, bool) {
 	for _, h := range ex.hooks {
 		next, verdict, err := h.Before(ctx, ex.rc, tool, call)
 		switch {
 		case err != nil && ctx.Err() != nil:
-			return call, cancelledResult(), true
+			return call, cancelledResult(), outcomeCancelled, true
 		case err != nil:
-			return call, errorResult(err.Error()), true
+			return call, errorResult(err.Error()), outcomeBlocked, true
 		case verdict.Block:
-			return call, errorResult(verdict.Reason), true
+			return call, errorResult(verdict.Reason), outcomeBlocked, true
 		}
 		call = next
 	}
-	return call, core.ToolResult{}, false
+	return call, core.ToolResult{}, outcomeRan, false
 }
 
 // runTool runs tool, turning a ctx error into "cancelled", any other error
