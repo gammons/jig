@@ -99,7 +99,8 @@ internal/bubbles/wintree/               window split tree, pure geometry (ported
 internal/bubbles/mdrender/              width-aware Markdown rendering via glamour, one TermRenderer cached per width
 internal/bubbles/coderender/            chroma syntax highlighting + go-udiff unified diffs as styled lines
 internal/bubbles/imgrender/             image protocol detection (R24), bounded decode, fitted half-block / kitty-placeholder / sixel rendering
-internal/bubbles/blocklist/             transcript list: block cursor, per-item render cache, yOffset scrolling, bottom pinning, search
+internal/bubbles/blocklist/             transcript list: block cursor, per-item render cache, yOffset scrolling, bottom-follow pinning, search
+internal/bubbles/selection/             pure selection range: paint over rendered rows, extract plain text (mouse/clipboard live in ui)
 internal/bubbles/picker/                ctrl+p picker: fuzzy drill-down list, groups, recents, multi-mark, text-input level, preview callback
 internal/bubbles/prompt/                growing 1-8 line prompt: history walk, paste chips, $EDITOR round trip, queued state
 internal/golden/                        golden-frame test assertion
@@ -322,6 +323,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Highlight a search query in styled text without touching escapes | `ansi.Highlight(s, query, on, off)` |
 | SGR on/off strings for a fg/bg pair (e.g. a search highlight) | `ansi.SGR(fg, bg) (on, off)` |
 | A scrolling list of variable-height blocks with a cursor, cache, and search | `blocklist.New(render, opts...)` / `SetItems`, `Upsert`, `SetSearch`, `View` in `internal/bubbles/blocklist` |
+| Hit-test a screen cell to a block/line/column, or get a block's rendered lines, for mouse selection | `blocklist.HitTest(m, x, y)` / `blocklist.Lines(m, id)` in `internal/bubbles/blocklist` |
+| A pure selection range: paint it over already-rendered rows, or extract its plain text in document order | `selection.Highlight(row, id, line, r, order, on, off)` / `selection.Text(r, ids, order, lines)` in `internal/bubbles/selection` |
 | The ctrl+p picker: fuzzy drill-down list, groups, recents, multi-mark, a text-entry level, a preview callback | `picker.New(load, opts...)` / `Open(root)`, `Close`, `SetRecent`, `SetSize`, `Update`, `View` in `internal/bubbles/picker` |
 | The action catalogue (built-ins + registered `ext.Command`s) / resolve the keymap from default binds + `[keybinds]` config | `actions.NewCatalogue(cmds)` / `.All()`, `.Get(id)`; `actions.Resolve(binds, config, c)` / `Keymap.Lookup`, `.Keys` in `internal/ui/actions` |
 | The growing prompt textarea: history walk, paste-collapse chips, an `$EDITOR` round trip, a filled panel with a ▌ focus bar in INSERT, and a queued label on its top edge | `prompt.New(edit, opts...)` / `SetWidth`, `Height`, `SetAgent`, `SetQueued`, `SetHistory`, `Insert`, `Value`, `Reset`, `Focus`, `Blur`, `Update`, `View` in `internal/bubbles/prompt` |
@@ -429,23 +432,29 @@ Each mode has one key handler that runs its fixed R21 keys first, then
 `Keymap.Lookup(mode, key)`, then falls through to its widget:
 
 - INSERT (`mode_insert.go`, `insertKeys`): the prompt has focus. `enter`
-  sends (or queues during a run), `esc` → NORMAL, `tab`/`shift+tab`
+  sends (or queues during a run), `esc` → NORMAL (clearing a mouse
+  selection first, if one is active), `tab`/`shift+tab`
   cycle primary agents, `@` opens the file picker (only at the start
   of the input or right after whitespace; elsewhere, as in
   `user@example.com`, it types itself). `ctrl+c` is a ladder: cancel
   the run (and drop the queue), else clear the prompt, else quit; for
   1 s after a press that cancelled a run (`cancelGrace`, App clock),
-  further presses do nothing.
+  further presses do nothing. The mouse wheel scrolls the transcript or
+  the open details split (`mouse.go`'s `mouseCtl`), and a press-drag-
+  release over either selects and, on release, copies text to the
+  clipboard (OSC 52) — both work without changing the mode.
 - NORMAL (`mode_normal.go`, `normalKeys`): `ctrl+c` only cancels a
   run (never clears or quits), starting the same `cancelGrace`; vim-style navigation of the
   transcript list (`j k gg G ctrl+u`, `n`/`N` search matches),
   `enter` toggles the details split (`ctrl+e`/`ctrl+y` scroll it),
-  `q`/`esc` close the split or clear the search, `gp` jumps to the next
+  `q`/`esc` close the split or clear the search (or a mouse selection,
+  cleared first), `gp` jumps to the next
   pending permission, and `a A d D` answer the card on the selected
   block; `i` (or `a` off a card) → INSERT. The card is disarmed for
   400 ms (`cardArmDelay`, an App-clock tick) after a new request, a
   request switching the App to NORMAL, or the selection moving onto it: its keys do nothing and its legend shows
-  `…` until it arms (`permCtl.guard`).
+  `…` until it arms (`permCtl.guard`). The mouse wheel and drag-to-copy
+  work the same as in INSERT, without leaving NORMAL.
 - PICKER (`mode_picker.go`, `pickerCtl`): the ctrl+p picker overlay owns
   every key but `ctrl+z`/`ctrl+d` until it closes (`esc`) or yields a `picker.ChosenMsg`.
 
