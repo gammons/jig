@@ -394,10 +394,15 @@ The blocklist renders only new, changed, or restyled items (cache key:
 ID, Version, width, stylesVersion); a warm `View` renders nothing and
 touches only the visible rows. Each item keeps its render at the current
 width and at the previous one (lines and height), so toggling the
-details split back and forth re-renders nothing. After each `View`, the
-lines (at both widths) of items entirely outside `[yOffset−2h, yOffset+3h)`
-are evicted; heights and search-match results stay, so offsets never
-need a re-render.
+details split back and forth re-renders nothing. Rendered lines stay
+cached after they scroll off screen, so scrolling back re-renders
+nothing: a long block coming back into view used to cost 10+ ms and
+hitch the scroll. After each `View`, only while the cache holds more
+than `DefaultCacheBudget` (8 MB; `WithCacheBudget`) are the lines (at
+both widths) of the least recently shown items evicted, never the ones
+that `View` showed; a ~600-block session renders to ~3 MB and never
+evicts. Heights and search-match results stay, so offsets never need a
+re-render.
 
 ## Adding a tool, transform, or hook
 

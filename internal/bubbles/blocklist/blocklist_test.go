@@ -239,9 +239,9 @@ func TestSetItems_CopiesInput(t *testing.T) {
 	}
 }
 
-func TestBlocklist_EvictsFarLines(t *testing.T) {
-	t.Parallel()
-	const w, h = 40, 10
+// eviction500 is 500 items of 1–3 lines ("item <i> line <k>"), and each
+// item's height.
+func eviction500() ([]Item, []int) {
 	texts := make([]string, 500)
 	heights := make([]int, 500)
 	for i := range texts {
@@ -252,39 +252,100 @@ func TestBlocklist_EvictsFarLines(t *testing.T) {
 		}
 		texts[i] = strings.Join(lines, "\n")
 	}
-	m := newList(w, h, testItems(texts...))
-	_ = m.View()
+	return testItems(texts...), heights
+}
 
-	m.Select("i250")
+// TestBlocklist_KeepsLinesWithinBudget: rendered lines stay cached after
+// they scroll away while the cache is under its byte budget, so scrolling
+// back re-renders nothing (a long block coming back into view is what
+// made scrolling hitch).
+func TestBlocklist_KeepsLinesWithinBudget(t *testing.T) {
+	t.Parallel()
+	items, _ := eviction500()
+	m := newList(40, 10, items)
 	_ = m.View()
-
-	// Items overlapping [yOffset-2h, yOffset+3h), from the known heights
-	// and the 1-line gap.
-	lo, hi := m.yOffset-2*h, m.yOffset+3*h
-	within := 0
-	start := 0
-	for _, ht := range heights {
-		if start < hi && start+ht > lo {
-			within++
-		}
-		start += ht + 1
+	m.Top()
+	_ = m.View()
+	for range 60 { // scroll through the whole list, top to bottom
+		m.ScrollBy(10)
+		_ = m.View()
 	}
-	if got := m.c.cachedLines(); got > within {
-		t.Errorf("cached line entries = %d, want <= %d (items within 5h lines)", got, within)
+	before := m.c.renders
+	m.Top()
+	_ = m.View()
+	for range 60 {
+		m.ScrollBy(10)
+		_ = m.View()
+	}
+	if got := m.c.renders - before; got != 0 {
+		t.Errorf("scrolling back over already-shown items rendered %d, want 0 (all within the budget)", got)
+	}
+}
+
+// TestBlocklist_EvictsLeastRecentlyShownOverBudget: over the budget, the
+// items shown longest ago lose their lines first; the visible ones never
+// do. Heights stay, and an evicted item re-renders when shown again.
+func TestBlocklist_EvictsLeastRecentlyShownOverBudget(t *testing.T) {
+	t.Parallel()
+	items, _ := eviction500()
+	// Every line is 38 cells (w-2); a budget of ~60 lines' worth.
+	const budget = 60 * 38
+	m := newList(40, 10, items, WithCacheBudget(budget))
+	m.Top()
+	_ = m.View()
+	for range 60 {
+		m.ScrollBy(10)
+		_ = m.View()
+		if got := m.c.bytes; got > budget {
+			t.Fatalf("cache holds %d bytes, over the %d budget", got, budget)
+		}
+		for _, id := range visibleIDs(m) {
+			if e := m.c.entries[id]; e == nil || e.cur.lines == nil {
+				t.Fatalf("visible item %s has no cached lines", id)
+			}
+		}
 	}
 	if got := len(m.c.entries); got != 500 {
 		t.Errorf("entries (heights) = %d, want all 500 retained", got)
 	}
-
+	if e := m.c.entries["i0"]; e.cur.lines != nil {
+		t.Errorf("i0 (shown longest ago) still holds lines")
+	}
 	before := m.c.renders
 	m.Top()
 	_ = m.View()
 	if m.c.renders <= before {
-		t.Errorf("scrolling back to the top did not re-render the evicted items (renders %d -> %d)", before, m.c.renders)
+		t.Errorf("scrolling back to the evicted top re-rendered nothing")
 	}
 	if !containsRow(visibleText(m), "item 0 line 0") {
 		t.Errorf("item 0 not visible after scrolling back")
 	}
+}
+
+// TestBlocklist_VisibleOverBudgetStillShown: one visible item bigger than
+// the whole budget is still drawn (the budget never evicts what is shown).
+func TestBlocklist_VisibleOverBudgetStillShown(t *testing.T) {
+	t.Parallel()
+	big := strings.TrimSuffix(strings.Repeat("big line\n", 50), "\n")
+	m := newList(40, 10, testItems("small", big), WithCacheBudget(10))
+	_ = m.View()
+	if !containsRow(visibleText(m), "big line") {
+		t.Errorf("the visible over-budget item was not drawn: %q", visibleText(m))
+	}
+	before := m.c.renders
+	_ = m.View()
+	if m.c.renders != before {
+		t.Errorf("a warm View re-rendered the visible over-budget item")
+	}
+}
+
+// visibleIDs is the IDs of the items with a row in m's view.
+func visibleIDs(m Model) []string {
+	var ids []string
+	for i := itemAt(m.offsets, m.yOffset); i < len(m.items) && m.offsets[i] < m.yOffset+m.h; i++ {
+		ids = append(ids, m.items[i].ID)
+	}
+	return ids
 }
 
 func TestBlocklist_WarmViewDoesNotRender(t *testing.T) {

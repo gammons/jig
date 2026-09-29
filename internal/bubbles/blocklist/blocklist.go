@@ -65,6 +65,11 @@ func WithStyles(st Styles) Option { return func(m *Model) { m.styles = st } }
 // WithKeyMap sets the key bindings.
 func WithKeyMap(km KeyMap) Option { return func(m *Model) { m.keys = km } }
 
+// WithCacheBudget sets how many bytes of rendered lines the list keeps
+// (DefaultCacheBudget by default) before evicting the least recently
+// shown items' lines. What a View shows is never evicted, even over it.
+func WithCacheBudget(bytes int) Option { return func(m *Model) { m.c.budget = max(bytes, 0) } }
+
 // Model is the list. It is a value; copies share only the render cache,
 // which is a memo keyed by (ID, Version, width, stylesVersion), so View's
 // output is a pure function of (items, size, selection, search, styles)

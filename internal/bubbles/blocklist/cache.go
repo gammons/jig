@@ -1,6 +1,8 @@
 package blocklist
 
 import (
+	"cmp"
+	"slices"
 	"strings"
 
 	xansi "github.com/charmbracelet/x/ansi"
@@ -28,23 +30,37 @@ type slot struct {
 // entry is one item's renders, keyed by its ID in cache.entries: the one
 // at the current width and the one at the previous width, so toggling
 // between two widths (the details split opening and closing) re-renders
-// nothing.
+// nothing. bytes is what its slots' lines and raw hold; used is the View
+// (cache.clock) that last showed or rendered it, the LRU order.
 type entry struct {
 	cur, prev slot
+	bytes     int
+	used      int
 }
+
+// DefaultCacheBudget is the bytes of rendered lines the list keeps before
+// evicting the least recently shown items' lines. A 600-block session
+// renders to ~3 MB in all, so it scrolls without re-rendering anything;
+// only far larger ones re-render at their far ends.
+const DefaultCacheBudget = 8 << 20
 
 // cache holds every entry. Model keeps it behind a pointer so View, a value
 // method, can fill and evict it; its contents are only a memo of RenderFunc,
-// never state View's output depends on.
+// never state View's output depends on. live is the IDs whose entry holds
+// lines; bytes is their total, kept at most budget by evicting the least
+// recently used (except what the current View shows).
 type cache struct {
 	entries map[string]*entry
-	live    map[string]struct{} // IDs whose entry currently holds lines in a slot
-	renders int                 // RenderFunc calls, for tests
-	fits    int                 // lines fit rather than reused, for tests
+	live    map[string]struct{}
+	bytes   int
+	budget  int
+	clock   int
+	renders int // RenderFunc calls, for tests
+	fits    int // lines fit rather than reused, for tests
 }
 
 func newCache() *cache {
-	return &cache{entries: map[string]*entry{}, live: map[string]struct{}{}}
+	return &cache{entries: map[string]*entry{}, live: map[string]struct{}{}, budget: DefaultCacheBudget}
 }
 
 // valid reports whether s is it's render at width and sv. A zero slot
@@ -76,6 +92,7 @@ func (c *cache) get(it Item, width, sv int, st Styles, render RenderFunc) *slot 
 	e := c.entries[it.ID]
 	s := e.find(it, width, sv)
 	if s != nil && s.lines != nil {
+		e.used = c.clock
 		return s
 	}
 	var old *slot
@@ -85,20 +102,47 @@ func (c *cache) get(it Item, width, sv int, st Styles, render RenderFunc) *slot 
 	raw := splitRaw(render(it, width, st))
 	lines := c.fitFrom(raw, width, old)
 	c.renders++
-	c.live[it.ID] = struct{}{}
 	if s != nil {
 		s.lines, s.raw = resize(lines, s.height, width), raw
-		return s
+	} else {
+		if e == nil {
+			e = &entry{}
+			c.entries[it.ID] = e
+		}
+		if e.cur.width != width {
+			e.prev = e.cur
+		}
+		e.cur = slot{version: it.Version, width: width, sv: sv, height: len(lines), lines: lines, raw: raw}
+		s = &e.cur
 	}
-	if e == nil {
-		e = &entry{}
-		c.entries[it.ID] = e
+	e.used = c.clock
+	c.account(it.ID, e)
+	return s
+}
+
+// account re-counts e's bytes into the total and records whether it holds
+// lines.
+func (c *cache) account(id string, e *entry) {
+	c.bytes -= e.bytes
+	e.bytes = slotBytes(&e.cur) + slotBytes(&e.prev)
+	c.bytes += e.bytes
+	if e.cur.lines != nil || e.prev.lines != nil {
+		c.live[id] = struct{}{}
+	} else {
+		delete(c.live, id)
 	}
-	if e.cur.width != width {
-		e.prev = e.cur
+}
+
+// slotBytes is what s's lines and raw hold.
+func slotBytes(s *slot) int {
+	n := 0
+	for _, l := range s.lines {
+		n += len(l)
 	}
-	e.cur = slot{version: it.Version, width: width, sv: sv, height: len(lines), lines: lines, raw: raw}
-	return &e.cur
+	for _, l := range s.raw {
+		n += len(l)
+	}
+	return n
 }
 
 // height returns it's height at width and sv, rendering only when no valid
@@ -132,9 +176,11 @@ func (c *cache) matches(it Item, width, sv int, st Styles, render RenderFunc, qu
 	return s.matched
 }
 
-// evict drops the lines of every slot of a live entry that keep rejects.
-// Heights stay.
-func (c *cache) evict(keep func(id string, s *slot) bool) {
+// evict drops lines the cache can no longer use or keep: every slot keep
+// rejects (a removed item or a stale render), then, while the total is
+// over budget, both slots of the least recently used entries, never one
+// used at or after since (the current View's). Heights stay.
+func (c *cache) evict(keep func(id string, s *slot) bool, since int) {
 	for id := range c.live {
 		e := c.entries[id]
 		if e == nil {
@@ -147,24 +193,43 @@ func (c *cache) evict(keep func(id string, s *slot) bool) {
 		if e.prev.lines != nil && !keep(id, &e.prev) {
 			e.prev.lines, e.prev.raw = nil, nil
 		}
-		if e.cur.lines == nil && e.prev.lines == nil {
-			delete(c.live, id)
+		c.account(id, e)
+	}
+	if c.bytes <= c.budget {
+		return
+	}
+	type aged struct {
+		id   string
+		used int
+	}
+	var old []aged
+	for id := range c.live {
+		if e := c.entries[id]; e.used < since {
+			old = append(old, aged{id, e.used})
 		}
+	}
+	slices.SortFunc(old, func(a, b aged) int { return cmp.Compare(a.used, b.used) })
+	for _, o := range old {
+		if c.bytes <= c.budget {
+			break
+		}
+		e := c.entries[o.id]
+		e.cur.lines, e.cur.raw = nil, nil
+		e.prev.lines, e.prev.raw = nil, nil
+		c.account(o.id, e)
 	}
 }
 
 // prune forgets every entry whose ID is not in index.
 func (c *cache) prune(index map[string]int) {
-	for id := range c.entries {
+	for id, e := range c.entries {
 		if _, ok := index[id]; !ok {
+			c.bytes -= e.bytes
 			delete(c.entries, id)
 			delete(c.live, id)
 		}
 	}
 }
-
-// cachedLines is the number of entries currently holding lines.
-func (c *cache) cachedLines() int { return len(c.live) }
 
 // fit normalizes a RenderFunc result to lines of exactly width cells:
 // embedded newlines split, tabs expand to 4 spaces, long lines are cut
