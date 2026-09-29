@@ -226,7 +226,8 @@ func (a *App) View() tea.View {
 	if a.view.searching {
 		status = a.w.search.View()
 	}
-	v.Content = compose(a.lay, a.w.list.View(), side, a.w.prompt.View(), status, borderCell(a.theme.set.Blocklist))
+	list := paintSelection(a, paneTranscript, a.w.list.View(), a.lay.Transcript)
+	v.Content = compose(a.lay, list, side, a.w.prompt.View(), status, borderCell(a.theme.set.Blocklist))
 	if a.w.picker.IsOpen() {
 		v.Content = overlay.Center(v.Content, a.width, a.height, a.w.picker.View(), overlayDim)
 	}

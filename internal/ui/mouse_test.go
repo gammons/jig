@@ -5,8 +5,11 @@ import (
 	"strings"
 	"testing"
 
+	xansi "github.com/charmbracelet/x/ansi"
+
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
 )
@@ -134,5 +137,156 @@ func TestMouse_IgnoredWhilePickerOpen(t *testing.T) {
 	ta.mouse(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelUp})
 	if got := ta.view(); got != before {
 		t.Error("wheel while the picker is open changed the frame")
+	}
+}
+
+func TestMouse_DragCopiesTextAndHints(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withResume(core.Session{ID: "ses_1", Agent: "build"}, twoTextMessages(), nil))
+	ta.key("esc")
+
+	r := ta.app.lay.Transcript
+	// Row 0 is block "m/a1/0"'s only line ("first message"); x=1 is its
+	// first content column (x=0 is the selection prefix). Columns 1..7
+	// give "irst m" (6 chars; trailing whitespace is trimmed per line, so
+	// starting at column 0 would trim "first " down to 5).
+	ta.mouse(tea.MouseClickMsg{X: r.X + 2, Y: r.Y, Button: tea.MouseLeft})
+	ta.mouse(tea.MouseMotionMsg{X: r.X + 8, Y: r.Y, Button: tea.MouseLeft})
+	ta.mouse(tea.MouseReleaseMsg{X: r.X + 8, Y: r.Y, Button: tea.MouseLeft})
+
+	if got, want := ta.app.view.hint, "copied 6 chars"; got != want {
+		t.Errorf("hint = %q, want %q", got, want)
+	}
+	view := xansi.Strip(ta.view())
+	styled := ta.view()
+	if !strings.Contains(styled, ta.app.theme.set.Selection.On) {
+		t.Errorf("frame has no selection On escape:\n%s", view)
+	}
+}
+
+func TestMouse_DragAcrossBlocksCopiesInOrder(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withResume(core.Session{ID: "ses_1", Agent: "build"}, twoTextMessages(), nil))
+	ta.key("esc")
+
+	r := ta.app.lay.Transcript
+	// Row 2 is block 2's line ("second message"); row 0 is block 1's
+	// ("first message"). Press low, drag up: the copied text is still in
+	// document order (block 1 then block 2), not press-to-release order.
+	ta.mouse(tea.MouseClickMsg{X: r.X + 2, Y: r.Y + 2, Button: tea.MouseLeft})
+	ta.mouse(tea.MouseMotionMsg{X: r.X + 2, Y: r.Y, Button: tea.MouseLeft})
+	cmd := mouseCtl{ta.app}.release(tea.MouseReleaseMsg{X: r.X + 2, Y: r.Y, Button: tea.MouseLeft})
+	if cmd == nil {
+		t.Fatal("release: want a Cmd copying the selection")
+	}
+	msg := cmd()
+	if name := fmt.Sprintf("%T", msg); !strings.Contains(name, "ClipboardMsg") {
+		t.Fatalf("release Cmd produced %s, want tea's clipboard message", name)
+	}
+	got := fmt.Sprint(msg)
+	want := "irst message\ns"
+	if got != want {
+		t.Errorf("copied text = %q, want %q", got, want)
+	}
+}
+
+func TestMouse_DragPinnedToStartPane(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withSize(150, 40), withResume(core.Session{ID: "ses_1", Agent: "build"}, twentyTextMessages(), nil))
+	if !ta.app.lay.SideVisible {
+		t.Fatal("test setup: sidebar not visible at 150 cols")
+	}
+	ta.key("esc")
+	r := ta.app.lay.Transcript
+
+	ta.mouse(tea.MouseClickMsg{X: r.X + 1, Y: r.Y + 2, Button: tea.MouseLeft})
+	// Move past the transcript's right edge (into the sidebar) and past
+	// its bottom edge (into the prompt row).
+	ta.mouse(tea.MouseMotionMsg{X: r.X + r.W + 20, Y: r.Y + r.H + 5, Button: tea.MouseLeft})
+
+	sel := ta.app.view.mouse.sel
+	if !sel.Active {
+		t.Fatal("motion outside the pane did not extend the selection")
+	}
+	wantID, wantLine, wantCol, ok := blocklist.HitTest(ta.app.w.list, r.W-2, r.H-1)
+	if !ok {
+		t.Fatal("test setup: pinned cell HitTest failed")
+	}
+	if sel.End.ID != wantID || sel.End.Line != wantLine || sel.End.Col != wantCol {
+		t.Errorf("End = %+v, want {%q %d %d} (pinned to the transcript's last cell)", sel.End, wantID, wantLine, wantCol)
+	}
+}
+
+func TestMouse_ClickSelectsBlock(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withResume(core.Session{ID: "ses_1", Agent: "build"}, twentyTextMessages(), nil))
+	ta.key("esc")
+	if !ta.app.w.list.Select("m/a1/0") {
+		t.Fatal("test setup: block 1 not found")
+	}
+	if !ta.app.w.list.Select("m/a3/0") {
+		t.Fatal("test setup: block 3 not found")
+	}
+
+	r := ta.app.lay.Transcript
+	id1, line1, _, ok := blocklist.HitTest(ta.app.w.list, 1, r.Y)
+	if !ok || id1 != "m/a1/0" {
+		t.Fatalf("test setup: row 0 is %q line %d, want block 1", id1, line1)
+	}
+
+	ta.mouse(tea.MouseClickMsg{X: r.X + 1, Y: r.Y, Button: tea.MouseLeft})
+	ta.mouse(tea.MouseReleaseMsg{X: r.X + 1, Y: r.Y, Button: tea.MouseLeft})
+
+	got, ok := ta.app.w.list.Selected()
+	if !ok || got.ID != "m/a1/0" {
+		t.Errorf("selected = %+v, want block 1", got)
+	}
+	if ta.app.view.hint != "" {
+		t.Errorf("hint = %q, want none (a click copies nothing)", ta.app.view.hint)
+	}
+}
+
+func TestMouse_ClickOnCardDisarms(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("go")
+	ta.startBash("c1", "make")
+	ta.startBash("c2", "ls")
+	ta.request("p1", "c1", "make")
+	ta.arm()
+	if !ta.app.w.card.Armed() {
+		t.Fatal("test setup: card not armed")
+	}
+	ta.app.w.list.Select("t/c2")
+
+	r := ta.app.lay.Transcript
+	row := -1
+	for y := 0; y < r.H; y++ {
+		if id, _, _, ok := blocklist.HitTest(ta.app.w.list, 1, y); ok && id == "t/c1" {
+			row = y
+			break
+		}
+	}
+	if row < 0 {
+		t.Fatal("test setup: t/c1 is not visible in the transcript")
+	}
+
+	ta.mouse(tea.MouseClickMsg{X: r.X + 1, Y: r.Y + row, Button: tea.MouseLeft})
+	ta.mouse(tea.MouseReleaseMsg{X: r.X + 1, Y: r.Y + row, Button: tea.MouseLeft})
+
+	if got, ok := ta.app.w.list.Selected(); !ok || got.ID != "t/c1" {
+		t.Fatalf("selected = %+v, want t/c1", got)
+	}
+	if ta.app.w.card.Armed() {
+		t.Fatal("card still armed right after the click landed on it")
+	}
+	ta.key("a")
+	if len(ta.perms.replies) != 0 {
+		t.Fatalf("a right after the click replied: %+v", ta.perms.replies)
+	}
+	ta.arm()
+	ta.key("a")
+	if len(ta.perms.replies) != 1 {
+		t.Errorf("replies = %+v, want one reply once armed", ta.perms.replies)
 	}
 }
