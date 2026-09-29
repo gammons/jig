@@ -20,6 +20,7 @@ type tomlFile struct {
 	Instructions []string               `toml:"instructions"`
 	Keybinds     map[string]string      `toml:"keybinds"`
 	Integrations integrationsDTO        `toml:"integrations"`
+	MCP          mcpDTO                 `toml:"mcp"`
 }
 
 // providerDTO is the raw shape of one [providers.<id>] table.
@@ -60,4 +61,32 @@ type agentDTO struct {
 // skillsDTO is the raw shape of the [skills] table.
 type skillsDTO struct {
 	Paths []string `toml:"paths"`
+}
+
+// mcpDTO is the raw shape of the [mcp] table.
+type mcpDTO struct {
+	Disabled []string                `toml:"disabled"`
+	Servers  map[string]mcpServerDTO `toml:"servers"`
+}
+
+// mcpServerDTO is the raw shape of one [mcp.servers.<name>] table.
+type mcpServerDTO struct {
+	Type           string            `toml:"type"`
+	Command        string            `toml:"command"`
+	Args           []string          `toml:"args"`
+	Env            map[string]string `toml:"env"`
+	Cwd            string            `toml:"cwd"`
+	URL            string            `toml:"url"`
+	Headers        map[string]string `toml:"headers"`
+	StartupTimeout string            `toml:"startup_timeout"`
+	ToolTimeout    string            `toml:"tool_timeout"`
+	Enabled        *bool             `toml:"enabled"`
+	OAuth          mcpOAuthDTO       `toml:"oauth"`
+}
+
+// mcpOAuthDTO is the raw shape of one [mcp.servers.<name>.oauth] table.
+type mcpOAuthDTO struct {
+	ClientID     string   `toml:"client_id"`
+	ClientSecret string   `toml:"client_secret"`
+	Scopes       []string `toml:"scopes"`
 }

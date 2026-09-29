@@ -244,6 +244,7 @@ func Merge(lo, hi core.Config) core.Config {
 	out.Instructions = mergeAppendDedup(lo.Instructions, hi.Instructions)
 	out.SkillPaths = mergeAppendDedup(lo.SkillPaths, hi.SkillPaths)
 	mergeAgentsMap(&out.Agents, hi.Agents)
+	out.MCP = mergeMCPConfig(lo.MCP, hi.MCP)
 	return out
 }
 
