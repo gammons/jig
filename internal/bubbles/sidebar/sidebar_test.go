@@ -116,6 +116,68 @@ func TestSidebar_Margins(t *testing.T) {
 	}
 }
 
+// TestSidebar_RendersOnlyOnChange: the App calls SetSize and SetSections
+// on every Update, and View runs on every frame, so View reuses its last
+// render until the sections (by value), the size, or the styles change.
+func TestSidebar_RendersOnlyOnChange(t *testing.T) {
+	t.Parallel()
+	secs := func(cost string, used int64) []Section {
+		return []Section{
+			{Title: "Session", Rows: []Row{{Text: "s"}, {Gauge: &Gauge{Used: used, Limit: 100}}, {Text: cost, Tone: Muted}}},
+			{Title: "Files", Rows: []Row{{Icon: "M", Text: "a.go", Tone: Warning}}},
+		}
+	}
+	m := New(WithStyles(pinnedStyles()))
+	m.SetSize(30, 10)
+	m.SetSections(secs("$0.10", 10))
+	_ = m.View()
+	steps := []struct {
+		name   string
+		do     func()
+		render bool
+	}{
+		{"equal sections, fresh slices", func() { m.SetSections(secs("$0.10", 10)) }, false},
+		{"same size", func() { m.SetSize(30, 10) }, false},
+		{"a row's text", func() { m.SetSections(secs("$0.20", 10)) }, true},
+		{"a gauge's value", func() { m.SetSections(secs("$0.20", 20)) }, true},
+		{"the width", func() { m.SetSize(31, 10) }, true},
+		{"the height", func() { m.SetSize(31, 11) }, true},
+		{"the styles", func() { m.SetStyles(DefaultStyles()) }, true},
+	}
+	for _, s := range steps {
+		before := m.renders
+		s.do()
+		got := m.View()
+		if rendered := m.renders != before; rendered != s.render {
+			t.Errorf("%s: rendered = %v, want %v", s.name, rendered, s.render)
+		}
+		fresh := New(WithStyles(m.styles))
+		fresh.SetSize(m.width, m.height)
+		fresh.SetSections(m.sections)
+		if want := fresh.View(); got != want {
+			t.Errorf("%s: View() = %q, want a fresh render's %q", s.name, got, want)
+		}
+	}
+}
+
+// TestSidebar_SectionsAreCopied: mutating a slice after SetSections never
+// changes what the sidebar shows (it would otherwise go stale unseen).
+func TestSidebar_SectionsAreCopied(t *testing.T) {
+	t.Parallel()
+	g := &Gauge{Used: 10, Limit: 100}
+	secs := []Section{{Title: "Session", Rows: []Row{{Text: "before"}, {Gauge: g}}}}
+	m := New()
+	m.SetSize(30, 4)
+	m.SetSections(secs)
+	want := m.View()
+	secs[0].Rows[0].Text = "after"
+	g.Used = 90
+	m.SetSections([]Section{{Title: "Session", Rows: []Row{{Text: "before"}, {Gauge: &Gauge{Used: 10, Limit: 100}}}}})
+	if got := m.View(); got != want {
+		t.Errorf("View() changed after the caller mutated its slice:\n got %q\nwant %q", got, want)
+	}
+}
+
 func TestSidebar_EmptyWithoutSize(t *testing.T) {
 	t.Parallel()
 	m := New()

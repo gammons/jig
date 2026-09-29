@@ -56,10 +56,15 @@ func toneStyle(t Tone, st Styles) lipgloss.Style {
 // padX is the number of blank columns on each side of every sidebar line.
 const padX = 2
 
-// View renders the sidebar to exactly m.width x m.height cells, or ""
+// View returns the sidebar rendered to exactly m.width x m.height cells,
+// or "" when no size has been set. It renders nothing itself: the
+// setters keep the render current.
+func (m Model) View() string { return m.out }
+
+// render draws the sidebar to exactly m.width x m.height cells, or ""
 // when no size has been set. Sections with no rows are skipped entirely.
 // Content is laid out padX columns in from each side.
-func (m Model) View() string {
+func (m Model) render() string {
 	if m.width <= 0 || m.height <= 0 {
 		return ""
 	}
