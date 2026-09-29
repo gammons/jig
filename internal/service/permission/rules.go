@@ -52,15 +52,17 @@ func AgentBrowserPreset() core.PermissionRules {
 }
 
 // Effective merges an agent's permission rules over a config's over
-// Defaults(), per tool, covering the union of every key named by any of
-// the three (including glob keys). Precedence (highest first) is agent,
-// cfg, Defaults(): a key's Default comes from the highest-precedence
-// source that sets it, and its Patterns are merged, with a
-// higher-precedence source winning a pattern key it shares with a lower
-// one. Each output entry, including a glob key, is the overlay of the
-// three layers' value at that same literal key (never resolved through a
-// different glob), so Effective's result stays usable as a rules map for
-// RuleFor, and Tighten baselines still see glob keys as themselves.
+// Defaults(), per key, covering the union of every key named by any of
+// the three (including glob keys). Each output entry is
+// EffectiveFor(agent, cfg, key): the key (glob or exact) is resolved
+// within each layer independently via RuleFor, as if it were itself the
+// tool name, before the three layers are overlaid (agent highest, then
+// cfg, then Defaults()). This means a higher-precedence layer's glob can
+// out-rank a lower-precedence layer's more specific glob or even its
+// exact key for the same tool — resolve a tool's final rule with
+// RuleFor(Effective(agent, cfg), tool), which then only needs to pick
+// among Effective's exact and glob keys (each already an across-layer
+// result) to find the single best match for that tool.
 func Effective(agent, cfg core.PermissionRules) core.PermissionRules {
 	defaults := Defaults()
 
@@ -73,9 +75,19 @@ func Effective(agent, cfg core.PermissionRules) core.PermissionRules {
 
 	out := make(core.PermissionRules, len(keys))
 	for key := range keys {
-		out[key] = overlayRule(defaults[key], cfg[key], agent[key])
+		out[key] = EffectiveFor(agent, cfg, key)
 	}
 	return out
+}
+
+// EffectiveFor resolves tool's rule across all three layers: agent
+// highest, then cfg, then Defaults(). Each layer is first resolved to a
+// single rule via RuleFor (so a layer's glob key can supply tool's rule),
+// and the three results are then overlaid in that precedence order, so a
+// higher-precedence layer's glob (even one less specific than a
+// lower-precedence layer's glob or exact key) always wins.
+func EffectiveFor(agent, cfg core.PermissionRules, tool string) core.Rule {
+	return overlayRule(RuleFor(Defaults(), tool), RuleFor(cfg, tool), RuleFor(agent, tool))
 }
 
 // RuleFor resolves tool's rule within one layer of rules: the exact key

@@ -313,7 +313,7 @@ func runtimeRule(l Layers, name, tool string) core.Rule {
 		agent = permission.Overlay(agent, layer[name].Permissions)
 	}
 	cfg := permission.Overlay(l.Global.Permissions, l.Project.Permissions)
-	return permission.Effective(agent, cfg)[tool]
+	return permission.EffectiveFor(agent, cfg, tool)
 }
 
 func rank(a core.Action) int {
