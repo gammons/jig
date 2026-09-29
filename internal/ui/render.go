@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/lipgloss/v2"
-
 	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/bubbles/mdrender"
@@ -99,15 +97,13 @@ func (r *renderer) fitLine(s string, width int) string {
 }
 
 // renderUser renders a User block as a filled panel, the same look as
-// the prompt it was typed in: a ▄ edge row, a blank fill row, the text
-// wrapped in full with one column of padding each side, a dim attachments
-// line (R26) when present, a blank fill row, and a ▀ edge row. The edges are drawn in the fill color, so
-// the panel gets a half-row margin without a border; every content cell
-// carries the fill (Render.User's background).
+// the prompt it was typed in: a blank fill row, the text wrapped in full
+// with one column of padding each side, a dim attachments line (R26) when
+// present, and a blank fill row. Every cell carries the fill
+// (Render.User's background).
 func (r *renderer) renderUser(b transcript.Block, width int) []string {
 	rs := r.set.Render
 	bg := rs.User.GetBackground()
-	edge := lipgloss.NewStyle().Foreground(bg)
 	inner := max(width-2*userPadX, 1)
 	pad := strings.Repeat(" ", userPadX)
 	row := func(s string) string {
@@ -115,7 +111,7 @@ func (r *renderer) renderUser(b transcript.Block, width int) []string {
 		return overlay.Fill(s+strings.Repeat(" ", max(0, width-ansi.Width(s))), bg)
 	}
 
-	lines := []string{edge.Render(strings.Repeat("▄", width))}
+	lines := make([]string, 0, 2*userPadY+2)
 	for range userPadY {
 		lines = append(lines, row(""))
 	}
@@ -135,7 +131,7 @@ func (r *renderer) renderUser(b transcript.Block, width int) []string {
 	for range userPadY {
 		lines = append(lines, row(""))
 	}
-	return append(lines, edge.Render(strings.Repeat("▀", width)))
+	return lines
 }
 
 // userPadX and userPadY are the blank, filled columns inside each side

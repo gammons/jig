@@ -1013,8 +1013,7 @@ func TestApp_GoldenIdle(t *testing.T) {
 }
 
 // TestApp_SelectedUserBlockBarMatchesPanel: selected in NORMAL, a user
-// block's bar spans exactly its panel, like the focused prompt's: ▖ on
-// the ▄ edge, ▌ on the rows between, ▘ on the ▀ edge.
+// block's ▌ bar spans exactly its panel, like the focused prompt's.
 func TestApp_SelectedUserBlockBarMatchesPanel(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
@@ -1029,7 +1028,7 @@ func TestApp_SelectedUserBlockBarMatchesPanel(t *testing.T) {
 			bar = append(bar, c)
 		}
 	}
-	want := []string{"▖", "▌", "▌", "▌", "▘"}
+	want := []string{"▌", "▌", "▌"}
 	if !slices.Equal(bar, want) {
 		t.Errorf("bar column = %q, want %q:\n%s", bar, want, strings.Join(rows, "\n"))
 	}
@@ -1154,8 +1153,8 @@ func TestApp_GapAbovePrompt(t *testing.T) {
 
 	rows := strings.Split(xansi.Strip(ta.view()), "\n")
 	edge := ta.app.lay.Prompt.Y
-	if edge < 2 || !strings.Contains(rows[edge], "▄▄▄") {
-		t.Fatalf("prompt top edge not at row %d in:\n%s", edge, strings.Join(rows, "\n"))
+	if edge < 2 || !strings.Contains(rows[edge+1], "Message build") {
+		t.Fatalf("prompt text not at row %d in:\n%s", edge+1, strings.Join(rows, "\n"))
 	}
 	// Only the prompt's own columns: the sidebar runs on beside it.
 	cols := func(row string) string {

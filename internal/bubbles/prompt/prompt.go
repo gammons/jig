@@ -29,8 +29,8 @@ const (
 // panel, so the input doesn't sit flush against its edge.
 const padX = 1
 
-// padY is the number of blank, filled rows above and below the text,
-// inside the ▄/▀ edges, so the panel doesn't read as a thin stripe.
+// padY is the number of blank, filled rows above and below the text, so
+// the panel doesn't read as a thin stripe.
 const padY = 1
 
 // barW is the width of the bar column left of the panel: the ▌ focus bar
@@ -39,9 +39,9 @@ const padY = 1
 // bar.
 const barW = 1
 
-// chromeRows is the number of rows around the text: the two edges and
-// padY fill rows above and below.
-const chromeRows = 2 + 2*padY
+// chromeRows is the number of rows around the text: padY fill rows above
+// and below.
+const chromeRows = 2 * padY
 
 // EditFunc opens $EDITOR (or similar) over text. It must yield an
 // EditedMsg via its returned Cmd; the widget never does I/O itself.
@@ -160,8 +160,7 @@ func (m *Model) SetWidth(w int) {
 }
 
 // Height returns the total height: the textarea's current content height
-// (1-8 lines) plus the padY fill rows and the half-block edge above and
-// below it.
+// (1-8 lines) plus the padY fill rows above and below it.
 func (m Model) Height() int {
 	return m.ta.Height() + chromeRows
 }
@@ -189,7 +188,7 @@ func (m *Model) syncPlaceholder() {
 	m.ta.Placeholder = ansi.Truncate(full, max(1, m.ta.Width()), "…")
 }
 
-// SetQueued sets whether the top edge shows "⏳ queued".
+// SetQueued sets whether the top fill row shows "⏳ queued".
 func (m *Model) SetQueued(q bool) { m.queued = q }
 
 // SetHistory sets the prompt history, oldest first, and cancels any walk
@@ -376,15 +375,11 @@ func (m Model) handleEdited(msg EditedMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the filled panel: a row of ▄ above and ▀ below, drawn in
-// the Fill color, so the panel gets a half-row edge without a border, and
-// padY blank fill rows between each edge and the text. The fill sits
-// behind every content cell, the text included, focused or not. Column 0
-// is the bar column: while focused (INSERT mode) the focus bar, exactly
-// as tall as the panel — ▌ on its full rows, and ▖/▘ (the lower/upper
-// half of ▌) on the edge rows, which the panel only half fills; blank
-// otherwise. The top edge carries the "⏳ queued" label, right-aligned,
-// when queued.
+// View renders the filled panel: padY blank fill rows above and below
+// the text, with padX columns of padding each side, all on the Fill
+// background, focused or not. Column 0 is the bar column: the ▌ focus bar
+// on every row while focused (INSERT mode), blank otherwise. The top fill
+// row carries the "⏳ queued" label, right-aligned, when queued.
 func (m Model) View() string {
 	w := m.width
 	if w <= 0 {
@@ -392,29 +387,26 @@ func (m Model) View() string {
 	}
 	pw := max(w-barW, 0)
 	bg := m.styles.Fill.GetBackground()
-	edge := lipgloss.NewStyle().Foreground(bg)
-	blank := strings.Repeat(" ", barW)
-	bar, barTop, barBottom := blank, blank, blank
+	bar := strings.Repeat(" ", barW)
 	if m.ta.Focused() {
 		bar = m.styles.Bar.Render("▌")
-		barTop = m.styles.Bar.Render("▖")
-		barBottom = m.styles.Bar.Render("▘")
-	}
-
-	title := ""
-	if m.queued {
-		title = "⏳ queued"
 	}
 	pad := strings.Repeat(" ", padX)
 	fillRow := func(s string) string {
+		s = ansi.Truncate(s, pw, "")
 		s += strings.Repeat(" ", max(0, pw-ansi.Width(s)))
 		return bar + overlay.Fill(s, bg)
 	}
+
 	lines := strings.Split(m.ta.View(), "\n")
 	rows := make([]string, 0, len(lines)+chromeRows)
-	rows = append(rows, barTop+edgeRow(pw, "▄", title, edge, m.styles.Title))
-	for range padY {
-		rows = append(rows, fillRow(""))
+	for i := range padY {
+		top := ""
+		if i == 0 && m.queued {
+			label := m.styles.Title.Render("⏳ queued") + pad
+			top = strings.Repeat(" ", max(0, pw-ansi.Width(label))) + label
+		}
+		rows = append(rows, fillRow(top))
 	}
 	for _, l := range lines {
 		rows = append(rows, fillRow(pad+l))
@@ -422,23 +414,7 @@ func (m Model) View() string {
 	for range padY {
 		rows = append(rows, fillRow(""))
 	}
-	rows = append(rows, barBottom+edgeRow(pw, "▀", "", edge, m.styles.Title))
 	return strings.Join(rows, "\n")
-}
-
-// edgeRow renders one w-wide half-block edge of the panel, embedding
-// title (if any) right-aligned with one edge rune after it.
-func edgeRow(w int, glyph, title string, edge, titleStyle lipgloss.Style) string {
-	if title == "" {
-		return edge.Render(strings.Repeat(glyph, w))
-	}
-	label := " " + title + " "
-	lw := ansi.Width(label)
-	if lw >= w {
-		return titleStyle.Render(ansi.Truncate(label, w, ""))
-	}
-	lead := w - lw - 1
-	return edge.Render(strings.Repeat(glyph, lead)) + titleStyle.Render(label) + edge.Render(glyph)
 }
 
 // taStyles builds the textarea's Styles from st, with no cursor-line

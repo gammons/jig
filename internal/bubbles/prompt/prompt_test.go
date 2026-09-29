@@ -148,17 +148,17 @@ func TestPrompt_GrowsToEightLines(t *testing.T) {
 			t.Errorf("%s: Height() = %d, want %d", step, got, want)
 		}
 	}
-	check("1 line", 5) // 1 content line + 2 fill rows + 2 edges
+	check("1 line", 3) // 1 content line + a fill row above and below
 
 	for range 4 {
 		m, _ = m.Update(keyMsg("shift+enter"))
 	}
-	check("5 lines", 9)
+	check("5 lines", 7)
 
 	for range 7 {
 		m, _ = m.Update(keyMsg("shift+enter"))
 	}
-	check("12 lines requested", 12) // the visible viewport clamps to 8 content lines + 4
+	check("12 lines requested", 10) // the visible viewport clamps to 8 content lines + 2
 }
 
 // TestPrompt_NeverDropsPastHeightCap covers the review's critical #1: past
@@ -199,8 +199,8 @@ func TestPrompt_NeverDropsPastHeightCap(t *testing.T) {
 	if got := m.ta.Height(); got != maxContentLines {
 		t.Errorf("ta.Height() = %d, want the visible cap %d", got, maxContentLines)
 	}
-	if got, want := m.Height(), maxContentLines+4; got != want {
-		t.Errorf("Height() = %d, want %d (%d content lines + fill rows + edges)", got, want, maxContentLines)
+	if got, want := m.Height(), maxContentLines+2; got != want {
+		t.Errorf("Height() = %d, want %d (%d content lines + fill rows)", got, want, maxContentLines)
 	}
 	if !strings.Contains(m.View(), "last") {
 		t.Errorf("cursor line not scrolled into view:\n%s", m.View())
@@ -241,21 +241,18 @@ func TestPrompt_PanelShape(t *testing.T) {
 	rows := strings.Split(xansi.Strip(m.View()), "\n")
 	blank := strings.Repeat(" ", 20)
 	want := []string{
-		" " + strings.Repeat("▄", 19),
 		blank,
 		"  hi" + strings.Repeat(" ", 16),
 		blank,
-		" " + strings.Repeat("▀", 19),
 	}
 	if !slices.Equal(rows, want) {
 		t.Fatalf("rows = %q, want %q", rows, want)
 	}
 }
 
-// TestPrompt_BarOnlyWhileFocused: in INSERT (focused) column 0 is the bar
-// in the Bar color, exactly as tall as the panel: ▌ on the full rows, and
-// ▖/▘ (the lower/upper half of ▌) on the ▄/▀ edge rows, which the panel
-// only half fills. Blurred, column 0 is blank.
+// TestPrompt_BarOnlyWhileFocused: in INSERT (focused) column 0 is the ▌
+// bar in the Bar color on every row, exactly as tall as the panel.
+// Blurred, column 0 is blank.
 func TestPrompt_BarOnlyWhileFocused(t *testing.T) {
 	t.Parallel()
 
@@ -265,7 +262,7 @@ func TestPrompt_BarOnlyWhileFocused(t *testing.T) {
 	m.Focus()
 	view := m.View()
 	rows := strings.Split(xansi.Strip(view), "\n")
-	want := []string{"▖", "▌", "▌", "▌", "▘"}
+	want := []string{"▌", "▌", "▌"}
 	if len(rows) != len(want) {
 		t.Fatalf("got %d rows, want %d", len(rows), len(want))
 	}
@@ -320,8 +317,8 @@ func sameColor(a, b color.Color) bool {
 }
 
 // TestPrompt_FillIsTheSameFocusedOrNot: the panel always uses Fill (the
-// bar, not the fill, shows focus): behind every content cell, padding and
-// fill rows included, and as the ▄/▀ edges' color.
+// bar, not the fill, shows focus), behind every content cell, padding and
+// fill rows included.
 func TestPrompt_FillIsTheSameFocusedOrNot(t *testing.T) {
 	t.Parallel()
 
@@ -332,16 +329,11 @@ func TestPrompt_FillIsTheSameFocusedOrNot(t *testing.T) {
 	check := func(label string) {
 		t.Helper()
 		view := m.View()
-		for _, y := range []int{1, 2, 3} {
+		for _, y := range []int{0, 1, 2} {
 			for _, x := range []int{1, 19} {
 				if got := cellBg(t, view, x, y); !sameColor(got, fill) {
 					t.Errorf("%s: cell (%d,%d) bg = %v, want %v", label, x, y, got, fill)
 				}
-			}
-		}
-		for _, y := range []int{0, 4} {
-			if got := cellFg(t, view, 1, y); !sameColor(got, fill) {
-				t.Errorf("%s: edge row %d fg = %v, want %v", label, y, got, fill)
 			}
 		}
 	}
@@ -351,18 +343,25 @@ func TestPrompt_FillIsTheSameFocusedOrNot(t *testing.T) {
 	check("focused")
 }
 
-func TestPrompt_QueuedLabelOnTopEdge(t *testing.T) {
+// TestPrompt_QueuedLabelOnTopRow: the queued label sits right-aligned in
+// the top fill row, with the panel's padding after it, on the fill.
+func TestPrompt_QueuedLabelOnTopRow(t *testing.T) {
 	t.Parallel()
 
-	m := New(nil)
+	st := pinnedStyles()
+	m := New(nil, WithStyles(st))
 	m.SetWidth(30)
 	m.SetQueued(true)
-	rows := strings.Split(xansi.Strip(m.View()), "\n")
-	if !strings.HasSuffix(rows[0], " ⏳ queued ▄") {
-		t.Errorf("top edge = %q, want the queued label right-aligned", rows[0])
+	view := m.View()
+	rows := strings.Split(xansi.Strip(view), "\n")
+	if !strings.HasSuffix(rows[0], "⏳ queued ") {
+		t.Errorf("top row = %q, want the queued label right-aligned", rows[0])
 	}
 	if w := xansi.StringWidth(rows[0]); w != 30 {
-		t.Errorf("top edge width = %d, want 30", w)
+		t.Errorf("top row width = %d, want 30", w)
+	}
+	if got := cellBg(t, view, 29, 0); !sameColor(got, st.Fill.GetBackground()) {
+		t.Errorf("top row's last cell bg = %v, want the fill", got)
 	}
 }
 
@@ -510,10 +509,10 @@ func TestPrompt_PlaceholderTruncatesNarrow(t *testing.T) {
 	view := m.View()
 
 	lines := strings.Split(view, "\n")
-	if len(lines) != 1+chromeRows { // 1 content line + fill rows + edges
+	if len(lines) != 1+chromeRows { // 1 content line + fill rows
 		t.Fatalf("View() has %d lines, want %d (placeholder must stay on one line):\n%s", len(lines), 1+chromeRows, view)
 	}
-	content := lines[1+padY]
+	content := lines[padY]
 	if !strings.Contains(xansi.Strip(content), "…") {
 		t.Errorf("content line does not end in an ellipsis: %q", content)
 	}

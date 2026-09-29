@@ -338,10 +338,9 @@ func (s *sessionState) dropUser(id transcript.BlockID) []blocklist.Item {
 	out := make([]blocklist.Item, len(blocks))
 	for i, b := range blocks {
 		out[i] = blocklist.Item{
-			ID:        string(b.ID),
-			Version:   s.versions[b.ID],
-			Data:      s.data(b),
-			HalfEdges: b.Kind == transcript.KindUser,
+			ID:      string(b.ID),
+			Version: s.versions[b.ID],
+			Data:    s.data(b),
 		}
 	}
 	return out
@@ -421,12 +420,10 @@ func (s *sessionState) item(b transcript.Block) blocklist.Item {
 	} else {
 		delete(s.live, b.ID)
 	}
-	// A user block is a panel with ▄/▀ edges (renderUser).
 	return blocklist.Item{
-		ID:        string(b.ID),
-		Version:   s.versions[b.ID],
-		Data:      data,
-		HalfEdges: b.Kind == transcript.KindUser,
+		ID:      string(b.ID),
+		Version: s.versions[b.ID],
+		Data:    data,
 	}
 }
 

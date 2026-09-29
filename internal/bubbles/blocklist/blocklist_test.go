@@ -424,32 +424,6 @@ func TestView_TrackWithoutOverflow(t *testing.T) {
 	}
 }
 
-// A HalfEdges item's first and last lines are half-filled edges (▄/▀):
-// selected, those rows get ▖/▘ (the lower/upper half of the bar) and no
-// SelectedBg, so the bar spans exactly the filled part; its other rows are
-// drawn as usual.
-func TestView_HalfEdgesBar(t *testing.T) {
-	t.Parallel()
-	st := pinnedStyles()
-	items := []Item{{ID: "p", Version: 1, Data: "▄▄\nhi\n▀▀", HalfEdges: true}}
-	m := newList(12, 3, items)
-	rows := strings.Split(m.View(), "\n")
-	want := []string{st.Bar.Render("▖"), st.Bar.Render("▌"), st.Bar.Render("▘")}
-	for i, r := range rows {
-		if !strings.HasPrefix(r, want[i]) {
-			t.Errorf("row %d = %q, want it to start with %q", i, r, want[i])
-		}
-	}
-	for _, i := range []int{0, 2} {
-		if strings.Contains(rows[i], "\x1b[48;2;32;32;32m") {
-			t.Errorf("edge row %d = %q, want no SelectedBg", i, rows[i])
-		}
-	}
-	if !strings.Contains(rows[1], "\x1b[48;2;32;32;32m") {
-		t.Errorf("middle row %q lacks the SelectedBg background", rows[1])
-	}
-}
-
 func TestView_HighlightOff(t *testing.T) {
 	t.Parallel()
 	m := newList(12, 3, testItems("aa", "bb"))
