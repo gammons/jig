@@ -132,7 +132,7 @@ func TestBuild_PickerFromPalette(t *testing.T) {
 
 	want := picker.Styles{
 		Title:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
-		Header:   lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		Header:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
 		Text:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
 		Detail:   lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 		Match:    lipgloss.NewStyle().Bold(true).Underline(true).Foreground(lipgloss.Color(pickMatchColor(p))),
@@ -140,6 +140,9 @@ func TestBuild_PickerFromPalette(t *testing.T) {
 		Disabled: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 		Current:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
 		Mark:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Border:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
+		// Background is the picker's panel color.
+		Background: lipgloss.Color(p.Surface),
 	}
 	if !reflect.DeepEqual(set.Picker, want) {
 		t.Errorf("Picker = %+v, want %+v", set.Picker, want)
@@ -147,14 +150,10 @@ func TestBuild_PickerFromPalette(t *testing.T) {
 }
 
 // TestBuild_PickerMatchReadable guards against a picker match color that
-// vanishes into the picker's background. The App paints no background of
-// its own here: the picker draws no Background style, so its "background"
-// is whatever the terminal shows through — which jig has no way to read
-// back, so this test uses the palette's own Background field as the
-// stand-in for it (the same value every other widget's pane background
-// uses). WCAG's 3:1 (large/bold text) is the bar; ANSI-16-index palettes
-// have no known RGB for that background, so they're checked only for
-// having a foreground set at all.
+// vanishes into the picker's background, which is the palette's Surface
+// (picker.Styles.Background). WCAG's 3:1 (large/bold text) is the bar;
+// ANSI-16-index palettes have no known RGB for Surface, so they're
+// checked only for having a foreground set at all.
 func TestBuild_PickerMatchReadable(t *testing.T) {
 	t.Parallel()
 
@@ -169,12 +168,12 @@ func TestBuild_PickerMatchReadable(t *testing.T) {
 		if !reflect.DeepEqual(fg, lipgloss.Color(match)) {
 			t.Errorf("%s: picker Match foreground = %v, want pickMatchColor's %v", p.Name, fg, lipgloss.Color(match))
 		}
-		ratio, ok := Contrast(match, p.Background)
+		ratio, ok := Contrast(match, p.Surface)
 		if !ok {
-			continue // a bare ANSI-16 index Background: no RGB to measure.
+			continue // a bare ANSI-16 index Surface: no RGB to measure.
 		}
 		if ratio < 3.0 {
-			t.Errorf("%s: picker Match color %s has %.2f:1 contrast against Background %s, want >= 3:1", p.Name, match, ratio, p.Background)
+			t.Errorf("%s: picker Match color %s has %.2f:1 contrast against Surface %s, want >= 3:1", p.Name, match, ratio, p.Surface)
 		}
 	}
 }

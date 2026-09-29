@@ -161,21 +161,21 @@ func blocklistStyles(p Palette) blocklist.Styles {
 	}
 }
 
-// pickerStyles maps p onto picker.Styles: the title bar and current-item
-// marker use Primary, the cursor glyph and multi-select mark share
-// Accent, and headers/detail text/disabled items all fall back to
-// TextMuted. Matched runes use pickMatchColor: whichever of Warning,
-// Primary, Accent, or Text contrasts most with Background, bold and
-// underlined. Matches must not use SearchHighlightFg on its own: it is
-// meant to sit on SearchHighlightBg and is usually equal to Background,
-// so on the picker (which paints no background of its own — Background
-// stands in for whatever the terminal shows through) it vanishes.
-// Underline (on top of Bold) keeps a match distinguishable even on a
-// palette where the highest-contrast candidate is Text itself.
+// pickerStyles maps p onto picker.Styles: the title bar, current-item
+// marker, and the box border use Primary (the picker has focus while it
+// is open, like the prompt's focused border), group headers are bold
+// Primary like the sidebar's section headers (so they never read as a
+// disabled item), the cursor glyph and multi-select mark share Accent,
+// and detail text/disabled items fall back to TextMuted. The box is filled with Surface so it stands
+// apart from the Background-colored panes it floats over. Matched runes
+// use pickMatchColor: whichever of Warning, Primary, Accent, or Text
+// contrasts most with Surface, bold and underlined. Underline (on top of
+// Bold) keeps a match distinguishable even on a palette where the
+// highest-contrast candidate is Text itself.
 func pickerStyles(p Palette) picker.Styles {
 	return picker.Styles{
 		Title:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
-		Header:   lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		Header:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
 		Text:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
 		Detail:   lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 		Match:    lipgloss.NewStyle().Bold(true).Underline(true).Foreground(lipgloss.Color(pickMatchColor(p))),
@@ -183,6 +183,9 @@ func pickerStyles(p Palette) picker.Styles {
 		Disabled: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 		Current:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
 		Mark:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Border:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
+		// Background is Surface, the picker's panel color.
+		Background: lipgloss.Color(p.Surface),
 	}
 }
 

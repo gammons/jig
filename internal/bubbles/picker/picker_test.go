@@ -13,15 +13,17 @@ import (
 // pinnedStyles are fixed styles for goldens and exact-output assertions.
 func pinnedStyles() Styles {
 	return Styles{
-		Title:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ff0000")),
-		Header:   lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")),
-		Text:     lipgloss.NewStyle().Foreground(lipgloss.Color("#e0e0e0")),
-		Detail:   lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")),
-		Match:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ffaf00")),
-		Selected: lipgloss.NewStyle().Foreground(lipgloss.Color("#5fafff")),
-		Disabled: lipgloss.NewStyle().Foreground(lipgloss.Color("#606060")),
-		Current:  lipgloss.NewStyle().Foreground(lipgloss.Color("#5fff5f")),
-		Mark:     lipgloss.NewStyle().Foreground(lipgloss.Color("#5fafff")),
+		Title:      lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ff0000")),
+		Header:     lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")),
+		Text:       lipgloss.NewStyle().Foreground(lipgloss.Color("#e0e0e0")),
+		Detail:     lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")),
+		Match:      lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ffaf00")),
+		Selected:   lipgloss.NewStyle().Foreground(lipgloss.Color("#5fafff")),
+		Disabled:   lipgloss.NewStyle().Foreground(lipgloss.Color("#606060")),
+		Current:    lipgloss.NewStyle().Foreground(lipgloss.Color("#5fff5f")),
+		Mark:       lipgloss.NewStyle().Foreground(lipgloss.Color("#5fafff")),
+		Border:     lipgloss.NewStyle().Foreground(lipgloss.Color("#00ffff")),
+		Background: lipgloss.Color("#202020"),
 	}
 }
 
@@ -467,4 +469,33 @@ func TestGolden_PickerDrill(t *testing.T) {
 		}
 	}
 	golden.Assert(t, "picker_drill", m.View())
+}
+
+func TestPicker_BorderAndBackgroundCoverBox(t *testing.T) {
+	t.Parallel()
+	items := []Item{{ID: "new", Title: "New session", Detail: "ctrl+n"}}
+	m := New(loadFunc(map[string][]Item{"root": items}), WithStyles(pinnedStyles()))
+	m.SetSize(60, 20)
+	m = open(t, m, Level{ID: "root", Title: "Actions"})
+	out := m.View()
+
+	w, h := lipgloss.Width(out), lipgloss.Height(out)
+	if w != m.boxW || h != m.boxH {
+		t.Fatalf("View size = %dx%d, want %dx%d", w, h, m.boxW, m.boxH)
+	}
+	canvas := lipgloss.NewCanvas(w, h)
+	canvas.Compose(lipgloss.NewLayer(out))
+	if c := canvas.CellAt(0, 0); c == nil || c.Content != "╭" {
+		t.Errorf("top-left cell = %+v, want ╭", c)
+	}
+	if c := canvas.CellAt(w-1, h-1); c == nil || c.Content != "╯" {
+		t.Errorf("bottom-right cell = %+v, want ╯", c)
+	}
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			if c := canvas.CellAt(x, y); c != nil && c.Width > 0 && c.Style.Bg == nil {
+				t.Fatalf("cell (%d,%d) %q has no background", x, y, c.Content)
+			}
+		}
+	}
 }

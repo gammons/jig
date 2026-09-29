@@ -37,16 +37,17 @@ func linearize(c uint8) float64 {
 // pickMatchColor picks the picker's matched-rune color: whichever of
 // Warning, Primary, Accent, or Text (as a last resort, since it always
 // contrasts with a readable Background but defeats the point of a
-// highlight on its own) has the highest WCAG contrast against Background.
-// A bare ANSI-16 index Background has no known RGB, so those palettes
-// fall back to Primary, matching the rest of the picker's chrome.
+// highlight on its own) has the highest WCAG contrast against Surface,
+// the picker's background. A bare ANSI-16 index Surface has no known
+// RGB, so those palettes fall back to Primary, matching the rest of the
+// picker's chrome.
 func pickMatchColor(p Palette) string {
-	if _, _, _, ok := parseHex(p.Background); !ok {
+	if _, _, _, ok := parseHex(p.Surface); !ok {
 		return p.Primary
 	}
 	best, bestRatio := p.Primary, -1.0
 	for _, c := range []string{p.Warning, p.Primary, p.Accent, p.Text} {
-		if ratio, ok := Contrast(c, p.Background); ok && ratio > bestRatio {
+		if ratio, ok := Contrast(c, p.Surface); ok && ratio > bestRatio {
 			best, bestRatio = c, ratio
 		}
 	}

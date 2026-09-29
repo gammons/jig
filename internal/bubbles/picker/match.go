@@ -6,12 +6,14 @@ import (
 	"github.com/sahilm/fuzzy"
 )
 
-// rowKind distinguishes a group header from a selectable item row.
+// rowKind distinguishes a group header, a selectable item row, and the
+// blank gap between two groups.
 type rowKind int
 
 const (
 	rowHeader rowKind = iota
 	rowItem
+	rowGap
 )
 
 // row is one displayed line: either a group header or an item, carrying
@@ -45,7 +47,7 @@ func currentRow(rows []row) int {
 }
 
 // moveRow returns the nearest item row from cur in direction dir (+1/-1),
-// skipping headers. It returns cur unchanged when there is no item row in
+// skipping headers and gaps. It returns cur unchanged when there is no item row in
 // that direction (no wrapping).
 func moveRow(rows []row, cur, dir int) int {
 	for i := cur + dir; i >= 0 && i < len(rows); i += dir {
@@ -58,9 +60,16 @@ func moveRow(rows []row, cur, dir int) int {
 
 // groupedRows lays out items for an empty query: grouped by Item.Group in
 // first-appearance order under headers (no header for the "" group), with
-// an Actions level's Recent group (from recent, capped at 5) leading.
+// an Actions level's Recent group (from recent, capped at 5) leading and
+// a blank gap row between consecutive groups.
 func groupedRows(level Level, items []Item, recent []string) []row {
 	var rows []row
+	// gap separates a group from the one before it (never before the first).
+	gap := func() {
+		if len(rows) > 0 {
+			rows = append(rows, row{kind: rowGap})
+		}
+	}
 	if level.Actions {
 		if rec := recentGroup(items, recent, 5); len(rec) > 0 {
 			rows = append(rows, row{kind: rowHeader, header: "Recent"})
@@ -81,6 +90,7 @@ func groupedRows(level Level, items []Item, recent []string) []row {
 		groups[it.Group] = append(groups[it.Group], it)
 	}
 	for _, g := range order {
+		gap()
 		if g != "" {
 			rows = append(rows, row{kind: rowHeader, header: g})
 		}

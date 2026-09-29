@@ -134,8 +134,8 @@ func (m Model) IsOpen() bool { return m.open }
 // the filter tie-break on Actions levels.
 func (m *Model) SetRecent(ids []string) { m.recent = slices.Clone(ids) }
 
-// SetSize sets the outer terminal size; the box clamps to
-// width min(80, 70% termW), height <= 60% termH.
+// SetSize sets the outer terminal size; the box (border included) clamps
+// to width min(80, 70% termW), height <= 60% termH.
 func (m *Model) SetSize(termW, termH int) {
 	w := min(80, termW*7/10)
 	h := termH * 6 / 10
@@ -171,7 +171,10 @@ func (m *Model) push(level Level) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func inputWidth(boxW int) int { return max(1, boxW-4) }
+// inputWidth is the text input's width in a box boxW wide: the content
+// width (inside the border and padding) less the input's own
+// prompt/cursor cells.
+func inputWidth(boxW int) int { return max(1, contentWidth(boxW)-4) }
 
 func newFrame(level Level, boxW int) frame {
 	ti := textinput.New()

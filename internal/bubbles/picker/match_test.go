@@ -98,8 +98,31 @@ func TestGroupedRows_RecentCapAndGrouping(t *testing.T) {
 	if !slices.Equal(recentIDs, want) {
 		t.Fatalf("Recent group = %v, want %v", recentIDs, want)
 	}
-	if rows[i].kind != rowHeader || rows[i].header != "Session" {
-		t.Fatalf("first normal group header = %+v, want Session", rows[i])
+	if rows[i].kind != rowGap {
+		t.Fatalf("row after the Recent group = %+v, want a gap", rows[i])
+	}
+	if rows[i+1].kind != rowHeader || rows[i+1].header != "Session" {
+		t.Fatalf("first normal group header = %+v, want Session", rows[i+1])
+	}
+}
+
+func TestGroupedRows_GapBetweenGroupsOnly(t *testing.T) {
+	t.Parallel()
+	items := []Item{
+		{ID: "a", Title: "a", Group: "G"},
+		{ID: "b", Title: "b", Group: "H"},
+	}
+	rows := groupedRows(Level{}, items, nil)
+	var kinds []rowKind
+	for _, r := range rows {
+		kinds = append(kinds, r.kind)
+	}
+	want := []rowKind{rowHeader, rowItem, rowGap, rowHeader, rowItem}
+	if !slices.Equal(kinds, want) {
+		t.Fatalf("row kinds = %v, want %v (a gap between groups, none leading or trailing)", kinds, want)
+	}
+	if got := moveRow(rows, 1, +1); got != 4 {
+		t.Fatalf("moveRow from a past the gap = %d, want 4", got)
 	}
 }
 

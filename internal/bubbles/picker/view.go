@@ -1,11 +1,13 @@
 package picker
 
 import (
+	"image/color"
 	"strings"
 
 	"charm.land/lipgloss/v2"
 
 	"github.com/gammons/jig/internal/bubbles/ansi"
+	"github.com/gammons/jig/internal/bubbles/overlay"
 )
 
 // Styles holds the picker's look.
@@ -19,6 +21,10 @@ type Styles struct {
 	Disabled lipgloss.Style // disabled item title
 	Current  lipgloss.Style // "●" current-item marker
 	Mark     lipgloss.Style // multi-select mark glyph
+	Border   lipgloss.Style // the box border
+	// Background fills every cell of the box that has no background of
+	// its own; nil leaves the terminal's background showing through.
+	Background color.Color
 }
 
 // DefaultStyles returns fixed colors, independent of any theme.
@@ -33,27 +39,48 @@ func DefaultStyles() Styles {
 		Disabled: lipgloss.NewStyle().Faint(true),
 		Current:  lipgloss.NewStyle().Foreground(lipgloss.Color("#5fff5f")),
 		Mark:     lipgloss.NewStyle().Foreground(lipgloss.Color("#5fafff")),
+		Border:   lipgloss.NewStyle(),
 	}
 }
 
-// View renders the box only (title bar, query/input line, and the item
-// list); the caller centers it with overlay.Center.
+// View renders the box only (a rounded border and one column of padding
+// around the title bar, query/input line, and the item list, filled with
+// Styles.Background); the caller centers it with overlay.Center.
 func (m Model) View() string {
-	if m.boxW <= 0 || m.boxH <= 0 || len(m.stack) == 0 {
+	innerW, innerH := contentWidth(m.boxW), m.boxH-2
+	if innerW <= 0 || innerH <= 0 || len(m.stack) == 0 {
 		return ""
 	}
 	top := m.stack[len(m.stack)-1]
 
-	lines := make([]string, 0, m.boxH)
-	lines = append(lines, titleLine(m.styles, m.boxW, m.stack))
-	lines = append(lines, queryLine(m.boxW, top))
+	lines := make([]string, 0, innerH)
+	lines = append(lines, titleLine(m.styles, innerW, m.stack))
+	lines = append(lines, queryLine(innerW, top))
 	if !top.level.Input {
-		lines = append(lines, itemLines(m.styles, m.boxW, top, m.boxH-len(lines))...)
+		lines = append(lines, blankLine(innerW))
+		lines = append(lines, itemLines(m.styles, innerW, top, innerH-len(lines))...)
 	}
-	for len(lines) < m.boxH {
-		lines = append(lines, blankLine(m.boxW))
+	for len(lines) < innerH {
+		lines = append(lines, blankLine(innerW))
 	}
-	return strings.Join(lines[:m.boxH], "\n")
+	return overlay.Fill(bordered(m.styles.Border, lines[:innerH], innerW), m.styles.Background)
+}
+
+// contentWidth is the width inside the border and its padding.
+func contentWidth(boxW int) int { return boxW - 4 }
+
+// bordered wraps lines (each exactly innerW cells) in one column of
+// padding and a rounded border.
+func bordered(st lipgloss.Style, lines []string, innerW int) string {
+	b := lipgloss.RoundedBorder()
+	rows := make([]string, 0, len(lines)+2)
+	rows = append(rows, st.Render(b.TopLeft+strings.Repeat(b.Top, innerW+2)+b.TopRight))
+	left, right := st.Render(b.Left)+" ", " "+st.Render(b.Right)
+	for _, ln := range lines {
+		rows = append(rows, left+ln+right)
+	}
+	rows = append(rows, st.Render(b.BottomLeft+strings.Repeat(b.Bottom, innerW+2)+b.BottomRight))
+	return strings.Join(rows, "\n")
 }
 
 func titleLine(st Styles, boxW int, stack []frame) string {
@@ -105,6 +132,9 @@ func windowStart(n, cursor, h int) int {
 
 func rowLine(st Styles, boxW int, top frame, i int) string {
 	r := top.rows[i]
+	if r.kind == rowGap {
+		return blankLine(boxW)
+	}
 	if r.kind == rowHeader {
 		return padLine(st.Header.Render(ansi.Truncate(r.header, boxW, "")), boxW)
 	}

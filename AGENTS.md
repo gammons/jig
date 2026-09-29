@@ -326,6 +326,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | The growing prompt textarea: history walk, paste-collapse chips, an `$EDITOR` round trip, and a queued border title | `prompt.New(edit, opts...)` / `SetWidth`, `Height`, `SetAgent`, `SetQueued`, `SetHistory`, `Insert`, `Value`, `Reset`, `Focus`, `Blur`, `Update`, `View` in `internal/bubbles/prompt` |
 | Wrap styled text to a width, hard-breaking long words | `ansi.Wrap(s, width)` (also `ansi.Width`/`Truncate`/`Cut`) |
 | Center a modal box over a dimmed background | `overlay.Center(background, width, height, box, dim)` in `internal/bubbles/overlay` |
+| Paint a solid background under every cell of a box that has none | `overlay.Fill(box, bg)` in `internal/bubbles/overlay` |
 | Overlay a proportional scrollbar gutter onto rendered rows | `scrollbar.Overlay(visible, width, total, yOffset, visibleHeight, bg, trackFg, thumbFg)` / `scrollbar.Visible(total, visibleHeight)` in `internal/bubbles/scrollbar` |
 | Vim-style window split tree (layout, split/close/navigate) | `wintree.New()` / `(*Tree).Split`, `.Close`, `.Only`, `.Cycle`, `.NavigateDir`, `.SetFixed`, `.Layout`, `.ComputeRects` in `internal/bubbles/wintree` |
 | Render Markdown to width-wrapped terminal lines | `mdrender.New(opts...)` / `(*Renderer).Render(md, width)`, `.SetStyles(Styles)` in `internal/bubbles/mdrender` |
