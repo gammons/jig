@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"net/http"
 
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
@@ -16,15 +17,33 @@ import (
 	"github.com/gammons/jig/internal/core/ext"
 )
 
+// Option configures Factories.
+type Option func(*factoryOpts)
+
+type factoryOpts struct {
+	hc *http.Client
+}
+
+// WithHTTPClient makes every factory's provider send its requests through
+// c. A nil c leaves the providers' default HTTP client in place.
+func WithHTTPClient(c *http.Client) Option {
+	return func(o *factoryOpts) { o.hc = c }
+}
+
 // Factories returns the ext.ProviderFactory for every fantasy-backed
 // provider type jig supports out of the box.
-func Factories() []ext.ProviderFactory {
+func Factories(opts ...Option) []ext.ProviderFactory {
+	var o factoryOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
+	hc := o.hc
 	return []ext.ProviderFactory{
-		anthropicFactory{},
-		openaiFactory{},
-		openaiCompatFactory{},
-		openrouterFactory{},
-		googleFactory{},
+		anthropicFactory{hc: hc},
+		openaiFactory{hc: hc},
+		openaiCompatFactory{hc: hc},
+		openrouterFactory{hc: hc},
+		googleFactory{hc: hc},
 	}
 }
 
@@ -45,14 +64,17 @@ func baseURL(info core.ProviderInfo, cfg core.ProviderConfig) string {
 	return cmp.Or(cfg.BaseURL, info.Endpoint)
 }
 
-type anthropicFactory struct{}
+type anthropicFactory struct{ hc *http.Client }
 
 func (anthropicFactory) Type() string { return "anthropic" }
 
-func (anthropicFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, model string) (core.LLM, error) {
+func (f anthropicFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, model string) (core.LLM, error) {
 	opts := []anthropic.Option{anthropic.WithAPIKey(cfg.APIKey)}
 	if url := baseURL(info, cfg); url != "" {
 		opts = append(opts, anthropic.WithBaseURL(url))
+	}
+	if f.hc != nil {
+		opts = append(opts, anthropic.WithHTTPClient(f.hc))
 	}
 	p, err := anthropic.New(opts...)
 	if err != nil {
@@ -64,14 +86,17 @@ func (anthropicFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, mod
 	return newModel(p, model, applyAnthropicCacheToCall)
 }
 
-type openaiFactory struct{}
+type openaiFactory struct{ hc *http.Client }
 
 func (openaiFactory) Type() string { return "openai" }
 
-func (openaiFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, model string) (core.LLM, error) {
+func (f openaiFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, model string) (core.LLM, error) {
 	opts := []openai.Option{openai.WithAPIKey(cfg.APIKey)}
 	if url := baseURL(info, cfg); url != "" {
 		opts = append(opts, openai.WithBaseURL(url))
+	}
+	if f.hc != nil {
+		opts = append(opts, openai.WithHTTPClient(f.hc))
 	}
 	p, err := openai.New(opts...)
 	if err != nil {
@@ -80,14 +105,17 @@ func (openaiFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, model 
 	return newModel(p, model, nil)
 }
 
-type openaiCompatFactory struct{}
+type openaiCompatFactory struct{ hc *http.Client }
 
 func (openaiCompatFactory) Type() string { return "openai-compat" }
 
-func (openaiCompatFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, model string) (core.LLM, error) {
+func (f openaiCompatFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, model string) (core.LLM, error) {
 	opts := []openaicompat.Option{openaicompat.WithAPIKey(cfg.APIKey)}
 	if url := baseURL(info, cfg); url != "" {
 		opts = append(opts, openaicompat.WithBaseURL(url))
+	}
+	if f.hc != nil {
+		opts = append(opts, openaicompat.WithHTTPClient(f.hc))
 	}
 	p, err := openaicompat.New(opts...)
 	if err != nil {
@@ -98,26 +126,33 @@ func (openaiCompatFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, 
 
 // openrouterFactory has no base-URL override: fantasy's openrouter package
 // exposes no WithBaseURL option, always pointing at openrouter.DefaultURL.
-type openrouterFactory struct{}
+type openrouterFactory struct{ hc *http.Client }
 
 func (openrouterFactory) Type() string { return "openrouter" }
 
-func (openrouterFactory) New(_ core.ProviderInfo, cfg core.ProviderConfig, model string) (core.LLM, error) {
-	p, err := openrouter.New(openrouter.WithAPIKey(cfg.APIKey))
+func (f openrouterFactory) New(_ core.ProviderInfo, cfg core.ProviderConfig, model string) (core.LLM, error) {
+	opts := []openrouter.Option{openrouter.WithAPIKey(cfg.APIKey)}
+	if f.hc != nil {
+		opts = append(opts, openrouter.WithHTTPClient(f.hc))
+	}
+	p, err := openrouter.New(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("llm: openrouter: %w", err)
 	}
 	return newModel(p, model, nil)
 }
 
-type googleFactory struct{}
+type googleFactory struct{ hc *http.Client }
 
 func (googleFactory) Type() string { return "google" }
 
-func (googleFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, model string) (core.LLM, error) {
+func (f googleFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, model string) (core.LLM, error) {
 	opts := []google.Option{google.WithGeminiAPIKey(cfg.APIKey)}
 	if url := baseURL(info, cfg); url != "" {
 		opts = append(opts, google.WithBaseURL(url))
+	}
+	if f.hc != nil {
+		opts = append(opts, google.WithHTTPClient(f.hc))
 	}
 	p, err := google.New(opts...)
 	if err != nil {
