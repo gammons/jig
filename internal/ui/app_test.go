@@ -730,7 +730,7 @@ func TestApp_ToolDurationsFromClock(t *testing.T) {
 	ta.event(event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: call})
 	ta.clk.Advance(1200 * time.Millisecond)
 	ta.event(event.ToolCallFinished{Base: rootBase(), MessageID: "m1", Result: core.ToolResult{CallID: "c1", Name: "bash", Output: "ok"}})
-	if d := ta.app.sess.tools.durs["t/c1"]; d != 1200*time.Millisecond {
+	if d := ta.app.sess.times.durs["t/c1"]; d != 1200*time.Millisecond {
 		t.Errorf("duration = %v, want 1.2s", d)
 	}
 }
@@ -1010,7 +1010,7 @@ func TestApp_ThinkingSpinnerAnimatesUntilTextStarts(t *testing.T) {
 	ta.event(event.ReasoningDelta{Base: rootBase(), MessageID: "m1", Text: "hmm"})
 	line := func() string {
 		for _, r := range strings.Split(xansi.Strip(ta.view()), "\n") {
-			if strings.Contains(r, "thinking") {
+			if strings.Contains(r, "thinking") || strings.Contains(r, "thought for") {
 				return strings.TrimSpace(strings.TrimLeft(r, "▌ "))
 			}
 		}
@@ -1026,8 +1026,47 @@ func TestApp_ThinkingSpinnerAnimatesUntilTextStarts(t *testing.T) {
 	}
 	ta.event(event.TextDelta{Base: rootBase(), MessageID: "m1", Text: "answer"})
 	ta.fire()
-	if got := line(); !strings.HasPrefix(got, "∴ thinking") {
+	if got := line(); !strings.HasPrefix(got, "∴ ") {
 		t.Errorf("after text started, thinking line = %q, want the static ∴", got)
+	}
+}
+
+// TestApp_ThinkingDurationFromClock: once thinking ends, whether text or
+// a tool call follows or the step or run ends, the reasoning block reads
+// "∴ thought for <dur>", timed on the App clock from its first delta to
+// the event that ended it (not to the next streamTick).
+func TestApp_ThinkingDurationFromClock(t *testing.T) {
+	t.Parallel()
+	call := core.ToolCall{ID: "c1", Name: "bash", Input: []byte(`{"command":"ls"}`)}
+	tests := []struct {
+		name string
+		end  event.Event
+	}{
+		{"text follows", event.TextDelta{Base: rootBase(), MessageID: "m1", Text: "answer"}},
+		{"tool call follows", event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: call}},
+		{"step ends", event.StepFinished{Base: rootBase(), MessageID: "m1"}},
+		{"run cancelled", event.RunFailed{Base: rootBase(), Err: "cancelled"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ta := newTestApp(t)
+			ta.sendAndAdopt("Explain the build")
+			ta.event(event.MessageStarted{Base: rootBase(), MessageID: "m1", Agent: "build", Model: "anthropic/claude-sonnet-5"})
+			ta.event(event.ReasoningDelta{Base: rootBase(), MessageID: "m1", Text: "hmm"})
+			ta.clk.Advance(3 * time.Second)
+			ta.event(event.ReasoningDelta{Base: rootBase(), MessageID: "m1", Text: " more"})
+			ta.clk.Advance(1200 * time.Millisecond)
+			ta.event(tt.end)
+			ta.clk.Advance(5 * time.Second) // a late tick must not stretch it
+			ta.fire()
+			if d := ta.app.sess.times.durs["m/m1/0"]; d != 4200*time.Millisecond {
+				t.Errorf("duration = %v, want 4.2s", d)
+			}
+			if v := xansi.Strip(ta.view()); !strings.Contains(v, "∴ thought for 4.2s") {
+				t.Errorf("no \"∴ thought for 4.2s\" line in:\n%s", v)
+			}
+		})
 	}
 }
 
@@ -1069,6 +1108,7 @@ func TestApp_GoldenStreaming(t *testing.T) {
 	ta.sendAndAdopt("Explain the build")
 	ta.event(event.MessageStarted{Base: rootBase(), MessageID: "m1", Agent: "build", Model: "anthropic/claude-sonnet-5"})
 	ta.event(event.ReasoningDelta{Base: rootBase(), MessageID: "m1", Text: "Let me look at the Makefile first."})
+	ta.clk.Advance(2500 * time.Millisecond)
 	ta.event(event.TextDelta{Base: rootBase(), MessageID: "m1", Text: "The build runs **make check**:\n\n- `go test`\n- `golangci-lint`"})
 	call := core.ToolCall{ID: "c1", Name: "bash", Input: []byte(`{"command":"make check"}`)}
 	ta.event(event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: call})

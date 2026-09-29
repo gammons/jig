@@ -69,7 +69,7 @@ func (r *renderer) render(it blocklist.Item, width int, _ blocklist.Styles) []st
 	case transcript.KindText:
 		lines = r.md.Render(ansi.Sanitize(b.Text), width)
 	case transcript.KindReasoning:
-		lines = []string{r.fitLine(r.renderReasoning(b, data.Thinking, data.Frame), width)}
+		lines = []string{r.fitLine(r.renderReasoning(data.Thinking, data.Duration, data.Frame), width)}
 	case transcript.KindTool:
 		lines = []string{r.fitLine(r.renderTool(b, data.Duration, data.Frame), width)}
 	case transcript.KindSubagent:
@@ -111,25 +111,33 @@ func (r *renderer) renderUser(b transcript.Block, width int) []string {
 	return lines
 }
 
-// renderReasoning renders "∴ thinking · N words", or just "∴ thinking"
-// when the block has no words: Claude 5 models return empty thinking text
-// unless a summary display is requested, and "0 words" would misread as
-// "no thinking happened". While thinking (Projection.Thinking: the
-// model is still adding to this block), the running spinner replaces
-// "∴". The Streaming flag is never consulted: transcript leaves it set
-// on a block that is no longer the message's open block (until the step
-// ends), so using it here would show a stale spinner on a superseded
-// block.
-func (r *renderer) renderReasoning(b transcript.Block, thinking bool, frame int) string {
-	icon := "∴"
+// renderReasoning renders "∴ thought for <dur>" once the model has
+// finished thinking in this block, or "∴ thinking" while it still is and
+// for a block with no measured duration (durations are live-only, so a
+// resumed session has none). The reasoning text itself is never counted:
+// Claude models return it empty unless a summary is requested. While
+// thinking (Projection.Thinking: the model is still adding to this
+// block), the running spinner replaces "∴". The Streaming flag is never
+// consulted: transcript leaves it set on a block that is no longer the
+// message's open block (until the step ends), so using it here would
+// show a stale spinner on a superseded block.
+func (r *renderer) renderReasoning(thinking bool, dur time.Duration, frame int) string {
 	if thinking {
-		icon = string(spinnerGlyph(frame))
+		return r.set.Render.Dim.Render(string(spinnerGlyph(frame)) + " thinking")
 	}
-	n := len(strings.Fields(b.Text))
-	if n == 0 {
-		return r.set.Render.Dim.Render(icon + " thinking")
+	if dur <= 0 {
+		return r.set.Render.Dim.Render("∴ thinking")
 	}
-	return r.set.Render.Dim.Render(fmt.Sprintf("%s thinking · %d words", icon, n))
+	return r.set.Render.Dim.Render("∴ thought for " + thoughtFor(dur))
+}
+
+// thoughtFor formats a thinking duration: "4.2s" under a minute (bash's
+// format), else whole seconds as "1m15s".
+func thoughtFor(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	return d.Truncate(time.Second).String()
 }
 
 // renderTool renders one Tool block's line via toolLine, then applies the

@@ -123,7 +123,7 @@ A session projects to an ordered `[]Block`. Every block has a stable `ID` and a 
 |---|---|---|
 | `User` | prompt text, attachment names | `› you  <text>` (wrapped in full) |
 | `Text` | assistant markdown | rendered markdown (full height) |
-| `Reasoning` | thinking text | `∴ thinking · N words` |
+| `Reasoning` | thinking text | `∴ thinking` while thinking; `∴ thought for <dur>` once it ends (live only: a resumed session shows `∴ thinking`) |
 | `Tool` | call, result, state (`pending`, `awaiting-permission`, `running`, `ok`, `error`, `denied`, `cancelled`), media refs | `▸ <tool>  <summary>` (per-tool formatter, §5.3) |
 | `Subagent` | child session, agent, description, state, tool count, current tool, pending permission | `↳ <agent>  <description>  ⠋ N tools · <current>` |
 | `Notice` | run failed, cancelled, max steps, compaction summary | a dim line, or red for errors |

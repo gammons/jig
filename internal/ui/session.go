@@ -72,9 +72,10 @@ func (r *runState) returned(ran bool) bool {
 	return true
 }
 
-// toolTimes measures root tool calls (R22) by block: when each started,
-// and the duration of each finished one. Loaded blocks have none.
-type toolTimes struct {
+// blockTimes measures root blocks by ID, on the App clock: when each tool
+// call (R22) or reasoning block started, and the duration of each
+// finished one. Loaded blocks have none.
+type blockTimes struct {
 	starts map[transcript.BlockID]time.Time
 	durs   map[transcript.BlockID]time.Duration
 }
@@ -130,7 +131,7 @@ type sessionState struct {
 	usage    core.Usage
 	cost     float64
 	todos    []core.Todo
-	tools    toolTimes
+	times    blockTimes
 	versions map[transcript.BlockID]int
 	dirty    idSet
 	live     map[transcript.BlockID]bool
@@ -151,7 +152,7 @@ func newSessionState(id core.SessionID, clk clock.Clock, defaultModel string) *s
 
 // resetBlocks clears the per-block state a new projection invalidates.
 func (s *sessionState) resetBlocks() {
-	s.tools = toolTimes{starts: map[transcript.BlockID]time.Time{}, durs: map[transcript.BlockID]time.Duration{}}
+	s.times = blockTimes{starts: map[transcript.BlockID]time.Time{}, durs: map[transcript.BlockID]time.Duration{}}
 	s.dirty = idSet{}
 	s.live = map[transcript.BlockID]bool{}
 }
@@ -183,6 +184,7 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 	if ev.Session() != s.info.ID {
 		return applyResult{upsert: s.withDirty(ids)}
 	}
+	s.times.thinking(s.proj, ev, ids, s.clk.Now())
 	switch e := ev.(type) {
 	case event.TextDelta, event.ReasoningDelta:
 		for _, id := range ids {
@@ -234,13 +236,40 @@ func (s *sessionState) timeTools(ev event.Event, ids []transcript.BlockID) {
 	now := s.clk.Now()
 	for _, id := range ids {
 		if _, ok := ev.(event.ToolCallStarted); ok {
-			s.tools.starts[id] = now
+			s.times.starts[id] = now
 			continue
 		}
-		if start, ok := s.tools.starts[id]; ok {
-			s.tools.durs[id] = now.Sub(start)
-			delete(s.tools.starts, id)
+		if start, ok := s.times.starts[id]; ok {
+			s.times.durs[id] = now.Sub(start)
+			delete(s.times.starts, id)
 		}
+	}
+}
+
+// thinking runs after every root event: it records when a reasoning
+// block starts thinking (its first delta) and, once an event ends that
+// thinking (text or a tool call follows, the step or run ends), its
+// duration. It is measured at the event, not the next streamTick, so the
+// tick interval never pads it. The block itself stays live until a tick
+// re-renders it (sessionState.item), which picks the duration up.
+func (t blockTimes) thinking(proj *transcript.Projection, ev event.Event, ids []transcript.BlockID, now time.Time) {
+	if _, ok := ev.(event.ReasoningDelta); ok {
+		for _, id := range ids {
+			if _, started := t.starts[id]; started {
+				continue
+			}
+			if b, ok := proj.Block(id); ok && b.Thinking {
+				t.starts[id] = now
+			}
+		}
+	}
+	for id, start := range t.starts {
+		b, ok := proj.Block(id)
+		if !ok || b.Kind != transcript.KindReasoning || b.Thinking {
+			continue
+		}
+		t.durs[id] = now.Sub(start)
+		delete(t.starts, id)
 	}
 }
 
@@ -402,7 +431,7 @@ func (s *sessionState) item(b transcript.Block) blocklist.Item {
 func (s *sessionState) data(b transcript.Block) blockData {
 	return blockData{
 		Block:    b,
-		Duration: s.tools.durs[b.ID],
+		Duration: s.times.durs[b.ID],
 		Frame:    s.run.frame,
 		Thinking: b.Thinking,
 	}

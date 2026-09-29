@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	xansi "github.com/charmbracelet/x/ansi"
 
@@ -124,25 +125,32 @@ func TestRender_IgnoresSupersededStreamingFlag(t *testing.T) {
 	}
 }
 
-// TestRender_ReasoningWordCount: a reasoning block with text shows its
-// word count; one with no readable text (Claude 5 models return empty
-// thinking unless a summary is requested) shows just "∴ thinking", never
-// a misleading "0 words".
-func TestRender_ReasoningWordCount(t *testing.T) {
+// TestRender_ReasoningLabel: a finished reasoning block with a measured
+// duration reads "∴ thought for <dur>"; one without (a resumed session,
+// where durations are not stored) reads "∴ thinking". The reasoning text
+// never shows up in the label (no word count).
+func TestRender_ReasoningLabel(t *testing.T) {
 	t.Parallel()
 	set := darkSet()
 	r := newRenderer(&set)
 	tests := []struct {
-		name, text, want string
+		name string
+		text string
+		dur  time.Duration
+		want string
 	}{
-		{"with text", "one two three", "∴ thinking · 3 words"},
-		{"empty", "", "∴ thinking"},
-		{"whitespace only", " \n\t ", "∴ thinking"},
+		{"no duration", "one two three", 0, "∴ thinking"},
+		{"no duration, empty", "", 0, "∴ thinking"},
+		{"sub-second", "", 400 * time.Millisecond, "∴ thought for 0.4s"},
+		{"seconds, with text", "one two three", 4200 * time.Millisecond, "∴ thought for 4.2s"},
+		{"just under a minute", "", 59900 * time.Millisecond, "∴ thought for 59.9s"},
+		{"a minute", "", 60 * time.Second, "∴ thought for 1m0s"},
+		{"minutes", "", 75*time.Second + 400*time.Millisecond, "∴ thought for 1m15s"},
 	}
 	for _, tt := range tests {
 		got := xansi.Strip(renderOne(t, r, blockData{Block: transcript.Block{
 			Kind: transcript.KindReasoning, Text: tt.text,
-		}}, 80))
+		}, Duration: tt.dur}, 80))
 		if strings.TrimRight(got, " ") != tt.want {
 			t.Errorf("%s: rendered %q, want %q", tt.name, got, tt.want)
 		}
@@ -150,23 +158,23 @@ func TestRender_ReasoningWordCount(t *testing.T) {
 }
 
 // TestRender_ThinkingSpinner: while the model is still thinking the block
-// shows the bash spinner in place of "∴", advancing with Frame; once
-// thinking ends it's back to the static "∴".
+// shows the bash spinner in place of "∴", advancing with Frame, and no
+// duration even if one is set; once thinking ends it's the static "∴".
 func TestRender_ThinkingSpinner(t *testing.T) {
 	t.Parallel()
 	set := darkSet()
 	r := newRenderer(&set)
 	b := transcript.Block{Kind: transcript.KindReasoning, Text: "one two"}
 	at := func(thinking bool, frame int) string {
-		return strings.TrimRight(xansi.Strip(renderOne(t, r, blockData{Block: b, Thinking: thinking, Frame: frame}, 80)), " ")
+		return strings.TrimRight(xansi.Strip(renderOne(t, r, blockData{Block: b, Thinking: thinking, Frame: frame, Duration: time.Second}, 80)), " ")
 	}
-	if got, want := at(true, 0), string(spinnerGlyph(0))+" thinking · 2 words"; got != want {
+	if got, want := at(true, 0), string(spinnerGlyph(0))+" thinking"; got != want {
 		t.Errorf("thinking frame 0 = %q, want %q", got, want)
 	}
-	if got, want := at(true, 1), string(spinnerGlyph(1))+" thinking · 2 words"; got != want {
+	if got, want := at(true, 1), string(spinnerGlyph(1))+" thinking"; got != want {
 		t.Errorf("thinking frame 1 = %q, want %q", got, want)
 	}
-	if got, want := at(false, 1), "∴ thinking · 2 words"; got != want {
+	if got, want := at(false, 1), "∴ thought for 1.0s"; got != want {
 		t.Errorf("done thinking = %q, want %q", got, want)
 	}
 }
