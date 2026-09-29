@@ -11,9 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/bubbles/mdrender"
+	"github.com/gammons/jig/internal/bubbles/overlay"
 	"github.com/gammons/jig/internal/ui/theme"
 	"github.com/gammons/jig/internal/ui/transcript"
 )
@@ -95,22 +98,43 @@ func (r *renderer) fitLine(s string, width int) string {
 	return ansi.Truncate(s, width, "…")
 }
 
-// renderUser renders a User block: "› <text>", wrapped in full, with
-// a dim attachments line (R26) when present.
+// renderUser renders a User block as a filled panel, the same look as
+// the prompt it was typed in: a ▄ edge row, the text wrapped in full with
+// one column of padding each side, a dim attachments line (R26) when
+// present, and a ▀ edge row. The edges are drawn in the fill color, so
+// the panel gets a half-row margin without a border; every content cell
+// carries the fill (Render.User's background).
 func (r *renderer) renderUser(b transcript.Block, width int) []string {
+	rs := r.set.Render
+	bg := rs.User.GetBackground()
+	edge := lipgloss.NewStyle().Foreground(bg)
+	inner := max(width-2*userPadX, 1)
+	pad := strings.Repeat(" ", userPadX)
+	row := func(s string) string {
+		s = pad + s
+		return overlay.Fill(s+strings.Repeat(" ", max(0, width-ansi.Width(s))), bg)
+	}
+
+	lines := []string{edge.Render(strings.Repeat("▄", width))}
 	// Expand tabs before wrapping, so the wrap measures what is drawn.
 	text := strings.ReplaceAll(ansi.Sanitize(b.Text), "\t", "    ")
-	wrapped := ansi.Wrap("› "+text, max(width, 1))
-	lines := []string{r.set.Render.User.Render(wrapped)}
+	for _, l := range strings.Split(ansi.Wrap(text, inner), "\n") {
+		lines = append(lines, row(rs.User.Render(l)))
+	}
 	if len(b.Attachments) > 0 {
 		atts := make([]string, len(b.Attachments))
 		for i, a := range b.Attachments {
 			atts[i] = ansi.SanitizeLine(a)
 		}
-		lines = append(lines, r.set.Render.Dim.Render("  + "+strings.Join(atts, ", ")))
+		line := ansi.Truncate("  + "+strings.Join(atts, ", "), inner, "…")
+		lines = append(lines, row(rs.Dim.Render(line)))
 	}
-	return lines
+	return append(lines, edge.Render(strings.Repeat("▀", width)))
 }
+
+// userPadX is the number of blank, filled columns inside each side of a
+// user block's panel, matching the prompt's own padding.
+const userPadX = 1
 
 // renderReasoning renders "∴ thought for <dur>" once the model has
 // finished thinking in this block, or "∴ thinking" while it still is and

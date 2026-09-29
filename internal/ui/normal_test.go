@@ -281,6 +281,7 @@ func TestNormal_GoldenDetailsOpen(t *testing.T) {
 	ta := newTestApp(t, withSize(150, 40), withResume(core.Session{ID: "ses_1", Agent: "build"}, detailsGoldenMessages(), nil))
 	ta.key("esc")
 	ta.key("enter")
+	ta.fire() // the resize debounce: record the settled list width
 	golden.Assert(t, "app_details_open", ta.view())
 }
 
@@ -289,5 +290,6 @@ func TestNormal_GoldenNarrowDetails(t *testing.T) {
 	ta := newTestApp(t, withSize(100, 30), withResume(core.Session{ID: "ses_1", Agent: "build"}, detailsGoldenMessages(), nil))
 	ta.key("esc")
 	ta.key("enter")
+	ta.fire() // the resize debounce: record the settled list width
 	golden.Assert(t, "narrow_details", ta.view())
 }

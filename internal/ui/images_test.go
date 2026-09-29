@@ -239,6 +239,7 @@ func TestApp_GoldenImageDetails(t *testing.T) {
 	ta := newImageApp(t, "blocks", withSize(150, 40))
 	ta.key("esc")
 	ta.key("enter")
+	ta.fire() // the resize debounce: record the settled list width
 	if len(ta.raws) != 0 {
 		t.Fatalf("blocks protocol sent raw payloads: %q", ta.raws)
 	}

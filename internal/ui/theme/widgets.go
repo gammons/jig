@@ -2,6 +2,7 @@ package theme
 
 import (
 	"image/color"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 
@@ -138,20 +139,30 @@ func cardStyles(p Palette) permcard.Styles {
 	}
 }
 
-// promptStyles maps p onto prompt.Styles: the border uses the palette's
-// border color, switching to Primary while focused (INSERT mode) so the
-// active input stands out, the border title (used for "⏳ queued") uses Warning to
-// stand out as a state indicator (the same role Warning plays for code in
-// markdownStyles), and text/placeholder mirror the message pane's text
-// and its muted, faint variant.
+// promptStyles maps p onto prompt.Styles: the panel fill is panelFill
+// (the same color as a sent user block, so what you type looks like what
+// you sent), switching to ComposeInsertBG while focused (INSERT mode) so
+// the active input stands out; the top-edge label (used for "⏳ queued")
+// uses Warning to stand out as a state indicator, and text/placeholder
+// mirror the message pane's text and its muted, faint variant.
 func promptStyles(p Palette) prompt.Styles {
 	return prompt.Styles{
-		Border:      lipgloss.NewStyle().Foreground(lipgloss.Color(p.Border)),
-		FocusBorder: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
+		Fill:        lipgloss.NewStyle().Background(lipgloss.Color(panelFill(p))),
+		FocusFill:   lipgloss.NewStyle().Background(lipgloss.Color(p.ComposeInsertBG)),
 		Title:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Warning)),
 		Text:        lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
 		Placeholder: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 	}
+}
+
+// panelFill is the background of user-entered text: sent user blocks and
+// the unfocused prompt. It is Surface, unless the theme's Surface is its
+// Background (the panel would be invisible), then a light Text tint.
+func panelFill(p Palette) string {
+	if strings.EqualFold(p.Surface, p.Background) {
+		return mixColors(p.Text, p.Background, defaultTintAlpha)
+	}
+	return p.Surface
 }
 
 // blocklistStyles maps p onto blocklist.Styles: the selection bar uses

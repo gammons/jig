@@ -1102,7 +1102,7 @@ func TestApp_ThinkingDurationFromClock(t *testing.T) {
 }
 
 // TestApp_GapAbovePrompt: with a full, bottom-pinned transcript, the row
-// right above the prompt's top border is blank, not model output.
+// right above the prompt's top edge is blank, not model output.
 func TestApp_GapAbovePrompt(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
@@ -1116,19 +1116,21 @@ func TestApp_GapAbovePrompt(t *testing.T) {
 	ta.fire()
 
 	rows := strings.Split(xansi.Strip(ta.view()), "\n")
-	border := -1
+	// The prompt's ▄ edge is the last one on screen; a user block's panel
+	// edge above it would be an earlier one.
+	edge := -1
 	for i, r := range rows {
-		if strings.HasPrefix(r, "╭") {
-			border = i
+		if strings.HasPrefix(r, "▄▄▄") {
+			edge = i
 		}
 	}
-	if border < 2 {
-		t.Fatalf("prompt border not found (or at the top) in:\n%s", strings.Join(rows, "\n"))
+	if edge < 2 {
+		t.Fatalf("prompt top edge not found (or at the top) in:\n%s", strings.Join(rows, "\n"))
 	}
-	if got := strings.TrimSpace(rows[border-1]); got != "" {
-		t.Errorf("row above the prompt = %q, want blank", rows[border-1])
+	if got := strings.TrimSpace(rows[edge-1]); got != "" {
+		t.Errorf("row above the prompt = %q, want blank", rows[edge-1])
 	}
-	if got := strings.TrimSpace(rows[border-2]); got == "" {
+	if got := strings.TrimSpace(rows[edge-2]); got == "" {
 		t.Errorf("row two above the prompt is blank; want transcript output there (full, bottom-pinned transcript)")
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/gammons/jig/internal/bubbles/ansi"
+	"github.com/gammons/jig/internal/bubbles/overlay"
 )
 
 // minContentLines and maxContentLines are the exact spec numbers: the
@@ -51,9 +52,9 @@ type MentionMsg struct{}
 
 // Styles holds the prompt's look.
 type Styles struct {
-	Border      lipgloss.Style // border line color
-	FocusBorder lipgloss.Style // border line color while focused (INSERT mode)
-	Title       lipgloss.Style // border title text (e.g. "⏳ queued")
+	Fill        lipgloss.Style // panel background
+	FocusFill   lipgloss.Style // panel background while focused (INSERT mode)
+	Title       lipgloss.Style // top-edge label text (e.g. "⏳ queued")
 	Text        lipgloss.Style // typed/pasted text
 	Placeholder lipgloss.Style // placeholder text
 }
@@ -61,8 +62,8 @@ type Styles struct {
 // DefaultStyles returns fixed colors, independent of any theme.
 func DefaultStyles() Styles {
 	return Styles{
-		Border:      lipgloss.NewStyle(),
-		FocusBorder: lipgloss.NewStyle(),
+		Fill:        lipgloss.NewStyle(),
+		FocusFill:   lipgloss.NewStyle(),
 		Title:       lipgloss.NewStyle().Bold(true),
 		Text:        lipgloss.NewStyle(),
 		Placeholder: lipgloss.NewStyle().Faint(true),
@@ -136,16 +137,16 @@ func (m *Model) SetStyles(st Styles) {
 	m.ta.SetStyles(taStyles(st))
 }
 
-// SetWidth sets the outer width, including the border and the padX
-// columns of padding inside each side.
+// SetWidth sets the outer width, including the padX columns of padding
+// inside each side of the panel.
 func (m *Model) SetWidth(w int) {
 	m.width = w
-	m.ta.SetWidth(w - 2 - 2*padX)
+	m.ta.SetWidth(w - 2*padX)
 	m.syncPlaceholder()
 }
 
 // Height returns the total height: the textarea's current content height
-// (1-8 lines) plus the top and bottom border.
+// (1-8 lines) plus the top and bottom half-block edges.
 func (m Model) Height() int {
 	return m.ta.Height() + 2
 }
@@ -173,7 +174,7 @@ func (m *Model) syncPlaceholder() {
 	m.ta.Placeholder = ansi.Truncate(full, max(1, m.ta.Width()), "…")
 }
 
-// SetQueued sets whether the border title shows "⏳ queued".
+// SetQueued sets whether the top edge shows "⏳ queued".
 func (m *Model) SetQueued(q bool) { m.queued = q }
 
 // SetHistory sets the prompt history, oldest first, and cancels any walk
@@ -360,60 +361,58 @@ func (m Model) handleEdited(msg EditedMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the bordered box: the top border carries the "⏳ queued"
-// title when queued, and the border uses FocusBorder while focused.
+// View renders the filled panel: a row of ▄ above the content and ▀
+// below it, drawn in the fill color, so the panel gets a half-row edge
+// without a border. The fill is FocusFill while focused, else Fill; it
+// sits behind every content cell, the text included. The top edge carries
+// the "⏳ queued" label, right-aligned, when queued.
 func (m Model) View() string {
 	w := m.width
 	if w <= 0 {
-		w = m.ta.Width() + 2 + 2*padX
+		w = m.ta.Width() + 2*padX
 	}
-	b := lipgloss.RoundedBorder()
+	fill := m.styles.Fill
+	if m.ta.Focused() {
+		fill = m.styles.FocusFill
+	}
+	bg := fill.GetBackground()
+	edge := lipgloss.NewStyle().Foreground(bg)
+
 	title := ""
 	if m.queued {
 		title = "⏳ queued"
 	}
-	bs := m.styles.Border
-	if m.ta.Focused() {
-		bs = m.styles.FocusBorder
-	}
-
 	lines := strings.Split(m.ta.View(), "\n")
 	rows := make([]string, 0, len(lines)+2)
-	rows = append(rows, borderRow(w, b.TopLeft, b.Top, b.TopRight, title, bs, m.styles.Title))
+	rows = append(rows, edgeRow(w, "▄", title, edge, m.styles.Title))
 	pad := strings.Repeat(" ", padX)
 	for _, l := range lines {
-		rows = append(rows, bs.Render(b.Left)+pad+l+pad+bs.Render(b.Right))
+		row := pad + l
+		row += strings.Repeat(" ", max(0, w-ansi.Width(row)))
+		rows = append(rows, overlay.Fill(row, bg))
 	}
-	rows = append(rows, borderRow(w, b.BottomLeft, b.Bottom, b.BottomRight, "", bs, m.styles.Title))
+	rows = append(rows, edgeRow(w, "▀", "", edge, m.styles.Title))
 	return strings.Join(rows, "\n")
 }
 
-// borderRow renders one border line of width w, embedding title (if any)
-// centered with one fill rune of lead padding.
-func borderRow(w int, left, fill, right, title string, borderStyle, titleStyle lipgloss.Style) string {
-	inner := max(0, w-2)
-	var mid string
-	switch title {
-	case "":
-		mid = borderStyle.Render(strings.Repeat(fill, inner))
-	default:
-		label := " " + title + " "
-		lw := ansi.Width(label)
-		if lw >= inner {
-			mid = titleStyle.Render(ansi.Truncate(label, inner, ""))
-		} else {
-			lead, trail := 1, inner-lw-1
-			mid = borderStyle.Render(strings.Repeat(fill, lead)) +
-				titleStyle.Render(label) +
-				borderStyle.Render(strings.Repeat(fill, trail))
-		}
+// edgeRow renders one w-wide half-block edge of the panel, embedding
+// title (if any) right-aligned with one edge rune after it.
+func edgeRow(w int, glyph, title string, edge, titleStyle lipgloss.Style) string {
+	if title == "" {
+		return edge.Render(strings.Repeat(glyph, w))
 	}
-	return borderStyle.Render(left) + mid + borderStyle.Render(right)
+	label := " " + title + " "
+	lw := ansi.Width(label)
+	if lw >= w {
+		return titleStyle.Render(ansi.Truncate(label, w, ""))
+	}
+	lead := w - lw - 1
+	return edge.Render(strings.Repeat(glyph, lead)) + titleStyle.Render(label) + edge.Render(glyph)
 }
 
 // taStyles builds the textarea's Styles from st, with no cursor-line
 // highlight, prompt, or line-number styling (the prompt widget draws its
-// own border and has none of those).
+// own panel and has none of those). View paints the fill behind it.
 func taStyles(st Styles) textarea.Styles {
 	state := textarea.StyleState{
 		Base:        lipgloss.NewStyle(),

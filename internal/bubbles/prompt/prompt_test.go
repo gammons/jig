@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"image/color"
 	"strings"
 	"testing"
 
@@ -14,8 +15,8 @@ import (
 // pinnedStyles are fixed styles for goldens and exact-output assertions.
 func pinnedStyles() Styles {
 	return Styles{
-		Border:      lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")),
-		FocusBorder: lipgloss.NewStyle().Foreground(lipgloss.Color("#5fafff")),
+		Fill:        lipgloss.NewStyle().Background(lipgloss.Color("#303030")),
+		FocusFill:   lipgloss.NewStyle().Background(lipgloss.Color("#1c3a4a")),
 		Title:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ffaf00")),
 		Text:        lipgloss.NewStyle().Foreground(lipgloss.Color("#e0e0e0")),
 		Placeholder: lipgloss.NewStyle().Foreground(lipgloss.Color("#606060")),
@@ -225,7 +226,7 @@ func TestPrompt_PasteAtCapNeverDropped(t *testing.T) {
 	}
 }
 
-func TestPrompt_PadsContentInsideBorder(t *testing.T) {
+func TestPrompt_PanelShape(t *testing.T) {
 	t.Parallel()
 
 	m := New(nil)
@@ -241,29 +242,94 @@ func TestPrompt_PadsContentInsideBorder(t *testing.T) {
 			t.Errorf("row %d width = %d, want 20: %q", i, w, r)
 		}
 	}
-	if !strings.HasPrefix(rows[1], "│ hi") || !strings.HasSuffix(rows[1], " │") {
+	if rows[0] != strings.Repeat("▄", 20) {
+		t.Errorf("top edge = %q, want 20 ▄", rows[0])
+	}
+	if rows[2] != strings.Repeat("▀", 20) {
+		t.Errorf("bottom edge = %q, want 20 ▀", rows[2])
+	}
+	if !strings.HasPrefix(rows[1], " hi") || !strings.HasSuffix(rows[1], " ") {
 		t.Errorf("content row = %q, want one space of padding inside each side", rows[1])
 	}
 }
 
-func TestPrompt_FocusedUsesFocusBorder(t *testing.T) {
+// cellColors returns the foreground and background of the cell at (x, y)
+// of a rendered view.
+func cellColors(t *testing.T, view string, x, y int) (fg, bg color.Color) {
+	t.Helper()
+	c := lipgloss.NewCanvas(lipgloss.Width(view), lipgloss.Height(view))
+	c.Compose(lipgloss.NewLayer(view))
+	cell := c.CellAt(x, y)
+	if cell == nil {
+		t.Fatalf("no cell at (%d, %d)", x, y)
+	}
+	return cell.Style.Fg, cell.Style.Bg
+}
+
+func cellBg(t *testing.T, view string, x, y int) color.Color {
+	t.Helper()
+	_, bg := cellColors(t, view, x, y)
+	return bg
+}
+
+func cellFg(t *testing.T, view string, x, y int) color.Color {
+	t.Helper()
+	fg, _ := cellColors(t, view, x, y)
+	return fg
+}
+
+func sameColor(a, b color.Color) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	ar, ag, ab, aa := a.RGBA()
+	br, bg, bb, ba := b.RGBA()
+	return ar == br && ag == bg && ab == bb && aa == ba
+}
+
+func TestPrompt_FocusedUsesFocusFill(t *testing.T) {
 	t.Parallel()
 
 	st := pinnedStyles()
 	m := New(nil, WithStyles(st))
 	m.SetWidth(20)
-	corner := func(s lipgloss.Style) string { return s.Render("╭") }
+	check := func(label string, want lipgloss.Style) {
+		t.Helper()
+		view := m.View()
+		// The padding cell and the last cell of the content row both carry
+		// the fill, not just the typed text.
+		for _, x := range []int{0, 19} {
+			if got := cellBg(t, view, x, 1); !sameColor(got, want.GetBackground()) {
+				t.Errorf("%s: content cell %d bg = %v, want %v", label, x, got, want.GetBackground())
+			}
+		}
+		// The ▄/▀ edges are drawn in the fill color.
+		for _, y := range []int{0, 2} {
+			if got := cellFg(t, view, 0, y); !sameColor(got, want.GetBackground()) {
+				t.Errorf("%s: edge row %d fg = %v, want %v", label, y, got, want.GetBackground())
+			}
+		}
+	}
 
-	if got := m.View(); !strings.HasPrefix(got, corner(st.Border)) {
-		t.Errorf("blurred View() = %q, want it to start with Border %q", got, corner(st.Border))
-	}
+	check("blurred", st.Fill)
 	m.Focus()
-	if got := m.View(); !strings.HasPrefix(got, corner(st.FocusBorder)) {
-		t.Errorf("focused View() = %q, want it to start with FocusBorder %q", got, corner(st.FocusBorder))
-	}
+	check("focused", st.FocusFill)
 	m.Blur()
-	if got := m.View(); !strings.HasPrefix(got, corner(st.Border)) {
-		t.Errorf("re-blurred View() = %q, want it to start with Border %q", got, corner(st.Border))
+	check("re-blurred", st.Fill)
+}
+
+func TestPrompt_QueuedLabelOnTopEdge(t *testing.T) {
+	t.Parallel()
+
+	m := New(nil)
+	m.SetWidth(30)
+	m.SetQueued(true)
+	rows := strings.Split(xansi.Strip(m.View()), "\n")
+	if !strings.HasSuffix(rows[0], " ⏳ queued ▄") {
+		t.Errorf("top edge = %q, want the queued label right-aligned", rows[0])
+	}
+	if w := xansi.StringWidth(rows[0]); w != 30 {
+		t.Errorf("top edge width = %d, want 30", w)
 	}
 }
 

@@ -193,8 +193,8 @@ func TestBuild_PromptFromPalette(t *testing.T) {
 	set := Build(p, 3)
 
 	want := prompt.Styles{
-		Border:      lipgloss.NewStyle().Foreground(lipgloss.Color(p.Border)),
-		FocusBorder: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
+		Fill:        lipgloss.NewStyle().Background(lipgloss.Color(p.Surface)),
+		FocusFill:   lipgloss.NewStyle().Background(lipgloss.Color(p.ComposeInsertBG)),
 		Title:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Warning)),
 		Text:        lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
 		Placeholder: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
@@ -356,12 +356,36 @@ func TestBuild_RenderFromPalette(t *testing.T) {
 		Denied:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
 		Warn:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
 		Dim:     lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
-		User:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
+		User:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)).Background(lipgloss.Color(p.Surface)),
 		Added:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
 		Removed: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
 	}
 	if !reflect.DeepEqual(set.Render, want) {
 		t.Errorf("Render = %+v, want %+v", set.Render, want)
+	}
+}
+
+// A theme whose Surface equals its Background would draw an invisible
+// panel, so the user block and unfocused prompt fall back to a Text tint.
+func TestBuild_PanelFillFallsBackWhenSurfaceIsBackground(t *testing.T) {
+	t.Parallel()
+
+	p := Complete(Palette{
+		Name: "flat",
+		BaseColors: BaseColors{
+			Primary: "#111111", Accent: "#222222", Warning: "#333333", Error: "#444444",
+			Background: "#000000", Surface: "#000000", SurfaceDark: "#000000",
+			Text: "#ffffff", TextMuted: "#999999", Border: "#aaaaaa",
+		},
+	})
+	set := Build(p, 1)
+
+	want := lipgloss.Color(mixColors(p.Text, p.Background, defaultTintAlpha))
+	if got := set.Render.User.GetBackground(); !reflect.DeepEqual(got, want) {
+		t.Errorf("Render.User background = %v, want %v", got, want)
+	}
+	if got := set.Prompt.Fill.GetBackground(); !reflect.DeepEqual(got, want) {
+		t.Errorf("Prompt.Fill background = %v, want %v", got, want)
 	}
 }
 
