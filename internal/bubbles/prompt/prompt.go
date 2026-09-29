@@ -380,9 +380,11 @@ func (m Model) handleEdited(msg EditedMsg) (Model, tea.Cmd) {
 // the Fill color, so the panel gets a half-row edge without a border, and
 // padY blank fill rows between each edge and the text. The fill sits
 // behind every content cell, the text included, focused or not. Column 0
-// is the bar column: the ▌ focus bar on every row while focused (INSERT
-// mode), blank otherwise. The top edge carries the "⏳ queued" label,
-// right-aligned, when queued.
+// is the bar column: while focused (INSERT mode) the focus bar, exactly
+// as tall as the panel — ▌ on its full rows, and ▖/▘ (the lower/upper
+// half of ▌) on the edge rows, which the panel only half fills; blank
+// otherwise. The top edge carries the "⏳ queued" label, right-aligned,
+// when queued.
 func (m Model) View() string {
 	w := m.width
 	if w <= 0 {
@@ -391,9 +393,12 @@ func (m Model) View() string {
 	pw := max(w-barW, 0)
 	bg := m.styles.Fill.GetBackground()
 	edge := lipgloss.NewStyle().Foreground(bg)
-	bar := strings.Repeat(" ", barW)
+	blank := strings.Repeat(" ", barW)
+	bar, barTop, barBottom := blank, blank, blank
 	if m.ta.Focused() {
 		bar = m.styles.Bar.Render("▌")
+		barTop = m.styles.Bar.Render("▖")
+		barBottom = m.styles.Bar.Render("▘")
 	}
 
 	title := ""
@@ -407,7 +412,7 @@ func (m Model) View() string {
 	}
 	lines := strings.Split(m.ta.View(), "\n")
 	rows := make([]string, 0, len(lines)+chromeRows)
-	rows = append(rows, bar+edgeRow(pw, "▄", title, edge, m.styles.Title))
+	rows = append(rows, barTop+edgeRow(pw, "▄", title, edge, m.styles.Title))
 	for range padY {
 		rows = append(rows, fillRow(""))
 	}
@@ -417,7 +422,7 @@ func (m Model) View() string {
 	for range padY {
 		rows = append(rows, fillRow(""))
 	}
-	rows = append(rows, bar+edgeRow(pw, "▀", "", edge, m.styles.Title))
+	rows = append(rows, barBottom+edgeRow(pw, "▀", "", edge, m.styles.Title))
 	return strings.Join(rows, "\n")
 }
 

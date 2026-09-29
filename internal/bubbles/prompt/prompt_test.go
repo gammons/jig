@@ -252,8 +252,10 @@ func TestPrompt_PanelShape(t *testing.T) {
 	}
 }
 
-// TestPrompt_BarOnlyWhileFocused: in INSERT (focused) every row's column 0
-// is the ▌ bar in the Bar color; blurred, column 0 is blank.
+// TestPrompt_BarOnlyWhileFocused: in INSERT (focused) column 0 is the bar
+// in the Bar color, exactly as tall as the panel: ▌ on the full rows, and
+// ▖/▘ (the lower/upper half of ▌) on the ▄/▀ edge rows, which the panel
+// only half fills. Blurred, column 0 is blank.
 func TestPrompt_BarOnlyWhileFocused(t *testing.T) {
 	t.Parallel()
 
@@ -263,9 +265,13 @@ func TestPrompt_BarOnlyWhileFocused(t *testing.T) {
 	m.Focus()
 	view := m.View()
 	rows := strings.Split(xansi.Strip(view), "\n")
+	want := []string{"▖", "▌", "▌", "▌", "▘"}
+	if len(rows) != len(want) {
+		t.Fatalf("got %d rows, want %d", len(rows), len(want))
+	}
 	for y, r := range rows {
-		if !strings.HasPrefix(r, "▌") {
-			t.Errorf("focused row %d = %q, want it to start with ▌", y, r)
+		if !strings.HasPrefix(r, want[y]) {
+			t.Errorf("focused row %d = %q, want it to start with %s", y, r, want[y])
 		}
 		if got := cellFg(t, view, 0, y); !sameColor(got, st.Bar.GetForeground()) {
 			t.Errorf("focused row %d bar fg = %v, want %v", y, got, st.Bar.GetForeground())
