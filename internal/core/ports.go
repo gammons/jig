@@ -111,6 +111,9 @@ type ProjectService interface {
 	// inside the workdir, the runtime's private spill dir, or the blob
 	// store's directory, and be at most 10 MiB.
 	ReadFile(ctx context.Context, path string) ([]byte, error)
+	// Branch returns the workdir's checked-out git branch (a detached
+	// HEAD as its short SHA), or "" outside a git repository.
+	Branch(ctx context.Context) (string, error)
 }
 
 // BlobService is the port the UIs call to open a stored attachment or

@@ -156,7 +156,7 @@ func tick(d time.Duration, msg tea.Msg) tea.Cmd {
 func (a *App) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		a.w.prompt.Focus(), tea.RequestTerminalVersion, waitEvent(a.sub),
-		prefsCmd(a.ports), agentsCmd(a.ports), catalogCmd(a.ports),
+		prefsCmd(a.ports), agentsCmd(a.ports), catalogCmd(a.ports), branchCmd(a.ctx, a.ports),
 	}
 	if a.opts.Session != "" {
 		cmds = append(cmds, resumeCmd(a.ctx, a.ports, a.opts.Session))
@@ -333,6 +333,8 @@ func (a *App) onPortResult(msg tea.Msg) {
 		a.w.prompt.SetAgent(ansi.SanitizeLine(a.sess.info.Agent))
 	case catalogMsg:
 		a.sess.cat.providers = msg.providers
+	case branchMsg:
+		a.sess.cat.branch = ansi.SanitizeLine(msg.branch)
 	case resumeMsg:
 		if msg.err != nil {
 			a.view.hint = "session: " + ansi.SanitizeLine(msg.err.Error())

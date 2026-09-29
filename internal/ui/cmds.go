@@ -182,6 +182,24 @@ func catalogCmd(p Ports) tea.Cmd {
 	return func() tea.Msg { return catalogMsg{providers: p.Catalog.Providers()} }
 }
 
+// branchMsg is the workdir's git branch ("" outside a repo or on error).
+type branchMsg struct{ branch string }
+
+// branchCmd reads the workdir's git branch through p.Project. A failure
+// just hides the branch.
+func branchCmd(ctx context.Context, p Ports) tea.Cmd {
+	if p.Project == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		b, err := p.Project.Branch(ctx)
+		if err != nil {
+			return branchMsg{}
+		}
+		return branchMsg{branch: b}
+	}
+}
+
 // editorCmd prepares an $EDITOR round trip over text through p.Editor. A
 // failure comes back as a prompt.EditedMsg with Err set.
 func editorCmd(p Ports, text string) tea.Cmd {

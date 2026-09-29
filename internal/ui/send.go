@@ -237,14 +237,16 @@ func (s sender) afterRun() tea.Cmd {
 	return s.idle()
 }
 
-// idle runs what waited for no send to be in flight: re-reading a
-// session whose resume arrived mid-send.
+// idle runs what waited for no send to be in flight: re-reading the git
+// branch (the run may have switched it) and a session whose resume
+// arrived mid-send.
 func (s sender) idle() tea.Cmd {
 	a := s.a
+	branch := branchCmd(a.ctx, a.ports)
 	id := a.view.resumeHeld
 	if id == "" || a.sess.run.busy() {
-		return nil
+		return branch
 	}
 	a.view.resumeHeld = ""
-	return resumeCmd(a.ctx, a.ports, id)
+	return tea.Batch(branch, resumeCmd(a.ctx, a.ports, id))
 }

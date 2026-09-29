@@ -92,6 +92,11 @@ func (p projectPort) Files(ctx context.Context) ([]core.ProjectFile, error) {
 	return out, nil
 }
 
+// Branch returns p.workDir's git branch (see search.GitBranch).
+func (p projectPort) Branch(ctx context.Context) (string, error) {
+	return search.GitBranch(ctx, p.workDir)
+}
+
 // ReadFile resolves path against p.workDir (if relative), confines it to
 // the workdir, spill dir, or blob dir, rejects anything but a regular
 // file (a symlink or FIFO could otherwise block the caller forever), and

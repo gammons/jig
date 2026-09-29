@@ -181,6 +181,22 @@ func TestProjectPort_FilesMarksModified(t *testing.T) {
 	}
 }
 
+func TestProjectPort_Branch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "feat/status")
+
+	got, err := projectPort{workDir: dir}.Branch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "feat/status" {
+		t.Errorf("Branch = %q, want %q", got, "feat/status")
+	}
+}
+
 func TestEditorPort_RoundTrip(t *testing.T) {
 	spillDir := t.TempDir()
 	scriptPath := filepath.Join(t.TempDir(), "editor.sh")

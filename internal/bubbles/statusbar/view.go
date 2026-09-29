@@ -1,6 +1,7 @@
 package statusbar
 
 import (
+	"image/color"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -8,111 +9,183 @@ import (
 	"github.com/gammons/jig/internal/bubbles/ansi"
 )
 
-// Styles holds the bar's look. Each segment has its own style so the run
-// state and indicators can stand out from the plain text around them.
+// Powerline glyphs (Nerd Font private-use code points).
+const (
+	sepRight   = "\ue0b0" // solid right-pointing arrow
+	sepLeft    = "\ue0b2" // solid left-pointing arrow
+	branchIcon = "\ue0a0" // version-control branch
+)
+
+// Styles holds the bar's look, in lualine's terms: a Mode* block (fg and
+// bg) for sections a and z, B (fg and bg) for the branch and ctx/cost,
+// and C (fg and bg) for the filler. Running, Idle, Warn, and Hint are
+// foregrounds drawn over C's background.
 type Styles struct {
-	Mode    lipgloss.Style // "[MODE]"
-	Text    lipgloss.Style // agent · model, ctx/cost
-	Running lipgloss.Style // "⠋ running 12s"
-	Idle    lipgloss.Style // "idle"
-	Warn    lipgloss.Style // "⚠ N", "⏳", "untrusted"
-	Hint    lipgloss.Style // the caller-supplied Hint
-	Dim     lipgloss.Style // the right-aligned "ctrl+p" reminder
+	ModeNormal lipgloss.Style
+	ModeInsert lipgloss.Style
+	ModePicker lipgloss.Style
+	B          lipgloss.Style // branch, ctx/cost
+	C          lipgloss.Style // filler: agent · model
+	Running    lipgloss.Style // "⠋ running 12s"
+	Idle       lipgloss.Style // "idle"
+	Warn       lipgloss.Style // "⚠ N", "⏳", "untrusted"
+	Hint       lipgloss.Style // the caller-supplied Hint
 }
 
 // DefaultStyles returns fixed colors, independent of any theme.
 func DefaultStyles() Styles {
+	mode := func(bg string) lipgloss.Style {
+		return lipgloss.NewStyle().Bold(true).
+			Foreground(lipgloss.Color("#1c1c1c")).Background(lipgloss.Color(bg))
+	}
 	return Styles{
-		Mode:    lipgloss.NewStyle().Bold(true),
-		Text:    lipgloss.NewStyle(),
-		Running: lipgloss.NewStyle().Foreground(lipgloss.Color("#5fafff")),
-		Idle:    lipgloss.NewStyle().Faint(true),
-		Warn:    lipgloss.NewStyle().Foreground(lipgloss.Color("#ffaf00")),
-		Hint:    lipgloss.NewStyle().Foreground(lipgloss.Color("#ffaf00")),
-		Dim:     lipgloss.NewStyle().Faint(true),
+		ModeNormal: mode("#5fafff"),
+		ModeInsert: mode("#87d787"),
+		ModePicker: mode("#ffaf00"),
+		B:          lipgloss.NewStyle().Foreground(lipgloss.Color("#e4e4e4")).Background(lipgloss.Color("#444444")),
+		C:          lipgloss.NewStyle().Foreground(lipgloss.Color("#bcbcbc")).Background(lipgloss.Color("#262626")),
+		Running:    lipgloss.NewStyle().Foreground(lipgloss.Color("#5fafff")),
+		Idle:       lipgloss.NewStyle().Faint(true),
+		Warn:       lipgloss.NewStyle().Foreground(lipgloss.Color("#ffaf00")),
+		Hint:       lipgloss.NewStyle().Foreground(lipgloss.Color("#ffaf00")),
 	}
 }
 
-// segment is one piece of the bar's left side, in display order.
-type segment struct {
-	text  string
-	style lipgloss.Style
+// Droppable segments, as indices into State-derived text.
+const (
+	segAgent = iota
+	segRun
+	segBranch
+	segHint
+	segIndicators
+	segCtx
+	segCount
+)
+
+// dropOrder lists segments in the order they are dropped when the bar is
+// too narrow: cost/context first, then the indicators, the hint, the
+// branch, the run state, and agent/model last. The mode and ctrl+p blocks
+// are never dropped.
+func dropOrder() [segCount]int {
+	return [segCount]int{segCtx, segIndicators, segHint, segBranch, segRun, segAgent}
 }
 
-// dropOrder lists segment indices (into the array segments() returns) in
-// the order they are dropped when the bar is too narrow: cost/context
-// first, then the indicators, then the hint, then the run state, and
-// agent/model last. The mode badge (index 0) is never dropped.
-func dropOrder() [5]int { return [5]int{3, 4, 5, 2, 1} }
-
-// segments returns the bar's segments in display order: mode, agent ·
-// model, run state, ctx/cost, indicators, hint.
-func segments(s State, st Styles) [6]segment {
-	runState := "idle"
-	runStyle := st.Idle
-	if s.Running {
-		runState = string(spinnerFrame(s.Frame)) + " running " + formatElapsed(s.Elapsed)
-		runStyle = st.Running
-	}
-	agentModel := ""
+// texts returns each droppable segment's plain text ("" when empty).
+func texts(s State) [segCount]string {
+	var t [segCount]string
 	if s.Agent != "" || s.Model != "" {
-		agentModel = s.Agent + " · " + s.Model
+		t[segAgent] = s.Agent + " · " + s.Model
 	}
-	return [6]segment{
-		{"[" + s.Mode + "]", st.Mode},
-		{agentModel, st.Text},
-		{runState, runStyle},
-		{"ctx " + formatCtx(s.CtxUsed, s.CtxLimit) + " · " + formatCost(s.CostUSD), st.Text},
-		{indicatorsText(s), st.Warn},
-		{s.Hint, st.Hint},
+	t[segRun] = "idle"
+	if s.Running {
+		t[segRun] = string(spinnerFrame(s.Frame)) + " running " + formatElapsed(s.Elapsed)
 	}
+	if s.Branch != "" {
+		t[segBranch] = branchIcon + " " + s.Branch
+	}
+	t[segHint] = s.Hint
+	t[segIndicators] = indicatorsText(s)
+	t[segCtx] = "ctx " + formatCtx(s.CtxUsed, s.CtxLimit) + " · " + formatCost(s.CostUSD)
+	return t
+}
+
+// modeStyle picks the block style for mode; unknown modes use NORMAL's.
+func (st Styles) modeStyle(mode string) lipgloss.Style {
+	switch mode {
+	case "INSERT":
+		return st.ModeInsert
+	case "PICKER":
+		return st.ModePicker
+	}
+	return st.ModeNormal
+}
+
+// arrow renders glyph with fg as its foreground and bg as its background,
+// the powerline join between two blocks.
+func arrow(glyph string, fg, bg color.Color) string {
+	return lipgloss.NewStyle().Foreground(fg).Background(bg).Render(glyph)
 }
 
 // View renders the bar to exactly m.width cells, or "" when no width has
-// been set. Segments are dropped from the middle (dropOrder), then the
-// remaining left content is hard-truncated, before the right-aligned
-// ctrl+p hint is ever touched.
+// been set. Segments are dropped (dropOrder) until the bar fits, then the
+// left side is hard-truncated before the right side is ever touched.
 func (m Model) View() string {
 	if m.width <= 0 {
 		return ""
 	}
-	segs := segments(m.state, m.styles)
-	active := [6]bool{}
-	for i, sg := range segs {
-		active[i] = sg.text != ""
+	t := texts(m.state)
+	var on [segCount]bool
+	for i, s := range t {
+		on[i] = s != ""
 	}
-
-	right := m.styles.Dim.Render("ctrl+p")
-	rightW := ansi.Width(right)
-
-	left := joinActive(segs, active)
+	left, right := m.sides(t, on)
 	for _, di := range dropOrder() {
-		if ansi.Width(left)+1+rightW <= m.width {
+		if ansi.Width(left)+ansi.Width(right) <= m.width {
 			break
 		}
-		if active[di] {
-			active[di] = false
-			left = joinActive(segs, active)
+		if on[di] {
+			on[di] = false
+			left, right = m.sides(t, on)
 		}
 	}
 
-	leftAvail := max(0, m.width-rightW-1)
+	rightW := ansi.Width(right)
+	leftAvail := max(0, m.width-rightW)
 	if ansi.Width(left) > leftAvail {
 		left = ansi.Truncate(left, leftAvail, "…")
 	}
-
 	gap := max(0, m.width-ansi.Width(left)-rightW)
-	line := left + strings.Repeat(" ", gap) + right
+	line := left + m.styles.C.Render(strings.Repeat(" ", gap)) + right
 	return ansi.Truncate(line, m.width, "")
 }
 
-// joinActive renders every active segment and joins them with two spaces.
-func joinActive(segs [6]segment, active [6]bool) string {
-	parts := make([]string, 0, len(segs))
-	for i, sg := range segs {
-		if active[i] {
-			parts = append(parts, sg.style.Render(sg.text))
+// sides renders the bar's left (a, b, c) and right (x, y, z) halves with
+// only the segments marked on. The filler between them is added by View.
+func (m Model) sides(t [segCount]string, on [segCount]bool) (string, string) {
+	st := m.styles
+	mode := st.modeStyle(m.state.Mode)
+	modeBg, bBg, cBg := mode.GetBackground(), st.B.GetBackground(), st.C.GetBackground()
+
+	var l strings.Builder
+	l.WriteString(mode.Render(" " + m.state.Mode + " "))
+	if on[segBranch] {
+		l.WriteString(arrow(sepRight, modeBg, bBg))
+		l.WriteString(st.B.Render(" " + t[segBranch] + " "))
+		l.WriteString(arrow(sepRight, bBg, cBg))
+	} else {
+		l.WriteString(arrow(sepRight, modeBg, cBg))
+	}
+	for _, p := range []struct {
+		i  int
+		st lipgloss.Style
+	}{{segAgent, st.C}, {segRun, m.runStyle()}, {segHint, st.Hint}} {
+		if on[p.i] {
+			l.WriteString(st.C.Render(" "))
+			l.WriteString(p.st.Inherit(st.C).Render(t[p.i]))
+			l.WriteString(st.C.Render(" "))
 		}
 	}
-	return strings.Join(parts, "  ")
+
+	var r strings.Builder
+	if on[segIndicators] {
+		r.WriteString(st.Warn.Inherit(st.C).Render(t[segIndicators]))
+		r.WriteString(st.C.Render(" "))
+	}
+	zFrom := cBg
+	if on[segCtx] {
+		r.WriteString(arrow(sepLeft, bBg, cBg))
+		r.WriteString(st.B.Render(" " + t[segCtx] + " "))
+		zFrom = bBg
+	}
+	r.WriteString(arrow(sepLeft, modeBg, zFrom))
+	r.WriteString(mode.Render(" ctrl+p "))
+	return l.String(), r.String()
+}
+
+// runStyle is the run-state segment's foreground.
+func (m Model) runStyle() lipgloss.Style {
+	if m.state.Running {
+		return m.styles.Running
+	}
+	return m.styles.Idle
 }

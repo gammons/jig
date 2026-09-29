@@ -265,14 +265,20 @@ func TestBuild_StatusFromPalette(t *testing.T) {
 
 	set := Build(p, 3)
 
+	mode := func(bg string) lipgloss.Style {
+		return lipgloss.NewStyle().Bold(true).
+			Foreground(lipgloss.Color(p.Background)).Background(lipgloss.Color(bg))
+	}
 	want := statusbar.Styles{
-		Mode:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
-		Text:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
-		Running: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
-		Idle:    lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
-		Warn:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
-		Hint:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
-		Dim:     lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		ModeNormal: mode(p.Primary),
+		ModeInsert: mode(p.Accent),
+		ModePicker: mode(p.Warning),
+		B:          lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)).Background(lipgloss.Color(p.Border)),
+		C:          lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)).Background(lipgloss.Color(p.SurfaceDark)),
+		Running:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Idle:       lipgloss.NewStyle().Foreground(lipgloss.Color(p.TextMuted)),
+		Warn:       lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
+		Hint:       lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
 	}
 	if !reflect.DeepEqual(set.Status, want) {
 		t.Errorf("Status = %+v, want %+v", set.Status, want)

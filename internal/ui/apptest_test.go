@@ -192,11 +192,20 @@ type fakeCatalog []core.ProviderStatus
 func (f fakeCatalog) Providers() []core.ProviderStatus { return slices.Clone(f) }
 
 // listProject implements core.ProjectService: Files returns files;
-// ReadFile always fails.
-type listProject struct{ files []core.ProjectFile }
+// Branch returns branch (counting calls); ReadFile always fails.
+type listProject struct {
+	files    []core.ProjectFile
+	branch   string
+	branches int
+}
 
 func (f *listProject) Files(context.Context) ([]core.ProjectFile, error) {
 	return slices.Clone(f.files), nil
+}
+
+func (f *listProject) Branch(context.Context) (string, error) {
+	f.branches++
+	return f.branch, nil
 }
 
 func (f *listProject) ReadFile(context.Context, string) ([]byte, error) {

@@ -68,20 +68,28 @@ func Build(p Palette, version int) Set {
 	}
 }
 
-// statusStyles maps p onto statusbar.Styles: the mode badge and the
-// running indicator use Primary/Accent to stand out, idle and the dim
-// ctrl+p hint fall back to TextMuted (faint, like every other hint), and
-// the indicators/Hint segments share Warning, the palette's one
-// stand-out-and-needs-attention color.
+// statusStyles maps p onto statusbar.Styles, lualine-style: the mode
+// blocks (sections a and z) are Background text on a per-mode color —
+// Primary for NORMAL, Accent for INSERT, Warning for PICKER; the branch
+// and ctx/cost blocks sit on Border (lighter than every surface, like
+// lualine's section b) and the filler on SurfaceDark. The
+// running indicator uses Accent, idle TextMuted, and the indicators/Hint
+// share Warning, the palette's one needs-attention color.
 func statusStyles(p Palette) statusbar.Styles {
+	mode := func(bg string) lipgloss.Style {
+		return lipgloss.NewStyle().Bold(true).
+			Foreground(lipgloss.Color(p.Background)).Background(lipgloss.Color(bg))
+	}
 	return statusbar.Styles{
-		Mode:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
-		Text:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
-		Running: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
-		Idle:    lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
-		Warn:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
-		Hint:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
-		Dim:     lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		ModeNormal: mode(p.Primary),
+		ModeInsert: mode(p.Accent),
+		ModePicker: mode(p.Warning),
+		B:          lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)).Background(lipgloss.Color(p.Border)),
+		C:          lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)).Background(lipgloss.Color(p.SurfaceDark)),
+		Running:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Idle:       lipgloss.NewStyle().Foreground(lipgloss.Color(p.TextMuted)),
+		Warn:       lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
+		Hint:       lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
 	}
 }
 

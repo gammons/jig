@@ -27,6 +27,8 @@ type fakeProject struct {
 
 func (f fakeProject) Files(context.Context) ([]core.ProjectFile, error) { return nil, nil }
 
+func (f fakeProject) Branch(context.Context) (string, error) { return "", nil }
+
 func (f fakeProject) ReadFile(_ context.Context, path string) ([]byte, error) {
 	if f.err != nil {
 		return nil, f.err

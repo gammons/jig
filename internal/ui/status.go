@@ -15,6 +15,7 @@ import (
 func (s *sessionState) status(aliases map[string]string) statusbar.State {
 	ref := s.modelRef()
 	st := statusbar.State{
+		Branch:   s.cat.branch,
 		Agent:    ansi.SanitizeLine(s.info.Agent),
 		Model:    ansi.SanitizeLine(displayModel(ref, aliases)),
 		Running:  s.run.running,

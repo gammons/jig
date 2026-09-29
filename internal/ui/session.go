@@ -80,12 +80,15 @@ type blockTimes struct {
 	durs   map[transcript.BlockID]time.Duration
 }
 
-// catalog caches the read-only port lists the App consults per frame, and
-// the configured default model (the fallback for an agent without one).
+// catalog caches the read-only port lists the App consults per frame, the
+// configured default model (the fallback for an agent without one), and
+// the workdir's git branch (sanitized; refreshed at startup and after
+// each run).
 type catalog struct {
 	agents       []core.Agent
 	providers    []core.ProviderStatus
 	defaultModel string
+	branch       string
 }
 
 // idSet is an insertion-ordered set of block IDs. Blocks are created in

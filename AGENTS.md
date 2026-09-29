@@ -40,7 +40,9 @@ catalog provider paired with whether its credentials resolve now, via
 `llm.Source.HasCredentials`), `core.AgentService` (`agents.Service`
 satisfies it directly with `Primary`), `core.ProjectService`
 (`projectPort`: gitignore-aware `Files` with each file's git-modified
-status, and a `ReadFile` confined to the workdir, the runtime's spill
+status, `Branch` (the workdir's git branch via `search.GitBranch`, a
+detached HEAD as its short SHA, "" outside a repo; the TUI reads it at
+startup and after each run), and a `ReadFile` confined to the workdir, the runtime's spill
 dir, and the blob store's directory), `core.BlobService` (`blobPort`:
 `Open` returns a blob's bytes and detected MIME type), and
 `core.EditorService` (`editorPort`: `Edit` opens `$VISUAL`/`$EDITOR`/`vi`
@@ -103,6 +105,7 @@ internal/bubbles/blocklist/             transcript list: block cursor, per-item 
 internal/bubbles/selection/             pure selection range: paint over rendered rows, extract plain text (mouse/clipboard live in ui)
 internal/bubbles/picker/                ctrl+p picker: fuzzy drill-down list, groups, recents, multi-mark, text-input level, preview callback
 internal/bubbles/prompt/                growing 1-8 line prompt: history walk, paste chips, $EDITOR round trip, queued state
+internal/bubbles/statusbar/             lualine-style status bar: mode/branch/agent·model/run state left, indicators/ctx·cost/ctrl+p right, powerline (Nerd Font) arrows
 internal/golden/                        golden-frame test assertion
 internal/app/                           composition root + CLI: `jig` (TUI: trust dialog, BusAsker, ports, keymap/themes/prefs), `jig run` (headless)
 e2e/                                    end-to-end tests against the built binary
@@ -442,7 +445,8 @@ bubbletea v2 program. The App reaches services only through `ui.Ports`
 (every call in a `tea.Cmd` from `cmds.go`) and learns about runs from
 the bus (`bridge.go`'s `waitEvent`, re-armed after each event).
 
-**Modes.** The App has three input modes, shown as the status bar badge.
+**Modes.** The App has three input modes, shown as the status bar's
+mode block (colored per mode: Primary NORMAL, Accent INSERT, Warning PICKER).
 Before any mode handler, `App.onKey` runs two keys fixed in every mode:
 `ctrl+z` suspends (`tea.Suspend`), and `ctrl+d` quits when idle (during
 a run or with a queued send it only hints `run in progress · ctrl+c to
