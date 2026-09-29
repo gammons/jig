@@ -13,17 +13,39 @@ import (
 // (Transport == "") that set enabled = false both only tighten, so they
 // are kept whole. Everything else -- a full server entry (new or
 // replacing a global one) and an enabled = true toggle -- could start a
-// process or reach a URL the user never approved, so it is dropped.
+// process or reach a URL the user never approved, so it is dropped. Every
+// server placed in kept or dropped is a deep copy (cloneServer), so
+// neither result shares a map, slice, or pointer with l.
 func restrictMCP(l Layers) (kept, dropped core.MCPConfig) {
 	kept.Disabled = append([]string(nil), l.Project.MCP.Disabled...)
 	for name, s := range l.Project.MCP.Servers {
 		if s.Transport == "" && s.Enabled != nil && !*s.Enabled {
-			kept.Servers = putServer(kept.Servers, name, s)
+			kept.Servers = putServer(kept.Servers, name, cloneServer(s))
 			continue
 		}
-		dropped.Servers = putServer(dropped.Servers, name, s)
+		dropped.Servers = putServer(dropped.Servers, name, cloneServer(s))
 	}
 	return kept, dropped
+}
+
+// cloneServer deep-copies s's reference-typed fields (Args, Env, Headers,
+// OAuth.Scopes, Enabled), so the result shares no map, slice, or pointer
+// with s.
+func cloneServer(s core.MCPServer) core.MCPServer {
+	c := s
+	if s.Args != nil {
+		c.Args = append([]string(nil), s.Args...)
+	}
+	c.Env = cloneStringMap(s.Env)
+	c.Headers = cloneStringMap(s.Headers)
+	if s.OAuth.Scopes != nil {
+		c.OAuth.Scopes = append([]string(nil), s.OAuth.Scopes...)
+	}
+	if s.Enabled != nil {
+		v := *s.Enabled
+		c.Enabled = &v
+	}
+	return c
 }
 
 // putServer sets m[name] = s, allocating m if it is nil.
