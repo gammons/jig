@@ -12,7 +12,8 @@ import (
 )
 
 // View renders exactly h lines of w cells: a 1-cell selection prefix, the
-// item lines (w-2 cells), and a scrollbar column. It renders only the
+// item lines (w-2 cells), and a scrollbar column (a bare track when nothing
+// overflows, so it always borders the side slot). It renders only the
 // items it shows (from the cache when warm), then evicts the lines of items
 // entirely outside [yOffset-2h, yOffset+3h) at both cached widths; heights
 // stay cached.
@@ -29,12 +30,15 @@ func (m Model) View() string {
 	for len(rows) < m.h {
 		rows = append(rows, blank)
 	}
+	st := m.styles
 	if iw >= 1 && scrollbar.Visible(m.total, m.h) {
-		st := m.styles
 		rows = scrollbar.Overlay(rows, m.w, m.total, m.yOffset, m.h, orNone(st.ScrollBg), orNone(st.Track), orNone(st.Thumb))
 	} else {
+		// No overflow: the bare track still draws the column, so the
+		// border against the side slot is always there.
+		track := lipgloss.NewStyle().Background(orNone(st.ScrollBg)).Foreground(orNone(st.Track)).Render("│")
 		for i := range rows {
-			rows[i] += " "
+			rows[i] += track
 		}
 	}
 

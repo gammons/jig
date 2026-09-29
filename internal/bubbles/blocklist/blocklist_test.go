@@ -410,6 +410,20 @@ func TestView_SelectionDrawing(t *testing.T) {
 	}
 }
 
+// The last column is the border against the side slot: the scrollbar
+// track shows on every row even when nothing overflows.
+func TestView_TrackWithoutOverflow(t *testing.T) {
+	t.Parallel()
+	for name, items := range map[string][]Item{"empty": nil, "short": testItems("aa", "bb")} {
+		m := newList(12, 5, items)
+		for i, r := range visibleText(m) {
+			if !strings.HasSuffix(r, "│") {
+				t.Errorf("%s: row %d = %q, want it to end with the track │", name, i, r)
+			}
+		}
+	}
+}
+
 func TestView_HighlightOff(t *testing.T) {
 	t.Parallel()
 	m := newList(12, 3, testItems("aa", "bb"))
