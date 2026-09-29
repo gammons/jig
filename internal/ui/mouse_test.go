@@ -486,3 +486,41 @@ func TestMouse_SelectionSurvivesStreaming(t *testing.T) {
 		t.Error("highlight missing after the streaming delta")
 	}
 }
+
+func TestMouse_SelectionClearsWhenBlockGone(t *testing.T) {
+	t.Parallel()
+	sess := core.Session{ID: "ses_1", Agent: "build"}
+	ta := newTestApp(t, withResume(sess, twoTextMessages(), nil))
+	ta.key("esc")
+
+	r := ta.app.lay.Transcript
+	// Row 0 is block "m/a1/0"'s only line ("first message").
+	ta.mouse(tea.MouseClickMsg{X: r.X + 2, Y: r.Y, Button: tea.MouseLeft})
+	ta.mouse(tea.MouseMotionMsg{X: r.X + 8, Y: r.Y, Button: tea.MouseLeft})
+	ta.mouse(tea.MouseReleaseMsg{X: r.X + 8, Y: r.Y, Button: tea.MouseLeft})
+
+	if !ta.app.view.mouse.sel.Active {
+		t.Fatal("test setup: no active selection after the drag")
+	}
+	if !strings.Contains(ta.view(), ta.app.theme.set.Selection.On) {
+		t.Fatal("test setup: selection not painted")
+	}
+
+	// A resume (the same path a real re-read of the session takes:
+	// onPortResult's resumeMsg case, idle here so it applies at once)
+	// whose stored history no longer includes the selected block ("a1"
+	// dropped, only "a2" remains) is a Load that drops it from the
+	// projection.
+	ta.sessions.msgs = twoTextMessages()[1:]
+	ta.send(resumeMsg{info: sess, msgs: ta.sessions.msgs})
+
+	if strings.Contains(xansi.Strip(ta.view()), "first message") {
+		t.Fatal("test setup: the dropped block is still shown")
+	}
+	if ta.app.view.mouse.sel.Active {
+		t.Error("selection still active after its block's Load dropped it")
+	}
+	if strings.Contains(ta.view(), ta.app.theme.set.Selection.On) {
+		t.Error("frame still shows the selection escape after its block is gone")
+	}
+}
