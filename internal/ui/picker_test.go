@@ -336,6 +336,26 @@ func TestApp_ThemePreviewEscRestores(t *testing.T) {
 	}
 }
 
+func TestApp_ViewPaintsThemeBackground(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.key("ctrl+p")
+	ta.typeText("switch theme")
+	ta.key("enter")
+	ta.typeText("ansi light")
+	ta.fire() // the preview debounce
+	if got := ta.app.theme.current.Name; got != "ANSI Light" {
+		t.Fatalf("previewed theme = %q, want ANSI Light", got)
+	}
+	v := ta.app.View()
+	if !reflect.DeepEqual(v.BackgroundColor, ta.app.theme.set.Background) || v.BackgroundColor == nil {
+		t.Errorf("View.BackgroundColor = %v, want the palette's Background %v", v.BackgroundColor, ta.app.theme.set.Background)
+	}
+	if !reflect.DeepEqual(v.ForegroundColor, ta.app.theme.set.Foreground) || v.ForegroundColor == nil {
+		t.Errorf("View.ForegroundColor = %v, want the palette's Text %v", v.ForegroundColor, ta.app.theme.set.Foreground)
+	}
+}
+
 // lineContaining returns the first line of s containing substr.
 func lineContaining(s, substr string) string {
 	for _, line := range strings.Split(s, "\n") {

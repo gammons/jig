@@ -1,6 +1,8 @@
 package theme
 
 import (
+	"image/color"
+
 	"charm.land/lipgloss/v2"
 
 	"github.com/gammons/jig/internal/bubbles/ansi"
@@ -32,6 +34,12 @@ type Set struct {
 	Sidebar   sidebar.Styles
 	Confirm   confirm.Styles
 	Render    RenderStyles
+	// Background and Foreground are the screen's default colors (the
+	// palette's Background and Text): the App sets them as the
+	// terminal's default background/foreground, so every cell no widget
+	// colors explicitly takes the theme's colors.
+	Background color.Color
+	Foreground color.Color
 	// One field per later widget goes here as each widget's Task adds it.
 }
 
@@ -51,6 +59,9 @@ func Build(p Palette, version int) Set {
 		Sidebar:   sidebarStyles(p),
 		Confirm:   confirmStyles(p),
 		Render:    renderStyles(p),
+
+		Background: lipgloss.Color(p.Background),
+		Foreground: lipgloss.Color(p.Text),
 	}
 }
 

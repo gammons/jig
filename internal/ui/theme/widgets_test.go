@@ -364,3 +364,16 @@ func TestBuild_RenderFromPalette(t *testing.T) {
 		t.Errorf("Render = %+v, want %+v", set.Render, want)
 	}
 }
+
+func TestBuild_ScreenFromPalette(t *testing.T) {
+	t.Parallel()
+
+	p := Palette{Name: "test", BaseColors: BaseColors{Background: "#fafafa", Text: "#101010"}}
+	set := Build(p, 1)
+	if !reflect.DeepEqual(set.Background, lipgloss.Color(p.Background)) {
+		t.Errorf("Background = %v, want %v", set.Background, lipgloss.Color(p.Background))
+	}
+	if !reflect.DeepEqual(set.Foreground, lipgloss.Color(p.Text)) {
+		t.Errorf("Foreground = %v, want %v", set.Foreground, lipgloss.Color(p.Text))
+	}
+}

@@ -197,9 +197,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View renders the frame: the regions per the layout, and the picker
-// composited over them while it is open.
+// composited over them while it is open. The theme's Background and Text
+// become the terminal's default colors (restored on exit), so the whole
+// screen follows the theme, not just the cells a widget styles.
 func (a *App) View() tea.View {
-	v := tea.View{AltScreen: true, WindowTitle: a.windowTitle()}
+	v := tea.View{
+		AltScreen:       true,
+		WindowTitle:     a.windowTitle(),
+		BackgroundColor: a.theme.set.Background,
+		ForegroundColor: a.theme.set.Foreground,
+	}
 	if a.width <= 0 || a.height <= 0 {
 		return v
 	}
