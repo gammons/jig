@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -46,7 +47,7 @@ func TestConvert_PricingMapping(t *testing.T) {
 		CostCacheRead:    0.3,
 		CanReason:        true,
 	}
-	if m != want {
+	if !reflect.DeepEqual(m, want) {
 		t.Errorf("convertModel() = %+v, want %+v", m, want)
 	}
 }

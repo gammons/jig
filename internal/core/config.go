@@ -5,17 +5,18 @@ import "fmt"
 // Config is an immutable, merged snapshot of jig's configuration. See
 // Task 8 for the TOML keys it is loaded from.
 type Config struct {
-	DefaultModel string
-	SmallModel   string
-	Providers    map[string]ProviderConfig
-	Agents       map[string]AgentConfig
-	ModelAliases map[string]string
-	Permissions  PermissionRules
-	SkillPaths   []string
-	Instructions []string
-	Keybinds     map[string]string
-	Theme        string
-	AgentBrowser Toggle // TOML: [integrations.agent_browser] enabled = ...
+	DefaultModel  string
+	SmallModel    string
+	DefaultEffort string // TOML: default_effort
+	Providers     map[string]ProviderConfig
+	Agents        map[string]AgentConfig
+	ModelAliases  map[string]string
+	Permissions   PermissionRules
+	SkillPaths    []string
+	Instructions  []string
+	Keybinds      map[string]string
+	Theme         string
+	AgentBrowser  Toggle // TOML: [integrations.agent_browser] enabled = ...
 }
 
 // ProviderConfig configures one LLM provider.
@@ -26,6 +27,7 @@ type ProviderConfig struct {
 	Models      []string
 	Options     map[string]any
 	ImageModels []string // TOML: image_models; models that accept image input (R10)
+	Efforts     []string // TOML: efforts; effort levels of every model in Models
 }
 
 // Toggle is a tri-state setting: "" (unset), "auto", "true", or "false".
@@ -69,6 +71,7 @@ type AgentConfig struct {
 	Description string
 	Mode        string
 	Model       string
+	Effort      string
 	Prompt      string
 	MaxSteps    int
 	CanSpawn    *bool
