@@ -1,15 +1,18 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	xansi "github.com/charmbracelet/x/ansi"
 
+	"github.com/gammons/jig/internal/bubbles/picker"
 	"github.com/gammons/jig/internal/bubbles/sidebar"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
 	"github.com/gammons/jig/internal/golden"
+	"github.com/gammons/jig/internal/ui/actions"
 )
 
 func sidebarModel(secs []sidebar.Section, w, h int) sidebar.Model {
@@ -112,4 +115,105 @@ func TestApp_MCPNilPort(t *testing.T) {
 	}
 	ta.event(event.MCPServerChanged{Name: "gh", State: core.MCPReady})
 	// No panic, and nothing rendered changes.
+}
+
+func TestApp_MCPPickerSignIn(t *testing.T) {
+	t.Parallel()
+	list := []core.MCPServerStatus{{Name: "gh", State: core.MCPNeedsAuth}}
+	ta := newTestApp(t, withMCP(list))
+	ta.key("ctrl+p")
+	ta.typeText("MCP servers")
+	ta.key("enter")
+	ta.typeText("gh")
+	ta.key("enter")
+	ta.typeText("Sign in")
+	ta.key("enter")
+	if !slicesContains(ta.mcp.authCalls, "gh") {
+		t.Fatalf("authCalls = %v, want gh", ta.mcp.authCalls)
+	}
+	if ta.app.w.picker.IsOpen() {
+		t.Error("picker still open after choosing an MCP action")
+	}
+}
+
+func slicesContains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+func TestApp_MCPPickerItemsByState(t *testing.T) {
+	t.Parallel()
+	list := []core.MCPServerStatus{
+		{Name: "gh", State: core.MCPNeedsAuth},
+		{Name: "linear", State: core.MCPAuthenticating, AuthURL: "https://example.com/auth"},
+		{Name: "slack", State: core.MCPReady, HasToken: true},
+	}
+	ta := newTestApp(t, withMCP(list))
+
+	needsAuth := loadItems(ta, picker.Level{ID: "mcp.server", Arg: "gh"})
+	wantIDs(t, needsAuth, []string{"signin", "reconnect", "tools"})
+
+	authing := loadItems(ta, picker.Level{ID: "mcp.server", Arg: "linear"})
+	wantIDs(t, authing, []string{"cancel", "copy", "tools"})
+
+	ready := loadItems(ta, picker.Level{ID: "mcp.server", Arg: "slack"})
+	wantIDs(t, ready, []string{"reconnect", "signout", "tools"})
+}
+
+func wantIDs(t *testing.T, items []picker.Item, want []string) {
+	t.Helper()
+	if len(items) != len(want) {
+		t.Fatalf("items = %v, want %v", items, want)
+	}
+	for i, id := range want {
+		if items[i].ID != id {
+			t.Fatalf("items = %v, want %v", items, want)
+		}
+	}
+}
+
+func TestApp_MCPPickerNilPort(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	items := loadItems(ta, picker.Level{ID: "mcp"})
+	if len(items) != 1 || !items[0].Disabled || items[0].Title != "no MCP servers configured" {
+		t.Fatalf("items = %+v, want one disabled item", items)
+	}
+	root := loadItems(ta, rootLevel())
+	act := itemByID(t, root, string(actions.MCPServers))
+	if act.Title != "MCP servers…" || act.Group != "MCP" || act.Drill == nil {
+		t.Fatalf("MCP servers action = %+v", act)
+	}
+}
+
+func TestApp_MCPPickerSanitizes(t *testing.T) {
+	t.Parallel()
+	list := []core.MCPServerStatus{{Name: "gh\x1b]0;x\a", State: core.MCPReady}}
+	ta := newTestApp(t, withMCP(list))
+	items := loadItems(ta, picker.Level{ID: "mcp"})
+	for _, it := range items {
+		if strings.ContainsRune(it.Title, '\x1b') {
+			t.Fatalf("item title = %q, want no ESC", it.Title)
+		}
+	}
+}
+
+func TestApp_MCPPickerCopyURL(t *testing.T) {
+	t.Parallel()
+	list := []core.MCPServerStatus{{Name: "linear", State: core.MCPAuthenticating, AuthURL: "https://example.com/auth"}}
+	ta := newTestApp(t, withMCP(list))
+	cmd := pickerCtl{ta.app}.chosen(picker.ChosenMsg{
+		Level: picker.Level{ID: "mcp.server", Arg: "linear"},
+		Items: []picker.Item{{ID: "copy"}},
+	})
+	if cmd == nil {
+		t.Fatal("copy: want a Cmd")
+	}
+	if name := fmt.Sprintf("%T", cmd()); !strings.Contains(name, "ClipboardMsg") {
+		t.Errorf("copy Cmd produced %s, want tea's clipboard message", name)
+	}
 }

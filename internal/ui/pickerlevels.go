@@ -25,6 +25,9 @@ const (
 	levelRename   = "rename"
 	levelFiles    = "files"
 	levelKeys     = "keys"
+	levelMCP      = "mcp"
+	levelMCPSvr   = "mcp.server"
+	levelMCPTools = "mcp.tools"
 )
 
 // maxSessions is how many of the workdir's sessions the sessions level
@@ -47,6 +50,8 @@ func levelAction(level string) actions.ID {
 		return actions.SessionRename
 	case levelFiles:
 		return actions.PromptAttach
+	case levelMCPSvr:
+		return actions.MCPServers
 	}
 	return ""
 }
@@ -75,6 +80,8 @@ func drillLevel(id actions.ID, title string) (picker.Level, bool) {
 		return filesLevel(), true
 	case actions.HelpKeys:
 		return picker.Level{ID: levelKeys, Title: "Keybindings"}, true
+	case actions.MCPServers:
+		return picker.Level{ID: levelMCP, Title: "MCP servers"}, true
 	}
 	return picker.Level{}, false
 }
@@ -104,6 +111,12 @@ func (l levels) load(level picker.Level) tea.Cmd {
 		return sessionsCmd(a.ctx, a.ports, a.opts.WorkDir, a.sess.info.ID, a.opts.Clock.Now())
 	case levelFiles:
 		return filesCmd(a.ctx, a.ports, touchedFiles(a.opts.WorkDir, a.sess.proj.Blocks(), a.sess.proj.ChangedFiles()))
+	case levelMCP:
+		return itemsCmd(level.ID, mcpServerItems(a.view.mcp.list, a.ports.MCP != nil))
+	case levelMCPSvr:
+		return itemsCmd(level.ID, mcpServerActionItems(a.view.mcp.list, level.Arg))
+	case levelMCPTools:
+		return itemsCmd(level.ID, mcpToolItems(a.view.mcp.list, level.Arg))
 	}
 	return itemsCmd(level.ID, nil)
 }
@@ -281,4 +294,74 @@ func relativeAge(d time.Duration) string {
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	}
 	return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+}
+
+// mcpServerItems lists one item per configured server (mcp level); when
+// there is no MCP port it returns one disabled placeholder.
+func mcpServerItems(list []core.MCPServerStatus, hasPort bool) []picker.Item {
+	if !hasPort {
+		return []picker.Item{{ID: "", Title: "no MCP servers configured", Disabled: true}}
+	}
+	out := make([]picker.Item, len(list))
+	for i, s := range list {
+		name := ansi.SanitizeLine(s.Name)
+		lvl := picker.Level{ID: levelMCPSvr, Title: name, Arg: s.Name}
+		out[i] = picker.Item{ID: s.Name, Title: name, Detail: ansi.SanitizeLine(mcpDetail(s)), Drill: &lvl}
+	}
+	return out
+}
+
+// mcpServerActionItems lists the actions available for the server named
+// arg, in state order (§8.3).
+func mcpServerActionItems(list []core.MCPServerStatus, arg string) []picker.Item {
+	var s core.MCPServerStatus
+	found := false
+	for _, st := range list {
+		if st.Name == arg {
+			s, found = st, true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	toolsLvl := picker.Level{ID: levelMCPTools, Title: s.Name + " tools", Arg: s.Name}
+	tools := picker.Item{ID: "tools", Title: "Tools…", Drill: &toolsLvl}
+	var out []picker.Item
+	switch s.State {
+	case core.MCPNeedsAuth:
+		out = []picker.Item{{ID: "signin", Title: "Sign in"}, {ID: "reconnect", Title: "Reconnect"}, tools}
+	case core.MCPAuthenticating:
+		out = []picker.Item{{ID: "cancel", Title: "Cancel sign-in"}, {ID: "copy", Title: "Copy sign-in URL"}, tools}
+	case core.MCPReady:
+		out = []picker.Item{{ID: "reconnect", Title: "Reconnect"}}
+		if s.HasToken {
+			out = append(out, picker.Item{ID: "signout", Title: "Sign out"})
+		}
+		out = append(out, tools)
+	case core.MCPFailed:
+		out = []picker.Item{}
+		if s.Transport == core.MCPHTTP || s.Transport == core.MCPSSE {
+			out = append(out, picker.Item{ID: "signin", Title: "Sign in"})
+		}
+		out = append(out, picker.Item{ID: "reconnect", Title: "Reconnect"}, tools)
+	case core.MCPConnecting:
+		out = []picker.Item{tools}
+	}
+	return out
+}
+
+// mcpToolItems lists the server named arg's tools, read-only.
+func mcpToolItems(list []core.MCPServerStatus, arg string) []picker.Item {
+	for _, s := range list {
+		if s.Name != arg {
+			continue
+		}
+		out := make([]picker.Item, len(s.ToolNames))
+		for i, t := range s.ToolNames {
+			out[i] = picker.Item{ID: strconv.Itoa(i), Title: ansi.SanitizeLine(t)}
+		}
+		return out
+	}
+	return nil
 }

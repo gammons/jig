@@ -375,6 +375,10 @@ func (a *App) onPortResult(msg tea.Msg) tea.Cmd {
 		a.view.hint = msg.hint()
 	case mcpServersMsg:
 		return a.onMCPResult(msg)
+	case mcpActionMsg:
+		if msg.err != nil {
+			a.view.hint = errMsg{what: "mcp", err: msg.err}.hint()
+		}
 	}
 	return nil
 }

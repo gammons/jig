@@ -231,6 +231,36 @@ func itemsCmd(level string, items []picker.Item) tea.Cmd {
 	return func() tea.Msg { return picker.ItemsMsg{Level: level, Items: items} }
 }
 
+// mcpActionMsg carries the outcome of an MCP server action (signin,
+// cancel, reconnect, signout) run through mcpActionCmd.
+type mcpActionMsg struct {
+	verb, name string
+	err        error
+}
+
+// mcpActionCmd runs verb (signin|cancel|reconnect|signout) on server name
+// through p.MCP. signin can block for up to 5 minutes; that's fine, it
+// runs inside this Cmd.
+func mcpActionCmd(ctx context.Context, p Ports, verb, name string) tea.Cmd {
+	return func() tea.Msg {
+		if p.MCP == nil {
+			return mcpActionMsg{verb: verb, name: name}
+		}
+		var err error
+		switch verb {
+		case "signin":
+			err = p.MCP.Authenticate(ctx, name)
+		case "cancel":
+			err = p.MCP.CancelAuth(ctx, name)
+		case "reconnect":
+			err = p.MCP.Reconnect(ctx, name)
+		case "signout":
+			err = p.MCP.Logout(ctx, name)
+		}
+		return mcpActionMsg{verb: verb, name: name, err: err}
+	}
+}
+
 // sessionsCmd lists the workdir's sessions (at most maxSessions) through
 // p.Sessions, each with its summed message cost, as the sessions level.
 func sessionsCmd(ctx context.Context, p Ports, workDir string, current core.SessionID, now time.Time) tea.Cmd {
