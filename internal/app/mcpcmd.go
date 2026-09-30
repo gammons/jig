@@ -157,7 +157,7 @@ func runMCPAuth(ctx context.Context, mgr interface {
 		case e := <-sub.C():
 			if ch, ok := e.(event.MCPServerChanged); ok && ch.Name == name && !printed {
 				if url := findAuthURL(mgr.Servers(), name); url != "" {
-					fmt.Fprintln(std.Err, "open this URL to sign in: "+ansi.SanitizeLine(url))
+					fmt.Fprintln(std.Err, "opening your browser to sign in to "+ansi.SanitizeLine(name)+"; if it doesn't open, visit:\n  "+ansi.SanitizeLine(url))
 					printed = true
 				}
 			}

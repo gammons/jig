@@ -154,8 +154,20 @@ func (d dialerAdapter) buildAuthHandler(ctx context.Context, srv core.MCPServer,
 	}
 	return mcpauth.NewHandler(ctx, mcpauth.Config{
 		ServerURL: srv.URL, Pre: pre, Store: d.adapters.tokens,
-		Gate: st.gate, HTTP: mcpauth.SecureClient(), RedirectPort: port,
+		Gate: gateFor(st, mode), HTTP: mcpauth.SecureClient(), RedirectPort: port,
 	})
+}
+
+// gateFor is the gate a dial in mode gets: the server's shared gate for
+// the sign-in's own dial (AuthOpen), else a fresh, always-closed one. A
+// background dial (AuthClosed) that raced a sign-in must fail with
+// needs-auth, never run the sign-in's fetch: its redirect URL is built
+// from the stored port (or 0), which no listener answers.
+func gateFor(st *mcpServerState, mode mcpsvc.AuthMode) *mcpauth.Gate {
+	if mode == mcpsvc.AuthOpen {
+		return st.gate
+	}
+	return &mcpauth.Gate{}
 }
 
 // stdioSpec builds the mcpclient.Spec for a stdio server: environ plus

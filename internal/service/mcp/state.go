@@ -54,33 +54,11 @@ func publish(m *Manager, e event.Event) {
 	}
 }
 
-// beginGeneration bumps name's generation (fencing off any earlier
-// in-flight connect/auth attempt for it) and returns the new value along
-// with a fresh cancellable context derived from baseCtx. Callers must hold
-// no lock; it takes and releases m.mu itself.
-func beginGeneration(m *Manager, name string) (gen int, ctx context.Context, cancel context.CancelFunc) {
-	m.mu.Lock()
-	st := m.servers[name]
-	st.generation++
-	gen = st.generation
-	if st.cancel != nil {
-		st.cancel()
-	}
-	parent := m.baseCtx
-	m.mu.Unlock()
-
-	ctx, cancel = context.WithCancel(parent)
-	m.mu.Lock()
-	st.cancel = cancel
-	m.mu.Unlock()
-	return gen, ctx, cancel
-}
-
-// connectServer runs one server's connect-and-watch lifecycle from a
-// freshly bumped generation. It is started as a goroutine by Start.
-func (m *Manager) connectServer(name string) {
+// connectServer runs one server's connect-and-watch lifecycle from the
+// generation Start already claimed for it. It is started as a goroutine by
+// Start.
+func (m *Manager) connectServer(name string, gen int, ctx context.Context, cancel context.CancelFunc) {
 	defer m.wg.Done()
-	gen, ctx, cancel := beginGeneration(m, name)
 	connectAndWatch(m, name, gen, ctx, cancel, AuthClosed)
 }
 
