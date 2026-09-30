@@ -21,6 +21,7 @@ import (
 	"github.com/gammons/jig/internal/data/themefs"
 	"github.com/gammons/jig/internal/ids"
 	"github.com/gammons/jig/internal/service/agents"
+	mcpsvc "github.com/gammons/jig/internal/service/mcp"
 	"github.com/gammons/jig/internal/service/permission"
 	"github.com/gammons/jig/internal/ui"
 	"github.com/gammons/jig/internal/ui/actions"
@@ -120,7 +121,16 @@ func tuiPorts(e env, rt *runtime, perms *permission.BusAsker, prefs core.PrefsSe
 		Prefs:     prefs,
 		Editor:    editorPort{spillDir: rt.spillDir, getenv: e.getenv},
 		Subscribe: rt.bus.Subscribe,
+		MCP:       mcpPortFor(rt.svc.mcp),
 	}
+}
+
+// mcpPortFor wraps mgr as a core.MCPService, or nil if mgr is nil.
+func mcpPortFor(mgr *mcpsvc.Manager) core.MCPService {
+	if mgr == nil {
+		return nil
+	}
+	return mcpPort{mgr: mgr}
 }
 
 // tuiOptions builds the App's options: the keymap (registered bindings +

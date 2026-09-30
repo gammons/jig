@@ -93,6 +93,9 @@ func discover(e env, errw io.Writer) discovered {
 	skills, warns := skillfs.Discover(dirs)
 	printWarnings(errw, warns)
 	printWarnings(errw, e.agentWarns)
+	for _, w := range e.mcpWarns {
+		printLine(errw, "warning: "+w)
+	}
 	for _, w := range e.browserWarns {
 		printLine(errw, w)
 	}

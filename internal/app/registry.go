@@ -44,6 +44,7 @@ type registryDeps struct {
 	blobs    *blobfs.Store
 	media    *media.Pipeline
 	tracker  *tools.Tracker
+	mcp      ext.ToolSource
 }
 
 // buildRegistry registers every built-in tool, hook, transform, and
@@ -51,7 +52,7 @@ type registryDeps struct {
 func buildRegistry(d registryDeps) (ext.View, error) {
 	r := ext.NewRegistry()
 	steps := []func(*ext.Registry, registryDeps) error{
-		addTools, addHooks, addTransforms, addProviders, addCommands, addKeybinds,
+		addTools, addHooks, addTransforms, addProviders, addCommands, addKeybinds, addToolSources,
 	}
 	for _, step := range steps {
 		if err := step(r, d); err != nil {
@@ -145,6 +146,15 @@ func addProviders(r *ext.Registry, _ registryDeps) error {
 		if err := r.AddProvider(p); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// addToolSources registers the MCP manager as a ToolSource, when one was
+// built (a non-nil registryDeps.mcp).
+func addToolSources(r *ext.Registry, d registryDeps) error {
+	if d.mcp != nil {
+		return r.SetToolSource(d.mcp)
 	}
 	return nil
 }
