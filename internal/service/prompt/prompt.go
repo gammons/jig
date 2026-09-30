@@ -1,7 +1,7 @@
 // Package prompt provides the ContextTransforms that assemble a run's
-// system prompt: the active agent's own prompt, an environment summary,
-// and any AGENTS.md / instructions files discovered for the working
-// directory.
+// system prompt: the active agent's own prompt, tool-use guidance, an
+// environment summary, and any AGENTS.md / instructions files discovered
+// for the working directory.
 package prompt
 
 import (
@@ -35,6 +35,31 @@ func (agentPromptTransform) Transform(_ context.Context, rc ext.RunContext, req 
 		return nil
 	}
 	req.System = append(req.System, rc.Agent.Prompt)
+	return nil
+}
+
+// toolUseGuidance asks the model to batch independent tool calls into one
+// step, so the executor can run consecutive Concurrent calls in parallel
+// instead of paying a model round trip per call.
+const toolUseGuidance = "When several tool calls don't depend on each other, make them all in the same response " +
+	"rather than one per turn — for example, read several files or run several searches at once. " +
+	"Only wait for a result when a later call needs it."
+
+// toolUseTransform implements ext.ContextTransform, appending
+// toolUseGuidance.
+type toolUseTransform struct{}
+
+// ToolUse returns the priority-5 ContextTransform that appends guidance on
+// batching independent tool calls, only when the request offers tools.
+func ToolUse() ext.ContextTransform { return toolUseTransform{} }
+
+func (toolUseTransform) Priority() int { return 5 }
+
+func (toolUseTransform) Transform(_ context.Context, _ ext.RunContext, req *core.LLMRequest) error {
+	if len(req.Tools) == 0 {
+		return nil
+	}
+	req.System = append(req.System, toolUseGuidance)
 	return nil
 }
 

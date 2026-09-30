@@ -56,6 +56,9 @@ func TestTransforms_OrderAndText(t *testing.T) {
 	if err := r.AddTransform(Instructions(instrFiles)); err != nil {
 		t.Fatalf("AddTransform(Instructions): %v", err)
 	}
+	if err := r.AddTransform(ToolUse()); err != nil {
+		t.Fatalf("AddTransform(ToolUse): %v", err)
+	}
 
 	view := r.Freeze()
 
@@ -70,6 +73,9 @@ func TestTransforms_OrderAndText(t *testing.T) {
 
 	want := []string{
 		"You are a helpful test agent.",
+		"When several tool calls don't depend on each other, make them all in the same response " +
+			"rather than one per turn — for example, read several files or run several searches at once. " +
+			"Only wait for a result when a later call needs it.",
 		"<env>\n  Working directory: /work\n  Platform: linux\n  Is git repo: yes\n  Today's date: Mon Jan 15 2024\n</env>",
 		"Instructions from: /work/instructions.md\nFollow style.",
 		"Instructions from: /work/AGENTS.md\nRepo notes.",
@@ -118,6 +124,16 @@ func TestAgentPrompt_SkipsEmpty(t *testing.T) {
 	}
 	if len(req.System) != 0 {
 		t.Errorf("req.System = %v, want empty", req.System)
+	}
+}
+
+func TestToolUse_NoToolsAppendsNothing(t *testing.T) {
+	req := &core.LLMRequest{}
+	if err := ToolUse().Transform(context.Background(), ext.RunContext{}, req); err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	if len(req.System) != 0 {
+		t.Errorf("req.System = %q, want empty", req.System)
 	}
 }
 

@@ -115,6 +115,7 @@ func addTransforms(r *ext.Registry, d registryDeps) error {
 	}
 	all := []ext.ContextTransform{
 		prompt.AgentPrompt(),
+		prompt.ToolUse(),
 		prompt.Env(d.clk, goruntime.GOOS, isGit),
 		prompt.Instructions(promptFiles(instr)),
 		prompt.AgentsMD(promptFiles(contextfs.AgentsFiles(e.paths, e.gitRoot, e.workDir))),
