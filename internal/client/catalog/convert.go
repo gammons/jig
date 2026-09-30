@@ -21,7 +21,11 @@ func convertProviders(providers []catwalk.Provider) []core.ProviderInfo {
 func convertProvider(p catwalk.Provider) core.ProviderInfo {
 	models := make([]core.ModelInfo, 0, len(p.Models))
 	for _, m := range p.Models {
-		models = append(models, convertModel(string(p.ID), m))
+		info := convertModel(string(p.ID), m)
+		if !effortSupported(string(p.Type), m.ID) {
+			info.Efforts, info.DefaultEffort = nil, ""
+		}
+		models = append(models, info)
 	}
 	return core.ProviderInfo{
 		ID:        string(p.ID),
@@ -31,6 +35,14 @@ func convertProvider(p catwalk.Provider) core.ProviderInfo {
 		Endpoint:  p.APIEndpoint,
 		Models:    models,
 	}
+}
+
+// effortSupported reports whether jig can send a reasoning effort to
+// modelID on a provider of type typ. fantasy sends Anthropic effort as
+// adaptive thinking, which Claude Opus 4.5 (extended-thinking only,
+// budget tokens) rejects.
+func effortSupported(typ, modelID string) bool {
+	return typ != "anthropic" || !strings.Contains(modelID, "claude-opus-4-5")
 }
 
 // convertModel maps a catwalk model onto core.ModelInfo. The pricing

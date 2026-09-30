@@ -98,8 +98,10 @@ bash = "deny"
 [agents.plan]
 # Give the plan agent the most capable model.
 model = "opus"
-# ...and let it think harder than the default.
-effort = "max"
+# An agent can pin its reasoning effort too. Models without effort
+# levels (see `jig models`), like the claude-opus-4-5 "opus" alias
+# above, ignore it:
+# effort = "max"
 
 # Global permission rules, above jig's built-in defaults but below any
 # agents.<name>.permissions. Each tool's rule is either a bare action

@@ -233,6 +233,28 @@ func TestConvertModel_Efforts(t *testing.T) {
 	}
 }
 
+func TestConvertProvider_Opus45HasNoEfforts(t *testing.T) {
+	levels := []string{"low", "medium", "high"}
+	models := []catwalk.Model{
+		{ID: "claude-opus-4-5-20251101", CanReason: true, ReasoningLevels: levels, DefaultReasoningEffort: "high"},
+		{ID: "claude-opus-4-6", CanReason: true, ReasoningLevels: levels, DefaultReasoningEffort: "high"},
+	}
+	want := []core.Effort{core.EffortLow, core.EffortMedium, core.EffortHigh}
+
+	anth := convertProvider(catwalk.Provider{ID: "anthropic", Type: "anthropic", Models: models})
+	if m := anth.Models[0]; m.Efforts != nil || m.DefaultEffort != "" {
+		t.Errorf("anthropic opus-4-5: Efforts = %v default %q, want none", m.Efforts, m.DefaultEffort)
+	}
+	if m := anth.Models[1]; !slices.Equal(m.Efforts, want) || m.DefaultEffort != core.EffortHigh {
+		t.Errorf("anthropic opus-4-6: Efforts = %v default %q, want %v default high", m.Efforts, m.DefaultEffort, want)
+	}
+
+	or := convertProvider(catwalk.Provider{ID: "openrouter", Type: "openrouter", Models: models[:1]})
+	if m := or.Models[0]; !slices.Equal(m.Efforts, want) || m.DefaultEffort != core.EffortHigh {
+		t.Errorf("openrouter opus-4-5: Efforts = %v default %q, want %v default high", m.Efforts, m.DefaultEffort, want)
+	}
+}
+
 func TestCustomProvider_Efforts(t *testing.T) {
 	clk := clock.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	c := New(Options{

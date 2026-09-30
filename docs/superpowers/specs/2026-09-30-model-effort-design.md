@@ -34,6 +34,7 @@ The data needed already exists and is dropped:
 4. **Small-model calls** (titles, compaction) send the model's lowest level.
 5. **An unsupported level is clamped** to the nearest supported level on the scale `none < minimal < low < medium < high < xhigh < max`; on a tie, the lower one. The stored choice is kept, so switching back to a model that supports it restores it.
 6. **A model with no catalog levels is not effort-controllable** (e.g. `claude-sonnet-4-5`, `claude-haiku-4-5`, `gemini-2.5-*`, which take budget tokens). jig sends nothing for it, the picker action is disabled, and the status bar omits effort.
+   `claude-opus-4-5` on an `anthropic`-type provider is treated as not effort-controllable too (the catalog drops its levels): fantasy's effort path uses adaptive thinking, which that model rejects.
 7. **Precedence for primary runs is session > agent `effort` > `default_effort` > catalog default.** An explicit in-session choice (picker or `--effort`) wins, so "Switch effort…" is never a silent no-op. Note this is the reverse of `ResolveModel`, which puts agent before session; that model inconsistency (the status bar's `modelRef` already puts session first) is out of scope.
 8. **Approach A:** effort is its own field next to `Model`. The service layer resolves the *requested* level; the Runner turns it into the *effective* level with the model's `ModelInfo`; `client/llm` only maps an already-valid level onto provider options.
 
