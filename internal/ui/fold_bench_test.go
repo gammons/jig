@@ -51,7 +51,7 @@ func BenchmarkApp_FoldToggle2000(b *testing.B) {
 // Each iteration's setup (a new step with its reasoning, and every 20
 // steps a reply that ends the group so it stays small) is untimed.
 func BenchmarkApp_ToolStart2000(b *testing.B) {
-	ta := newTestApp(b, withSize(150, 40), withResume(core.Session{ID: "ses_big", Agent: "build"}, benchHistoryGroups(2000), nil))
+	ta := newTestApp(b, withSize(150, 40), withResume(core.Session{ID: "ses_1", Agent: "build"}, benchHistoryGroups(2000), nil))
 	_ = ta.view()
 	ta.typeText("go")
 	ta.key("enter")
@@ -93,6 +93,11 @@ func BenchmarkApp_ToolStart2000(b *testing.B) {
 		start(msg)
 		_ = ta.view()
 		b.StopTimer()
+		if i == 0 {
+			if got := len(ta.app.sess.track.fold.groups); got <= 500 {
+				b.Fatalf("live events were not applied: %d groups, want the resumed 500 plus the run's", got)
+			}
+		}
 		finish(msg)
 		b.StartTimer()
 	}
