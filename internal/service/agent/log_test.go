@@ -333,3 +333,18 @@ func TestRunnerLog_StepTiming(t *testing.T) {
 	}
 	wantContains(t, only(t, buf, "step end"), "first_event=3s", "stream=3s")
 }
+
+func TestRunnerLog_RunStartEffort(t *testing.T) {
+	llm := llmtest.New(llmtest.Text("ok"))
+	f := newFixture(t, llm)
+	info := testInfo()
+	info.Efforts = []core.Effort{core.EffortLow, core.EffortHigh}
+	f.deps.LLMs = fakeSource{llm: llm, info: info}
+	f.rc.Effort = core.EffortMax
+	var buf *logtest.Buffer
+	f.deps.Log, buf = logtest.New()
+	if _, err := NewRunner(f.deps).Run(context.Background(), f.rc, "hi"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	wantContains(t, only(t, buf, "run start"), "effort=max", "effort_sent=high")
+}

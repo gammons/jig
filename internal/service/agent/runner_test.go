@@ -645,3 +645,34 @@ func TestProxy_RunDelegates(t *testing.T) {
 		t.Fatalf("Run = %+v, %v", got, err)
 	}
 }
+
+func TestRunner_RequestEffort(t *testing.T) {
+	levels := testInfo()
+	levels.Efforts = []core.Effort{core.EffortLow, core.EffortMedium, core.EffortHigh}
+	levels.DefaultEffort = core.EffortMedium
+	tests := []struct {
+		name string
+		info core.ModelInfo
+		want core.Effort
+		sent core.Effort
+	}{
+		{"unset uses catalog default", levels, "", core.EffortMedium},
+		{"exact level", levels, core.EffortLow, core.EffortLow},
+		{"clamped to the model", levels, core.EffortMax, core.EffortHigh},
+		{"model without levels sends none", testInfo(), core.EffortHigh, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			llm := llmtest.New(llmtest.Text("ok"))
+			f := newFixture(t, llm)
+			f.deps.LLMs = fakeSource{llm: llm, info: tt.info}
+			f.rc.Effort = tt.want
+			if _, err := NewRunner(f.deps).Run(context.Background(), f.rc, "q"); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if reqs := llm.Requests(); len(reqs) != 1 || reqs[0].Effort != tt.sent {
+				t.Errorf("request effort = %+v, want %q", reqs, tt.sent)
+			}
+		})
+	}
+}

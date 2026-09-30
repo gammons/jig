@@ -102,7 +102,8 @@ func (r *Runner) Run(ctx context.Context, rc ext.RunContext, userText string, at
 	if st.maxSteps <= 0 {
 		st.maxSteps = defaultMaxSteps
 	}
-	debug(ctx, r.d.Log, "run", "run start", "model", rc.Model.String(), "max_steps", st.maxSteps)
+	debug(ctx, r.d.Log, "run", "run start", "model", rc.Model.String(), "max_steps", st.maxSteps,
+		"effort", string(rc.Effort), "effort_sent", string(core.EffectiveEffort(info, rc.Effort)))
 
 	var last core.Message
 	for n := 1; n <= st.maxSteps; n++ {

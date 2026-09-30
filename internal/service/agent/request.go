@@ -20,6 +20,7 @@ func (r *Runner) buildRequest(ctx context.Context, rc ext.RunContext, st *run) (
 		Messages:        history,
 		Tools:           toolSpecs(st.allowed),
 		MaxOutputTokens: st.info.DefaultMaxTokens,
+		Effort:          core.EffectiveEffort(st.info, rc.Effort),
 	}
 	for _, t := range r.d.Ext.Transforms() {
 		if err := t.Transform(ctx, rc, &req); err != nil {
