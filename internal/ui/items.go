@@ -98,16 +98,21 @@ func (t *itemTrack) visible(ids []transcript.BlockID) []foldEntry {
 // an upsert (a streaming block's first tick) but missing from order would
 // make a later layout that absorbs it look like a plain append, leaving it
 // listed. An entry already in order (a regroup just laid it out) is not
-// added twice, nor is one build skipped (it is not listed at all).
+// added twice, nor is one build skipped (it is not listed at all). Only
+// an entry never issued before this build can be missing from order, so
+// only those scan it.
 func (t *itemTrack) upsert(s *sessionState, ids []transcript.BlockID) []blocklist.Item {
 	entries := t.visible(ids)
-	items := t.build(s, entries, bumpAll)
-	built := make(map[string]bool, len(items))
-	for _, it := range items {
-		built[it.ID] = true
-	}
+	var unissued []foldEntry
 	for _, e := range entries {
-		if built[string(e.id)] && !slices.ContainsFunc(t.fold.order, func(o foldEntry) bool { return o.id == e.id }) {
+		if t.versions[e.id] == 0 {
+			unissued = append(unissued, e)
+		}
+	}
+	items := t.build(s, entries, bumpAll)
+	for _, e := range unissued {
+		// build issues a version exactly when it lists the item.
+		if t.versions[e.id] > 0 && !slices.ContainsFunc(t.fold.order, func(o foldEntry) bool { return o.id == e.id }) {
 			t.fold.order = append(t.fold.order, e)
 		}
 	}
