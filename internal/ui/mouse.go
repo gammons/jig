@@ -109,8 +109,8 @@ func inRect(r wintree.Rect, x, y int) bool {
 	return x >= r.X && x < r.X+r.W && y >= r.Y && y < r.Y+r.H
 }
 
-// paneRect is p's rect: the transcript's, or the (open) details split's
-// side slot.
+// paneRect is p's rect: the transcript's, or the (open) column's side
+// slot.
 func paneRect(a *App, p mouseRegion) wintree.Rect {
 	if p == regionDetails {
 		return a.lay.Side

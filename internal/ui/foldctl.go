@@ -36,8 +36,8 @@ func (c foldCtl) apply(res applyResult) tea.Cmd {
 // the headers and the items showing changed (itemTrack.relistItems).
 // When the selected item is no longer listed (its group collapsed, or
 // the first call of a new group turned into its header), the selection
-// moves to its group's header, and, on main, an open details split
-// follows it.
+// moves to its group's header, and, on main, a single details entry in
+// the column follows it.
 func (c foldCtl) relist(changed []transcript.BlockID) tea.Cmd {
 	a, p := c.a, c.p
 	before, had := p.list.Selected()

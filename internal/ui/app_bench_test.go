@@ -183,8 +183,8 @@ func BenchmarkApp_Wheel2000(b *testing.B) {
 	}
 }
 
-// BenchmarkApp_DetailsToggle2000 measures opening and closing the details
-// split (enter, then q, each followed by the width debounce and a View)
+// BenchmarkApp_DetailsToggle2000 measures opening and closing a details
+// entry in the column (enter, then q, each followed by the width debounce and a View)
 // on a resumed 2,000-block session, after one warm-up pair: both widths
 // are then cached, so a toggle re-renders nothing in the list.
 func BenchmarkApp_DetailsToggle2000(b *testing.B) {
@@ -206,7 +206,7 @@ func BenchmarkApp_DetailsToggle2000(b *testing.B) {
 	ta.fire()
 	_ = ta.view()
 	if !columnOpen(ta.app) || ta.app.sess.main.sz.listW == closedW {
-		b.Fatalf("enter did not open the split at a new list width (open %v, width %d)", columnOpen(ta.app), closedW)
+		b.Fatalf("enter did not open the column at a new list width (open %v, width %d)", columnOpen(ta.app), closedW)
 	}
 	ta.key("q")
 	ta.fire()

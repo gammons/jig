@@ -24,7 +24,7 @@ const (
 const columnHeaderRows = 2
 
 // The column (spec §3.3) is a.view.col, a breadcrumbed stack of right-hand
-// panes that replaces the details split; a.view.focus says whether NORMAL's
+// panes (it replaced the old details split); a.view.focus says whether NORMAL's
 // navigation keys, the highlight, and enter/q/esc route to main or the
 // column. These are free functions, not methods, to stay under App's
 // per-package method budget (archtest's struct-size check). This task

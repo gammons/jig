@@ -264,7 +264,7 @@ func (p permCtl) next() tea.Cmd {
 }
 
 // selectBlock selects id in pane's transcript, following it with the
-// details split when open and pane is main.
+// column's single details entry when pane is main.
 func (p permCtl) selectBlock(pane *pane, id transcript.BlockID) tea.Cmd {
 	before, _ := pane.list.Selected()
 	pane.list.Select(string(id))

@@ -12,7 +12,7 @@ import (
 )
 
 // Layout constants (spec §4): the sidebar shows at ≥ 120 columns and takes
-// 32% of the width, clamped to 30–50; the details split takes 50%. Both
+// 32% of the width, clamped to 30–50; the column takes 50%. Both
 // are measured inside the margin.
 const (
 	sidebarMinTerm = 120
