@@ -216,3 +216,78 @@ func BenchmarkApp_DetailsToggle2000(b *testing.B) {
 		toggle()
 	}
 }
+
+// childHistory is a stored session of n assistant messages, each one
+// short text block, so the child pane holds n blocks.
+func childHistory(n int) []core.Message {
+	msgs := make([]core.Message, n)
+	for i := range msgs {
+		msgs[i] = core.Message{
+			ID: core.MessageID(fmt.Sprintf("k%05d", i)), SessionID: "ses_c",
+			Role: core.RoleAssistant, Status: core.StatusComplete,
+			Parts: []core.Part{{Kind: core.PartText, Text: fmt.Sprintf("step %d done", i)}},
+		}
+	}
+	return msgs
+}
+
+// BenchmarkApp_SubagentStream measures one streaming delta into a
+// subagent's live child pane, open in the column, on a resumed 2,000-block
+// root: one child TextDelta (marks a block dirty), the streamTick that
+// upserts it, and View. Only the column's top pane may re-render; main,
+// with nothing dirty, must render nothing.
+func BenchmarkApp_SubagentStream(b *testing.B) {
+	ta := newTestApp(b, withSize(160, 40),
+		withResume(core.Session{ID: "ses_big", Agent: "build"}, benchHistory(2000), nil),
+		withSessions(nil, map[core.SessionID][]core.Message{"ses_c": childHistory(200)}))
+	if n := ta.app.sess.main.list.Len(); n != 2000 {
+		b.Fatalf("list has %d items, want 2000", n)
+	}
+	ta.event(event.ToolCallStarted{Base: event.Base{SessionID: "ses_big", RootID: "ses_big"}, MessageID: "m1",
+		Call: core.ToolCall{ID: "c9", Name: "task", Input: []byte(`{"agent":"explore","description":"find the config"}`)}})
+	ta.event(event.SubagentSpawned{Base: event.Base{SessionID: "ses_big", RootID: "ses_big"}, Child: "ses_c",
+		Agent: "explore", Description: "find the config", CallID: "c9"})
+	// Settle the parent's subagent block: its own spinner must not tick
+	// forever, else main renders every tick too (matching
+	// TestColumn_ChildStreamsPerTick's setup).
+	ta.event(event.ToolCallFinished{Base: event.Base{SessionID: "ses_big", RootID: "ses_big"}, MessageID: "m1",
+		Result: core.ToolResult{CallID: "c9", Name: "task", Output: "done"}})
+	if !ta.app.sess.main.list.Select("t/c9") {
+		b.Fatal("test setup: could not select the subagent block")
+	}
+	ta.key("esc")
+	ta.key("enter") // main -> the child pane, pushed into the column, focused
+	top := columnTop(ta.app)
+	if top == nil || top.kind != paneTranscript || top.session != "ses_c" {
+		b.Fatalf("top() = %+v, want the ses_c transcript pane", top)
+	}
+	if n := top.list.Len(); n != 200 {
+		b.Fatalf("child pane has %d items, want 200", n)
+	}
+	_ = ta.view()
+	ta.app.sess.run.running = true // hold the tick chain alive across iterations
+	// Pushing the child pane halved main's width, scheduling a debounced
+	// resize of all 2,000 main blocks (relayout.go's resizePane); drain
+	// that (and any further reschedule) before timing starts, so it
+	// never leaks into the per-iteration cost.
+	for i := 0; i < 5 && len(ta.deferred) > 0; i++ {
+		ta.fire()
+		_ = ta.view()
+	}
+	// Prime the streamTick chain the way a real send does (send.go): one
+	// onTick call schedules the first tick, which the timed loop then
+	// fires each iteration (rescheduling the next one itself).
+	ta.run(ta.app.onTick())
+	mainUpserts := ta.app.w.upserts
+	b.ReportAllocs()
+	i := 0
+	for b.Loop() {
+		i++
+		ta.event(event.TextDelta{Base: event.Base{SessionID: "ses_c", RootID: "ses_big"}, MessageID: "k1", Text: fmt.Sprintf(" w%d", i)})
+		ta.fire()
+		_ = ta.view()
+	}
+	if got := ta.app.w.upserts - mainUpserts; got != b.N {
+		b.Errorf("upserts = %d, want exactly %d (one per iteration, the child pane only)", got, b.N)
+	}
+}
