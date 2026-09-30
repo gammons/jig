@@ -396,6 +396,7 @@ the budget. Run with `go test -run XXX -bench . -benchmem <pkg>`.
 | `BenchmarkApp_Keystroke2000` — one character typed into the prompt, then `View` | < 1.5 ms/op | 0.83 ms/op |
 | `BenchmarkApp_Wheel2000` — one wheel notch over the transcript, then `View` | < 1.5 ms/op | 1.16 ms/op |
 | `BenchmarkApp_StreamTick2000` — one streaming delta, its tick, and `View`, with the reply already ~16 KB | < 5 ms/op | 1.9 ms/op |
+| `BenchmarkApp_ReasoningTick2000` — one streaming reasoning delta, its tick, and `View`, with the thinking already ~16 KB and shown | < 5 ms/op | 0.79 ms/op (QEMU VM, 4 vCPU) |
 
 Every keystroke and wheel notch re-renders the whole frame, so
 `compose` (`internal/ui/layout.go`) measures each widget's output once:
@@ -419,6 +420,14 @@ the step ends the block renders once in full with `Render` (paragraphs
 rendered apart can differ in blank-line spacing until then). The
 blocklist then re-fits only the lines that differ from the block's
 previous render at that width.
+A reasoning block the model is still thinking in shows its text (plain,
+dim, indented; `internal/ui/reasoning.go`) unless `Prefs.HideReasoning`
+(the `view.reasoning` action, `prefsCtl.toggleReasoning` in
+`internal/ui/prefs.go`) is set, and collapses to its one line once
+thinking ends. Its render caches the wrapped lines of every finished
+source line (up to the last `\n`) per block ID and width, so a tick
+wraps only the new lines and the unfinished tail; the entry is dropped
+when the block collapses.
 In the theme picker, a highlight change previews its palette 120 ms
 after the last one (`themeDebounce`, keyed by `themeState.gen`); `esc`
 (restore) and a choice apply at once.

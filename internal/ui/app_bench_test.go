@@ -52,6 +52,48 @@ func BenchmarkApp_StreamTick2000(b *testing.B) {
 	}
 }
 
+// reasonChunk is one paragraph of streamed reasoning, ending in a blank
+// line: plain prose, long enough to wrap.
+const reasonChunk = "I should check how the build is wired before changing anything, since the Makefile runs the linters and the race tests together.\n\n"
+
+// BenchmarkApp_ReasoningTick2000 measures one streaming tick of reasoning
+// text (a delta, the tick that renders it, and the next View) on a
+// resumed 2,000-block session, with the thinking already ~16 KB long and
+// shown in the transcript: a tick's cost must not grow with the thinking.
+// Each block is ended at 32 KB and a new one started, so the result
+// doesn't depend on how many iterations run.
+func BenchmarkApp_ReasoningTick2000(b *testing.B) {
+	ta := newTestApp(b, withSize(150, 40), withResume(core.Session{ID: "ses_1", Agent: "build"}, benchHistory(2000), nil))
+	_ = ta.view()
+	ta.typeText("go")
+	ta.key("enter")
+	reply, size := 0, 0
+	msg := func() core.MessageID { return core.MessageID(fmt.Sprintf("live%d", reply)) }
+	start := func() {
+		reply++
+		size = 0
+		ta.event(event.MessageStarted{Base: rootBase(), MessageID: msg()})
+		for size < 16<<10 {
+			ta.event(event.ReasoningDelta{Base: rootBase(), MessageID: msg(), Text: reasonChunk})
+			size += len(reasonChunk)
+		}
+		ta.fire()
+		_ = ta.view()
+	}
+	start()
+	b.ReportAllocs()
+	for b.Loop() {
+		if size >= 32<<10 {
+			ta.event(event.StepFinished{Base: rootBase(), MessageID: msg()})
+			start()
+		}
+		ta.event(event.ReasoningDelta{Base: rootBase(), MessageID: msg(), Text: "word "})
+		size += 5
+		ta.fire()
+		_ = ta.view()
+	}
+}
+
 // benchHistory is a stored session of n messages alternating user and
 // assistant, the assistant ones 1–12 lines of Markdown, so every text
 // block goes through the real renderer (mdrender/glamour).

@@ -18,6 +18,7 @@ import (
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
 	"github.com/gammons/jig/internal/golden"
+	"github.com/gammons/jig/internal/ui/actions"
 	"github.com/gammons/jig/internal/ui/transcript"
 )
 
@@ -1098,6 +1099,85 @@ func TestApp_ThinkingSpinnerAnimatesUntilTextStarts(t *testing.T) {
 	}
 }
 
+// TestApp_ReasoningStreamsThenCollapses: the model's thinking shows in the
+// transcript as it streams in (each delta after the next tick), and once
+// text follows the block collapses to its "∴ thought for" line.
+func TestApp_ReasoningStreamsThenCollapses(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("Explain the build")
+	ta.event(event.ReasoningDelta{Base: rootBase(), MessageID: "m1", Text: "Checking the Makefile targets.\n\n"})
+	ta.fire()
+	if v := xansi.Strip(ta.view()); !strings.Contains(v, "Checking the Makefile targets.") {
+		t.Fatalf("first thought not shown while thinking:\n%s", v)
+	}
+	ta.event(event.ReasoningDelta{Base: rootBase(), MessageID: "m1", Text: "Lint runs before tests."})
+	ta.fire()
+	if v := xansi.Strip(ta.view()); !strings.Contains(v, "Lint runs before tests.") {
+		t.Fatalf("second thought not shown while thinking:\n%s", v)
+	}
+
+	ta.clk.Advance(2 * time.Second)
+	ta.event(event.TextDelta{Base: rootBase(), MessageID: "m1", Text: "The answer."})
+	ta.fire()
+	v := xansi.Strip(ta.view())
+	if strings.Contains(v, "Checking the Makefile") || strings.Contains(v, "Lint runs") {
+		t.Errorf("thinking text still shown after text followed:\n%s", v)
+	}
+	if !strings.Contains(v, "∴ thought for 2.0s") || !strings.Contains(v, "The answer.") {
+		t.Errorf("want the collapsed line and the answer in:\n%s", v)
+	}
+}
+
+// TestApp_ReasoningToggleSavesPref: view.reasoning hides the thinking
+// text at once (no tick needed), leaving the spinner line, and saves
+// Prefs.HideReasoning; running it again shows the text and clears it.
+func TestApp_ReasoningToggleSavesPref(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("Explain the build")
+	ta.event(event.ReasoningDelta{Base: rootBase(), MessageID: "m1", Text: "Checking the Makefile targets."})
+	ta.fire()
+
+	ta.run(ta.app.runAction(actions.ViewReasoning))
+	v := xansi.Strip(ta.view())
+	if strings.Contains(v, "Checking the Makefile") || !strings.Contains(v, " thinking") {
+		t.Errorf("after hiding, want only the spinner line:\n%s", v)
+	}
+	if !ta.prefs.Get().HideReasoning {
+		t.Error("prefs.HideReasoning = false after hiding, want true")
+	}
+
+	ta.run(ta.app.runAction(actions.ViewReasoning))
+	if v := xansi.Strip(ta.view()); !strings.Contains(v, "Checking the Makefile targets.") {
+		t.Errorf("after showing again, thinking text missing:\n%s", v)
+	}
+	if ta.prefs.Get().HideReasoning {
+		t.Error("prefs.HideReasoning = true after showing again, want false")
+	}
+}
+
+// TestApp_ReasoningHiddenByPref: a saved HideReasoning keeps thinking text
+// out of the transcript from the start, and still does in a new session.
+func TestApp_ReasoningHiddenByPref(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withPrefs(core.Prefs{HideReasoning: true}))
+	stream := func() {
+		t.Helper()
+		ta.sendAndAdopt("Explain the build")
+		ta.event(event.ReasoningDelta{Base: rootBase(), MessageID: "m1", Text: "Checking the Makefile targets."})
+		ta.fire()
+		if v := xansi.Strip(ta.view()); strings.Contains(v, "Checking the Makefile") {
+			t.Errorf("thinking text shown with HideReasoning set:\n%s", v)
+		}
+	}
+	stream()
+	ta.event(event.RunFinished{Base: rootBase()})
+	ta.returnSend()
+	ta.run(ta.app.runAction(actions.SessionNew))
+	stream()
+}
+
 // TestApp_ThinkingDurationFromClock: once thinking ends, whether text or
 // a tool call follows or the step or run ends, the reasoning block reads
 // "∴ thought for <dur>", timed on the App clock from its first delta to
@@ -1182,6 +1262,18 @@ func TestApp_GoldenStreaming(t *testing.T) {
 	ta.clk.Advance(3 * time.Second)
 	ta.fire()
 	golden.Assert(t, "app_streaming", ta.view())
+}
+
+// TestApp_GoldenThinking: the frame while the model is still thinking,
+// its reasoning streamed in dim under the spinner line.
+func TestApp_GoldenThinking(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("Explain the build")
+	ta.event(event.MessageStarted{Base: rootBase(), MessageID: "m1", Agent: "build", Model: "anthropic/claude-sonnet-5"})
+	ta.event(event.ReasoningDelta{Base: rootBase(), MessageID: "m1", Text: "**Checking the build**\n\nThe Makefile's check target runs the tests with the race detector, then golangci-lint with and without the jigtest build tag.\n\nI should read it before answering"})
+	ta.fire()
+	golden.Assert(t, "app_thinking", ta.view())
 }
 
 // effortCatalog has a configured anthropic with sonnet (low…max, default

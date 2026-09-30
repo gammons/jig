@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"slices"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -321,11 +320,7 @@ func (a *App) onResult(msg tea.Msg) tea.Cmd {
 func (a *App) onPortResult(msg tea.Msg) {
 	switch msg := msg.(type) {
 	case prefsMsg:
-		a.view.sidebarPref = msg.prefs.Sidebar
-		a.view.history = append([]string(nil), msg.prefs.History[a.opts.ProjectKey]...)
-		a.w.prompt.SetHistory(a.view.history)
-		a.view.pick.recent = slices.Clone(msg.prefs.Recent[:min(len(msg.prefs.Recent), maxRecent)])
-		a.w.picker.SetRecent(a.view.pick.recent)
+		prefsCtl{a}.load(msg.prefs)
 	case agentsMsg:
 		a.sess.cat.agents = msg.agents
 		if a.sess.info.Agent == "" && len(msg.agents) > 0 {
@@ -465,9 +460,9 @@ func (a *App) runAction(id actions.ID) tea.Cmd {
 func dispatchAction(a *App, id actions.ID) tea.Cmd {
 	switch id {
 	case actions.ViewSidebar:
-		show := !a.lay.SideVisible
-		a.view.sidebarPref = &show
-		return prefsUpdateCmd(a.ports, func(p *core.Prefs) { p.Sidebar = &show })
+		return prefsCtl{a}.toggleSidebar()
+	case actions.ViewReasoning:
+		return prefsCtl{a}.toggleReasoning()
 	case actions.PromptEditor:
 		return editorCmd(a.ports, a.w.prompt.Value())
 	case actions.RunCancel:
