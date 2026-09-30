@@ -323,6 +323,62 @@ func TestView_ReturnedSlicesAreCopies(t *testing.T) {
 	}
 }
 
+// fakeToolSource is a minimal ToolSource stub for tests.
+type fakeToolSource struct{ tools []Tool }
+
+func (f fakeToolSource) Tools() []Tool { return f.tools }
+
+func TestRegistry_SetToolSource(t *testing.T) {
+	t.Run("nil is rejected", func(t *testing.T) {
+		r := NewRegistry()
+		if err := r.SetToolSource(nil); err == nil {
+			t.Fatal("SetToolSource(nil): want error, got nil")
+		}
+	})
+
+	t.Run("a second call is rejected", func(t *testing.T) {
+		r := NewRegistry()
+		if err := r.SetToolSource(fakeToolSource{}); err != nil {
+			t.Fatalf("SetToolSource #1: %v", err)
+		}
+		if err := r.SetToolSource(fakeToolSource{}); err == nil {
+			t.Fatal("SetToolSource #2: want error, got nil")
+		}
+	})
+
+	t.Run("after Freeze returns ErrFrozen", func(t *testing.T) {
+		r := NewRegistry()
+		r.Freeze()
+		if err := r.SetToolSource(fakeToolSource{}); err != ErrFrozen {
+			t.Errorf("SetToolSource after Freeze: got %v, want ErrFrozen", err)
+		}
+	})
+
+	t.Run("View.ToolSource returns the source", func(t *testing.T) {
+		r := NewRegistry()
+		src := fakeToolSource{tools: []Tool{fakeTool{name: "mcp__s__t"}}}
+		if err := r.SetToolSource(src); err != nil {
+			t.Fatalf("SetToolSource: %v", err)
+		}
+		v := r.Freeze()
+		got := v.ToolSource()
+		if got == nil {
+			t.Fatal("View.ToolSource(): got nil")
+		}
+		if len(got.Tools()) != 1 || got.Tools()[0].Name() != "mcp__s__t" {
+			t.Errorf("View.ToolSource().Tools() = %+v", got.Tools())
+		}
+	})
+
+	t.Run("with no source, View.ToolSource returns nil", func(t *testing.T) {
+		r := NewRegistry()
+		v := r.Freeze()
+		if got := v.ToolSource(); got != nil {
+			t.Errorf("View.ToolSource() = %v, want nil", got)
+		}
+	})
+}
+
 func TestView_ConcurrentReads(t *testing.T) {
 	r := NewRegistry()
 	for _, name := range []string{"write", "bash", "edit", "glob"} {

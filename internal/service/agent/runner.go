@@ -69,7 +69,6 @@ type run struct {
 	rc       ext.RunContext
 	llm      core.LLM
 	info     core.ModelInfo
-	allowed  []ext.Tool
 	maxSteps int
 }
 
@@ -98,7 +97,7 @@ func (r *Runner) Run(ctx context.Context, rc ext.RunContext, userText string, at
 	if err != nil {
 		return core.Message{}, r.failed(rc.SessionID, rc.RootID, err)
 	}
-	st := &run{rc: rc, llm: llm, info: info, allowed: r.allowedTools(rc.Agent), maxSteps: rc.Agent.MaxSteps}
+	st := &run{rc: rc, llm: llm, info: info, maxSteps: rc.Agent.MaxSteps}
 	if st.maxSteps <= 0 {
 		st.maxSteps = defaultMaxSteps
 	}
@@ -170,7 +169,10 @@ func (r *Runner) register(ctx context.Context, id core.SessionID) (context.Conte
 }
 
 // step runs one model request into one assistant message, executes any
-// tool calls it made, and saves it.
+// tool calls it made, and saves it. It recomputes the agent's allowed
+// tools once at the start, from the registry's tools plus the current
+// contents of any live ToolSource, and uses that one snapshot for both
+// the request and execution.
 func (r *Runner) step(ctx context.Context, st *run, n int) (out core.Message, err error) {
 	var tm stepTiming
 	var streamDur, toolsDur time.Duration
@@ -184,7 +186,8 @@ func (r *Runner) step(ctx context.Context, st *run, n int) (out core.Message, er
 	rc := st.rc
 	rc.MessageID = msg.ID
 
-	req, err := r.buildRequest(ctx, rc, st)
+	allowed := r.allowedTools(rc.Agent)
+	req, err := r.buildRequest(ctx, rc, st, allowed)
 	if err != nil {
 		return r.abort(ctx, msg, rc.RootID, err)
 	}
@@ -199,7 +202,7 @@ func (r *Runner) step(ctx context.Context, st *run, n int) (out core.Message, er
 
 	if calls := toolCalls(msg); len(calls) > 0 {
 		toolsStart := r.d.Clock.Now()
-		for _, res := range r.execute(ctx, rc, st.allowed, calls) {
+		for _, res := range r.execute(ctx, rc, allowed, calls) {
 			msg.Parts = append(msg.Parts, core.Part{Kind: core.PartToolResult, Result: &res})
 		}
 		toolsDur = r.d.Clock.Now().Sub(toolsStart)
@@ -303,8 +306,24 @@ func (r *Runner) stamp() time.Time {
 	return now
 }
 
+// allowedTools returns the tools a may call: every registered Tool, plus
+// the live ToolSource's current tools (if one is registered), with a
+// source tool dropped when its name is already taken by a registered
+// Tool, then filtered by ToolsFor.
 func (r *Runner) allowedTools(a core.Agent) []ext.Tool {
 	all := r.d.Ext.Tools()
+	if src := r.d.Ext.ToolSource(); src != nil {
+		have := make(map[string]bool, len(all))
+		for _, t := range all {
+			have[t.Name()] = true
+		}
+		for _, t := range src.Tools() {
+			if have[t.Name()] {
+				continue
+			}
+			all = append(all, t)
+		}
+	}
 	if r.d.ToolsFor == nil {
 		return all
 	}

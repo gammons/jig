@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gammons/jig/internal/client/catalog"
 	"github.com/gammons/jig/internal/client/llm"
@@ -20,6 +21,7 @@ import (
 	"github.com/gammons/jig/internal/service/agent"
 	"github.com/gammons/jig/internal/service/agents"
 	"github.com/gammons/jig/internal/service/chat"
+	mcpsvc "github.com/gammons/jig/internal/service/mcp"
 	"github.com/gammons/jig/internal/service/media"
 	"github.com/gammons/jig/internal/service/permission"
 	"github.com/gammons/jig/internal/service/session"
@@ -44,11 +46,13 @@ type runtime struct {
 // other than chat: sessions, agents, the catalog, blobs, and the frozen
 // registry (its commands and keybinds).
 type tuiServices struct {
-	sessions *session.Service
-	agents   *agents.Service
-	catalog  catalogPort
-	blobs    *blobfs.Store
-	view     ext.View
+	sessions  *session.Service
+	agents    *agents.Service
+	catalog   catalogPort
+	blobs     *blobfs.Store
+	view      ext.View
+	mcp       *mcpsvc.Manager
+	mcpSettle time.Duration
 }
 
 // askerFunc builds the permission.Asker for a runtime from its bus.
@@ -78,7 +82,7 @@ func newRuntime(ctx context.Context, e env, askerFor askerFunc, errw io.Writer) 
 	}
 	cat := newCatalog(e, clk)
 	rt := &runtime{bus: event.NewBus(), store: st, spillDir: spillDir, log: log, logFile: logFile}
-	if rt.chat, err = newChat(e, rt, cat, askerFor(rt.bus), errw); err != nil {
+	if rt.chat, err = newChat(ctx, e, rt, cat, askerFor(rt.bus), errw); err != nil {
 		_ = rt.close()
 		return nil, err
 	}
@@ -88,7 +92,7 @@ func newRuntime(ctx context.Context, e env, askerFor askerFunc, errw io.Writer) 
 
 // newChat builds the agents, session, registry, runner, and chat
 // services over rt's bus and store.
-func newChat(e env, rt *runtime, cat *catalog.Catalog, asker permission.Asker, errw io.Writer) (*chat.Service, error) {
+func newChat(ctx context.Context, e env, rt *runtime, cat *catalog.Catalog, asker permission.Asker, errw io.Writer) (*chat.Service, error) {
 	disc := discover(e, errw)
 	ag, err := agents.New(e.cfg(), disc.sources)
 	if err != nil {
@@ -107,17 +111,19 @@ func newChat(e env, rt *runtime, cat *catalog.Catalog, asker permission.Asker, e
 	proxy := &agent.Proxy{}
 	tracker := tools.NewTracker()
 	pipeline := media.New(blobs)
+	mcpMgr := newMCPManager(e, clk, rt.bus, pipeline)
 	view, err := buildRegistry(registryDeps{
 		env: e, clk: clk, bus: rt.bus, store: rt.store,
 		skills: skills.New(disc.skills, skillFS{}), sessions: sess, agents: ag,
 		proxy: proxy, asker: asker, ids: idGen, spillDir: rt.spillDir,
-		blobs: blobs, media: pipeline, tracker: tracker,
+		media: pipeline, tracker: tracker, mcp: mcpToolSource(mcpMgr),
 		debugDeps: debugDeps{log: rt.log, httpClient: hc},
 	})
 	if err != nil {
 		return nil, err
 	}
-	rt.svc = tuiServices{sessions: sess, agents: ag, catalog: catalogPort{cat: cat, src: src}, blobs: blobs, view: view}
+	startMCP(ctx, mcpMgr)
+	rt.svc = tuiServices{sessions: sess, agents: ag, catalog: catalogPort{cat: cat, src: src}, blobs: blobs, view: view, mcp: mcpMgr, mcpSettle: maxStartupTimeout(resolvedMCPServers(e))}
 	runner := newRunner(rt, src, view, sess, clk, idGen)
 	proxy.Set(runner)
 	return chat.New(chat.Deps{
@@ -154,9 +160,12 @@ func providerView(hc *http.Client) (ext.View, error) {
 	return r.Freeze(), nil
 }
 
-// close releases rt's store and removes its spill dir, then closes the
-// debug log.
+// close releases rt's store and removes its spill dir, after closing the
+// MCP manager, if any, then closes the debug log.
 func (rt *runtime) close() error {
+	if rt.svc.mcp != nil {
+		_ = rt.svc.mcp.Close()
+	}
 	rmErr := os.RemoveAll(rt.spillDir)
 	stErr := rt.store.Close()
 	logErr := rt.logFile.Close()

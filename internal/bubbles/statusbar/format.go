@@ -65,5 +65,8 @@ func indicatorsText(s State) string {
 	if s.Untrusted {
 		parts = append(parts, "untrusted")
 	}
+	if s.MCPIssues > 0 {
+		parts = append(parts, "mcp "+strconv.Itoa(s.MCPIssues)+"!")
+	}
 	return strings.Join(parts, " ")
 }

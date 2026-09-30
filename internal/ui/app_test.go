@@ -924,19 +924,19 @@ func TestApp_QuitCancelsBaseContext(t *testing.T) {
 func TestApp_ResizeDebouncesListWidth(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
-	w0 := ta.app.view.listW
+	w0 := ta.app.view.list.w
 	ta.send(tea.WindowSizeMsg{Width: 130, Height: 30})
 	ta.send(tea.WindowSizeMsg{Width: 140, Height: 30})
 	ta.send(tea.WindowSizeMsg{Width: 150, Height: 32})
-	if ta.app.view.listW != w0 {
-		t.Fatalf("list width changed to %d before the debounce tick", ta.app.view.listW)
+	if ta.app.view.list.w != w0 {
+		t.Fatalf("list width changed to %d before the debounce tick", ta.app.view.list.w)
 	}
 	// 150 columns less the 2-cell margin, less the 47-column sidebar.
 	if ta.app.lay.Transcript.W != 101 {
 		t.Fatalf("layout not applied at once: %+v", ta.app.lay.Transcript)
 	}
-	if ta.app.view.listH != ta.app.lay.Transcript.H {
-		t.Errorf("list height %d, want %d applied at once", ta.app.view.listH, ta.app.lay.Transcript.H)
+	if ta.app.view.list.h != ta.app.lay.Transcript.H {
+		t.Errorf("list height %d, want %d applied at once", ta.app.view.list.h, ta.app.lay.Transcript.H)
 	}
 	for _, d := range ta.deferred {
 		if d.d != 50*time.Millisecond {
@@ -944,8 +944,8 @@ func TestApp_ResizeDebouncesListWidth(t *testing.T) {
 		}
 	}
 	ta.fire()
-	if ta.app.view.listW != 101 {
-		t.Errorf("list width = %d after the debounce, want 101", ta.app.view.listW)
+	if ta.app.view.list.w != 101 {
+		t.Errorf("list width = %d after the debounce, want 101", ta.app.view.list.w)
 	}
 }
 

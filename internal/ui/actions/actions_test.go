@@ -21,8 +21,8 @@ func TestCatalogue_BuiltinsAndExt(t *testing.T) {
 	c := NewCatalogue(cmds)
 
 	all := c.All()
-	if len(all) != 21 {
-		t.Fatalf("All() = %d actions, want 21 (20 builtins + 1 ext)", len(all))
+	if len(all) != 22 {
+		t.Fatalf("All() = %d actions, want 22 (21 builtins + 1 ext)", len(all))
 	}
 
 	first := all[0]
@@ -58,6 +58,7 @@ func TestCatalogue_BuiltinsAndExt(t *testing.T) {
 		{ViewSidebar, "Toggle sidebar", "View", false},
 		{ViewTheme, "Switch theme…", "View", true},
 		{ViewReasoning, "Streamed reasoning…", "View", true},
+		{MCPServers, "MCP servers…", "MCP", true},
 		{HelpKeys, "Keybindings", "App", true},
 		{AppQuit, "Quit", "App", false},
 		{PickerOpen, "Open picker", "App", false},
@@ -88,8 +89,8 @@ func TestCatalogue_BuiltinsAndExt(t *testing.T) {
 
 func TestCatalogue_NoExtCommands(t *testing.T) {
 	c := NewCatalogue(nil)
-	if len(c.All()) != 20 {
-		t.Fatalf("All() = %d actions, want 20 builtins", len(c.All()))
+	if len(c.All()) != 21 {
+		t.Fatalf("All() = %d actions, want 21 builtins", len(c.All()))
 	}
 	if _, ok := c.Get(PickerOpen); !ok {
 		t.Error("Get(picker.open): not found")

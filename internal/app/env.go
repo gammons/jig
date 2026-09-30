@@ -31,6 +31,7 @@ type env struct {
 	layers       trust.Layers      // post-decision: the project layers are restricted unless trusted
 	merged       core.Config       // config.Merge(layers.Global, layers.Project), computed once in loadEnv
 	agentWarns   []skillfs.Warning // markdown agent discovery warnings, printed by discover
+	mcpWarns     []string          // .mcp.json config warnings, printed by discover
 	browser      browserIntegration
 	browserWarns []string // agent-browser warnings, printed by discover
 	getenv       func(string) string
@@ -79,6 +80,7 @@ func (e *env) resolveLayers(decide trustDecider, clk clock.Clock) error {
 	if err != nil {
 		return err
 	}
+	e.mcpWarns = loaded.Warnings
 	globalDirs, projectDirs := agentfs.Dirs(e.paths, e.gitRoot, e.workDir)
 	globalMD, globalWarns := agentfs.Discover(globalDirs)
 	projectMD, projectWarns := agentfs.Discover(projectDirs)
@@ -115,6 +117,7 @@ func (e *env) reloadTrusted(l trust.Layers, st trustState) (trust.Layers, trustS
 	if err != nil {
 		return l, st, err
 	}
+	e.mcpWarns = loaded.Warnings
 	hash, err := hashProject(st.project, loaded, l.ProjectMD)
 	if err != nil {
 		return l, st, err

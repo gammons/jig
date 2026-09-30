@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -57,8 +58,17 @@ func trustProject(gitRoot, workDir string) string {
 
 // projectFiles lists every file that shapes the project layer: the
 // project config files Load read and each discovered project agent file
-// (files), plus the "{file:}" includes under project (optional, since they
-// may not exist). Includes outside project are not hashed.
+// (files), plus the "{file:}" includes under project and every
+// loaded.ProjectMCPFiles path that currently exists (optional). A
+// candidate .mcp.json that does not exist is left out entirely rather
+// than added as an "absent" optional record: loaded.ProjectMCPFiles lists
+// one candidate path per directory in the project chain regardless of
+// project config, so unconditionally hashing every candidate would give a
+// project with zero config files (and so zero trust effects) a non-empty
+// hash, and the trust dialog is never supposed to appear for one (see
+// decideTrust). Once a .mcp.json exists, adding, editing, or removing it
+// still changes the hash, since its presence or content changes which
+// paths/content are hashed. Includes outside project are not hashed.
 func projectFiles(project string, loaded config.Loaded, projectMD map[string]core.AgentConfig) (files, optional []string) {
 	files = append([]string(nil), loaded.ProjectFiles...)
 	for _, ac := range projectMD {
@@ -67,6 +77,11 @@ func projectFiles(project string, loaded config.Loaded, projectMD map[string]cor
 	for _, ref := range loaded.ProjectFileRefs {
 		if within(project, ref) || within(project, pathid.Key(ref)) {
 			optional = append(optional, ref)
+		}
+	}
+	for _, mcpFile := range loaded.ProjectMCPFiles {
+		if info, err := os.Stat(mcpFile); err == nil && info.Mode().IsRegular() {
+			optional = append(optional, mcpFile)
 		}
 	}
 	return files, optional

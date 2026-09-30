@@ -29,6 +29,8 @@ type Registry struct {
 
 	providers   []ProviderFactory
 	providerIdx map[string]int // Type() -> index into providers
+
+	toolSource ToolSource
 }
 
 // NewRegistry returns an empty Registry ready for Add* calls.
@@ -149,6 +151,22 @@ func (r *Registry) AddProvider(p ProviderFactory) error {
 	return nil
 }
 
+// SetToolSource registers s as the registry's one live ToolSource. It
+// returns an error if s is nil, r is frozen, or a source is already set.
+func (r *Registry) SetToolSource(s ToolSource) error {
+	if r.frozen {
+		return ErrFrozen
+	}
+	if s == nil {
+		return fmt.Errorf("ext: SetToolSource: source is nil")
+	}
+	if r.toolSource != nil {
+		return fmt.Errorf("ext: SetToolSource: a ToolSource is already set")
+	}
+	r.toolSource = s
+	return nil
+}
+
 // Freeze marks r as frozen, so future Add* calls return ErrFrozen, and
 // returns a View: an immutable snapshot of r's contents at this moment.
 // Calling Freeze again returns an equivalent View.
@@ -176,6 +194,8 @@ type View struct {
 
 	providers   []ProviderFactory
 	providerIdx map[string]int
+
+	toolSource ToolSource
 }
 
 // newView copies r's contents into a View, sorting tools by Name and
@@ -208,6 +228,7 @@ func newView(r *Registry) View {
 		keybinds:    append([]Keybind(nil), r.keybinds...),
 		providers:   providers,
 		providerIdx: providerIdx,
+		toolSource:  r.toolSource,
 	}
 }
 
@@ -272,4 +293,10 @@ func (v View) Provider(typ string) (ProviderFactory, bool) {
 		return nil, false
 	}
 	return v.providers[i], true
+}
+
+// ToolSource returns the registry's one live ToolSource, or nil when none
+// was registered.
+func (v View) ToolSource() ToolSource {
+	return v.toolSource
 }

@@ -46,8 +46,8 @@ func runningState() State {
 		Mode: "NORMAL", Branch: "main", Agent: "coder", Model: "sonnet",
 		Running: true, Elapsed: 12 * time.Second, Frame: 0,
 		CtxUsed: 12000, CtxLimit: 200000, CostUSD: 0.42,
-		Pending: 2, Queued: true, Untrusted: true,
-		Hint: "⚠ permission pending · esc gp",
+		Indicators: Indicators{Pending: 2, Queued: true, Untrusted: true},
+		Hint:       "⚠ permission pending · esc gp",
 	}
 }
 
@@ -207,6 +207,21 @@ func TestGolden_StatusRunning(t *testing.T) {
 	s.Mode = "INSERT"
 	m.Set(s)
 	golden.Assert(t, "status_running", m.View())
+}
+
+func TestStatusbar_MCPIssues(t *testing.T) {
+	t.Parallel()
+	m := New(WithStyles(pinnedStyles()))
+	m.SetWidth(80)
+	m.Set(State{
+		Mode: "NORMAL", Branch: "main", Agent: "coder", Model: "sonnet",
+		CtxUsed: 12000, CtxLimit: 200000, CostUSD: 0.42, Indicators: Indicators{MCPIssues: 2},
+	})
+	got := xansi.Strip(m.View())
+	if !strings.Contains(got, "mcp 2!") {
+		t.Fatalf("View() = %q, want it to contain \"mcp 2!\"", got)
+	}
+	golden.Assert(t, "statusbar_mcp_badge", m.View())
 }
 
 func TestStatus_EffortFollowsModel(t *testing.T) {

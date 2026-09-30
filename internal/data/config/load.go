@@ -20,15 +20,21 @@ const configFileName = "config.toml"
 
 // Loaded is the result of discovering jig's TOML config files, kept as two
 // separate layers rather than merged: Global (the single global file) and
-// Project (every .jig/config.toml root-to-leaf, closer file winning within
-// the layer). Callers combine them with Merge once they are ready to
-// (internal/app filters an untrusted Project through trust.Restrict first).
+// Project (every .jig/config.toml and .mcp.json root-to-leaf, closer file
+// winning within the layer). Callers combine them with Merge once they are
+// ready to (internal/app filters an untrusted Project through
+// trust.Restrict first).
 type Loaded struct {
 	Global  core.Config // the global file only
-	Project core.Config // every .jig/config.toml, root->leaf, closer wins
+	Project core.Config // every .jig/config.toml and .mcp.json, root->leaf, closer wins
 
 	GlobalFiles  []string // files actually read for Global (0 or 1 entries)
-	ProjectFiles []string // files actually read for Project, in merge order
+	ProjectFiles []string // .jig/config.toml files actually read for Project, in merge order (TOML only, per R1)
+
+	// ProjectMCPFiles is the .mcp.json path of every directory in the
+	// project chain, root to leaf, whether or not the file exists. A
+	// later task hashes these as optional files.
+	ProjectMCPFiles []string
 
 	// ProjectFileRefs is the resolved absolute path of every "{file:...}"
 	// token in the project files, sorted and deduplicated, collected
@@ -41,6 +47,13 @@ type Loaded struct {
 	// and listed here, sorted by Agent, Tool, Pattern, then Token, so
 	// callers can show them. Empty when SubstituteProject is set.
 	ProjectTokenActions []TokenAction
+
+	// Warnings holds every non-fatal issue found while loading the
+	// project layer's .mcp.json files: an unknown field (per server
+	// entry, or an unknown top-level key), and an unset "${VAR}" with no
+	// default. Order is deterministic: file order (root to leaf), then
+	// sorted within a file. A later task prints them.
+	Warnings []string
 }
 
 // Options controls Load.
@@ -51,25 +64,28 @@ type Options struct {
 }
 
 // Load discovers jig's TOML config files: p.ConfigDir/config.toml (the
-// global file) and <dir>/.jig/config.toml for each dir returned by
-// fsroot.Chain(gitRoot, workDir), root to leaf. When workDir has no git
-// root, only workDir/.jig/config.toml is considered. Within the project
-// layer, later files win; see the package doc and Task 8's brief for the
-// merge rules per key, and Merge for combining the two layers. A missing
-// file is skipped. A TOML syntax error returns an error naming the
-// offending file and line.
+// global file) and, for each dir returned by fsroot.Chain(gitRoot,
+// workDir), root to leaf, that dir's ".mcp.json" followed by its
+// ".jig/config.toml" (spec §5.2's layer order). When workDir has no git
+// root, only workDir's files are considered. Within the project layer,
+// later files win; see the package doc and Task 8's brief for the merge
+// rules per key, and Merge for combining the two layers. A missing file is
+// skipped. A TOML syntax error returns an error naming the offending file
+// and line.
 //
 // The global file's "{env:}"/"{file:}" tokens are always substituted; the
 // project files' only when o.SubstituteProject is set, so an untrusted
-// project can't pull a secret into its layer. Leaving them literal does
-// not change the files' bytes, so a trust hash over them is the same
+// project can't pull a secret into its layer. The same gate controls
+// ".mcp.json"'s "${VAR}"/"${VAR:-default}" expansion. Leaving them literal
+// does not change the files' bytes, so a trust hash over them is the same
 // either way.
 func Load(p paths.Paths, workDir string, getenv func(string) string, o Options) (Loaded, error) {
-	global, err := loadLayer(p, []string{globalConfigFile(p)}, getenv, true)
+	global, err := loadLayer(p, []configEntry{{path: globalConfigFile(p), kind: kindTOML}}, getenv, true)
 	if err != nil {
 		return Loaded{}, err
 	}
-	project, err := loadLayer(p, projectConfigFiles(p, workDir), getenv, o.SubstituteProject)
+	entries, mcpFiles := projectConfigFiles(p, workDir)
+	project, err := loadLayer(p, entries, getenv, o.SubstituteProject)
 	if err != nil {
 		return Loaded{}, err
 	}
@@ -79,39 +95,80 @@ func Load(p paths.Paths, workDir string, getenv func(string) string, o Options) 
 		Global:              global.cfg,
 		Project:             project.cfg,
 		GlobalFiles:         global.read,
-		ProjectFiles:        project.read,
+		ProjectFiles:        project.readTOML,
+		ProjectMCPFiles:     mcpFiles,
 		ProjectFileRefs:     slices.Compact(project.refs),
 		ProjectTokenActions: project.tokens,
+		Warnings:            project.warnings,
 	}, nil
 }
 
 // layer is one loadLayer result.
 type layer struct {
-	cfg    core.Config
-	read   []string // files actually read
-	refs   []string // resolved "{file:...}" token paths, unsorted
-	tokens []TokenAction
+	cfg      core.Config
+	read     []string // files actually read (toml and .mcp.json)
+	readTOML []string // files actually read, toml only (Loaded.ProjectFiles, per R1)
+	refs     []string // resolved "{file:...}" token paths, unsorted
+	tokens   []TokenAction
+	warnings []string
 }
 
-// loadLayer folds every file in files (skipping missing ones) into a
+// fileKind distinguishes a config.toml entry from a .mcp.json one within
+// projectConfigFiles' ordered list, so loadLayer can dispatch on it.
+type fileKind int
+
+const (
+	kindTOML fileKind = iota
+	kindMCPJSON
+)
+
+// configEntry is a fileKind-tagged path, the unit projectConfigFiles and
+// loadLayer work with. isProject is false only for the single global
+// config.toml entry: it selects the global vs. project default-cwd rule
+// for [mcp.servers.*] (§5.2).
+type configEntry struct {
+	path      string
+	kind      fileKind
+	isProject bool
+}
+
+// loadLayer folds every file in entries (skipping missing ones) into a
 // single core.Config, in order, and reports which files it actually read
 // and the "{file:...}" paths they reference. subst says whether to
-// substitute "{env:}"/"{file:}" tokens.
-func loadLayer(p paths.Paths, files []string, getenv func(string) string, subst bool) (layer, error) {
+// substitute "{env:}"/"{file:}" tokens in TOML files and "${VAR}" in
+// .mcp.json files.
+func loadLayer(p paths.Paths, entries []configEntry, getenv func(string) string, subst bool) (layer, error) {
 	var st state
 	var out layer
-	for _, path := range files {
-		d, ok, err := decodeFile(path, p.Home, getenv, subst)
-		if err != nil {
-			return layer{}, err
+	for _, e := range entries {
+		switch e.kind {
+		case kindMCPJSON:
+			warnings, ok, err := st.applyMCPJSON(e.path, subst, getenv)
+			if err != nil {
+				return layer{}, err
+			}
+			if !ok {
+				continue
+			}
+			out.read = append(out.read, e.path)
+			out.warnings = append(out.warnings, warnings...)
+		default:
+			d, ok, err := decodeFile(e.path, p.Home, getenv, subst)
+			if err != nil {
+				return layer{}, err
+			}
+			if !ok {
+				continue
+			}
+			if err := st.applyMCP(d.dto, d.md, e.path, filepath.Dir(e.path), p.Home, e.isProject); err != nil {
+				return layer{}, err
+			}
+			st.apply(d.dto, d.md, e.path, filepath.Dir(e.path), p.Home)
+			out.read = append(out.read, e.path)
+			out.readTOML = append(out.readTOML, e.path)
+			out.refs = append(out.refs, d.refs...)
+			out.tokens = append(out.tokens, d.tokens...)
 		}
-		if !ok {
-			continue
-		}
-		st.apply(d.dto, d.md, path, filepath.Dir(path), p.Home)
-		out.read = append(out.read, path)
-		out.refs = append(out.refs, d.refs...)
-		out.tokens = append(out.tokens, d.tokens...)
 	}
 	out.cfg = st.cfg
 	return out, nil
@@ -130,18 +187,24 @@ func globalConfigFile(p paths.Paths) string {
 	return filepath.Join(p.ConfigDir, configFileName)
 }
 
-// projectConfigFiles returns the project config file paths Load considers,
-// root to leaf.
-func projectConfigFiles(p paths.Paths, workDir string) []string {
+// projectConfigFiles returns the project config entries Load considers, in
+// merge order (root to leaf; within a directory, .mcp.json before
+// config.toml, per §5.2), plus every .mcp.json path considered whether or
+// not it exists (Loaded.ProjectMCPFiles, per R1).
+func projectConfigFiles(p paths.Paths, workDir string) ([]configEntry, []string) {
 	dirs := []string{workDir}
 	if root, ok := fsroot.GitRoot(workDir); ok {
 		dirs = fsroot.Chain(root, workDir)
 	}
-	files := make([]string, 0, len(dirs))
+	entries := make([]configEntry, 0, len(dirs)*2)
+	mcpFiles := make([]string, 0, len(dirs))
 	for _, d := range dirs {
-		files = append(files, filepath.Join(d, ".jig", configFileName))
+		mcpFile := filepath.Join(d, mcpJSONFileName)
+		mcpFiles = append(mcpFiles, mcpFile)
+		entries = append(entries, configEntry{path: mcpFile, kind: kindMCPJSON, isProject: true})
+		entries = append(entries, configEntry{path: filepath.Join(d, ".jig", configFileName), kind: kindTOML, isProject: true})
 	}
-	return files
+	return entries, mcpFiles
 }
 
 // decodeFile reads path, substitutes "{env:}"/"{file:}" tokens in every

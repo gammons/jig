@@ -58,7 +58,8 @@ func TestLayers_ServiceDoesNotImportConcreteClientOrData(t *testing.T) {
 				underDir(imp.Path, "internal/ui"),
 				imp.Path == "charm.land/fantasy",
 				imp.Path == "database/sql",
-				imp.Path == "modernc.org/sqlite":
+				imp.Path == "modernc.org/sqlite",
+				strings.HasPrefix(imp.Path, "github.com/modelcontextprotocol/go-sdk"):
 				t.Errorf("%s:%d: service-layer: internal/service must not import %q", f.Path, imp.Line, imp.Path)
 			}
 		}

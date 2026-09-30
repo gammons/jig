@@ -266,6 +266,60 @@ func (f *countBlobs) Open(ref string) ([]byte, string, error) {
 	return b, "image/png", nil
 }
 
+// fakeMCP implements core.MCPService in memory, recording every call.
+type fakeMCP struct {
+	mu          sync.Mutex
+	list        []core.MCPServerStatus
+	serverCalls int
+	authCalls   []string
+	cancelCalls []string
+	logoutCalls []string
+	reconnCalls []string
+	err         error
+}
+
+func (f *fakeMCP) Servers(context.Context) ([]core.MCPServerStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.serverCalls++
+	return slices.Clone(f.list), f.err
+}
+
+func (f *fakeMCP) Authenticate(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.authCalls = append(f.authCalls, name)
+	return nil
+}
+
+func (f *fakeMCP) CancelAuth(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cancelCalls = append(f.cancelCalls, name)
+	return nil
+}
+
+func (f *fakeMCP) Logout(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.logoutCalls = append(f.logoutCalls, name)
+	return nil
+}
+
+func (f *fakeMCP) Reconnect(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reconnCalls = append(f.reconnCalls, name)
+	return nil
+}
+
+// calls returns the number of Servers calls made so far.
+func (f *fakeMCP) calls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.serverCalls
+}
+
 // deferredMsg is what a test App's after hook yields instead of sleeping:
 // the message a tick would have delivered, and the delay it asked for.
 type deferredMsg struct {
@@ -283,6 +337,7 @@ type testConfig struct {
 	prefs     *fakePrefs
 	project   *listProject
 	blobs     *countBlobs
+	mcp       *fakeMCP
 	keyConfig map[string]string
 }
 
@@ -326,6 +381,11 @@ func withBlobs(data map[string][]byte) testOpt {
 	return func(c *testConfig) { c.blobs.data = data }
 }
 
+// withMCP enables the fake MCP port with the given initial server list.
+func withMCP(list []core.MCPServerStatus) testOpt {
+	return func(c *testConfig) { c.mcp = &fakeMCP{list: list} }
+}
+
 // withImages sets the image protocol override (JIG_IMAGES).
 func withImages(override string) testOpt {
 	return func(c *testConfig) { c.opts.Images = imgrender.Env{Override: override} }
@@ -364,6 +424,7 @@ type testApp struct {
 	project  *listProject
 	perms    *fakePerms
 	blobs    *countBlobs
+	mcp      *fakeMCP
 	raws     []string
 	clk      *clock.Fake
 	deferred []deferredMsg
@@ -401,12 +462,15 @@ func newTestApp(t testing.TB, opts ...testOpt) *testApp {
 
 	ta := &testApp{
 		t: t, chat: &fakeChat{}, sessions: cfg.sessions, prefs: cfg.prefs, project: cfg.project,
-		perms: &fakePerms{}, blobs: cfg.blobs, clk: clk,
+		perms: &fakePerms{}, blobs: cfg.blobs, mcp: cfg.mcp, clk: clk,
 	}
 	ports := Ports{
 		Chat: ta.chat, Sessions: cfg.sessions, Prefs: cfg.prefs,
 		Agents: cfg.agents, Catalog: cfg.catalog, Project: cfg.project,
 		Perms: ta.perms, Blobs: cfg.blobs,
+	}
+	if cfg.mcp != nil {
+		ports.MCP = cfg.mcp
 	}
 	ta.app = New(ports, cfg.opts)
 	ta.app.after = func(d time.Duration, msg tea.Msg) tea.Cmd {

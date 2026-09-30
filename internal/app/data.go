@@ -39,6 +39,13 @@ func (e env) blobsDir() string {
 	return filepath.Join(e.paths.DataDir, "blobs")
 }
 
+// mcpAuthDir is the MCP OAuth token store's directory (<DataDir>/mcp-auth),
+// shared by newMCPManager and mcpLogoutCmd so both always agree on where
+// tokens live.
+func (e env) mcpAuthDir() string {
+	return filepath.Join(e.paths.DataDir, "mcp-auth")
+}
+
 // prefsHandle opens the prefs store at path at most once, so every user in
 // a process (agent-browser discovery in loadEnv, the TUI's Prefs port)
 // shares one prefsfs.Store and its mutex.
@@ -93,6 +100,9 @@ func discover(e env, errw io.Writer) discovered {
 	skills, warns := skillfs.Discover(dirs)
 	printWarnings(errw, warns)
 	printWarnings(errw, e.agentWarns)
+	for _, w := range e.mcpWarns {
+		printLine(errw, "warning: "+w)
+	}
 	for _, w := range e.browserWarns {
 		printLine(errw, w)
 	}

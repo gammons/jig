@@ -3,7 +3,11 @@
 // over the event bus.
 package permission
 
-import "github.com/gammons/jig/internal/core"
+import (
+	"strings"
+
+	"github.com/gammons/jig/internal/core"
+)
 
 // Defaults returns jig's built-in permission rules: read-only and
 // low-risk tools are allowed, and tools with side effects ask.
@@ -48,26 +52,100 @@ func AgentBrowserPreset() core.PermissionRules {
 }
 
 // Effective merges an agent's permission rules over a config's over
-// Defaults(), per tool, covering the union of every tool named by any of
-// the three. Precedence (highest first) is agent, cfg, Defaults(): a
-// tool's Default comes from the highest-precedence source that sets it,
-// and its Patterns are merged, with a higher-precedence source winning a
-// pattern key it shares with a lower one.
+// Defaults(), per key, covering the union of every key named by any of
+// the three (including glob keys). Each output entry is
+// EffectiveFor(agent, cfg, key): the key (glob or exact) is resolved
+// within each layer independently via RuleFor, as if it were itself the
+// tool name, before the three layers are overlaid (agent highest, then
+// cfg, then Defaults()). This means a higher-precedence layer's glob can
+// out-rank a lower-precedence layer's more specific glob or even its
+// exact key for the same tool — resolve a tool's final rule with
+// RuleFor(Effective(agent, cfg), tool), which then only needs to pick
+// among Effective's exact and glob keys (each already an across-layer
+// result) to find the single best match for that tool.
 func Effective(agent, cfg core.PermissionRules) core.PermissionRules {
 	defaults := Defaults()
 
-	tools := make(map[string]struct{}, len(defaults)+len(cfg)+len(agent))
+	keys := make(map[string]struct{}, len(defaults)+len(cfg)+len(agent))
 	for _, rules := range []core.PermissionRules{defaults, cfg, agent} {
-		for tool := range rules {
-			tools[tool] = struct{}{}
+		for key := range rules {
+			keys[key] = struct{}{}
 		}
 	}
 
-	out := make(core.PermissionRules, len(tools))
-	for tool := range tools {
-		out[tool] = overlayRule(defaults[tool], cfg[tool], agent[tool])
+	out := make(core.PermissionRules, len(keys))
+	for key := range keys {
+		out[key] = EffectiveFor(agent, cfg, key)
 	}
 	return out
+}
+
+// EffectiveFor resolves tool's rule across all three layers: agent
+// highest, then cfg, then Defaults(). Each layer is first resolved to a
+// single rule via RuleFor (so a layer's glob key can supply tool's rule),
+// and the three results are then overlaid in that precedence order, so a
+// higher-precedence layer's glob (even one less specific than a
+// lower-precedence layer's glob or exact key) always wins.
+func EffectiveFor(agent, cfg core.PermissionRules, tool string) core.Rule {
+	return overlayRule(RuleFor(Defaults(), tool), RuleFor(cfg, tool), RuleFor(agent, tool))
+}
+
+// RuleFor resolves tool's rule within one layer of rules: the exact key
+// wins if present. Otherwise, among the keys that contain '*' and whose
+// Match(key, tool) is true, the highest specificity wins; on a tie among
+// equally specific glob keys, the more restrictive Default wins
+// (actionRank), and the tied keys' Patterns are merged, a shared pattern
+// key keeping the more restrictive action. No match returns the zero
+// Rule.
+func RuleFor(rules core.PermissionRules, tool string) core.Rule {
+	if r, ok := rules[tool]; ok {
+		return r
+	}
+
+	bestSpecificity := -1
+	var best core.Rule
+	matched := false
+
+	for key, r := range rules {
+		if !strings.Contains(key, "*") || !Match(key, tool) {
+			continue
+		}
+		spec := specificity(key)
+		switch {
+		case !matched || spec > bestSpecificity:
+			bestSpecificity, best, matched = spec, r, true
+		case spec == bestSpecificity:
+			best = mergeGlobTie(best, r)
+		}
+	}
+	return best
+}
+
+// mergeGlobTie combines two equally specific glob rules that tie for a
+// tool: the more restrictive Default wins (actionRank), and Patterns
+// merge, a shared pattern key keeping the more restrictive action.
+func mergeGlobTie(a, b core.Rule) core.Rule {
+	out := core.Rule{Default: a.Default}
+	if actionRank(b.Default) > actionRank(out.Default) {
+		out.Default = b.Default
+	}
+	for pattern, action := range a.Patterns {
+		out.Patterns = putIfMoreRestrictive(out.Patterns, pattern, action)
+	}
+	for pattern, action := range b.Patterns {
+		out.Patterns = putIfMoreRestrictive(out.Patterns, pattern, action)
+	}
+	return out
+}
+
+func putIfMoreRestrictive(m map[string]core.Action, pattern string, action core.Action) map[string]core.Action {
+	if m == nil {
+		m = make(map[string]core.Action)
+	}
+	if existing, ok := m[pattern]; !ok || actionRank(action) > actionRank(existing) {
+		m[pattern] = action
+	}
+	return m
 }
 
 // overlayRule applies layers in order, lowest precedence first: a later

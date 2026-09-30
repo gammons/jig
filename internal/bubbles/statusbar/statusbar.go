@@ -22,10 +22,17 @@ type State struct {
 	CtxUsed      int64
 	CtxLimit     int64
 	CostUSD      float64
-	Pending      int
-	Queued       bool
-	Untrusted    bool
 	Hint         string // e.g. "⚠ permission pending · esc gp"
+	Indicators
+}
+
+// Indicators are the right-side counters and flags, embedded in State so
+// their fields read as st.Pending, st.Queued, and so on.
+type Indicators struct {
+	Pending   int
+	Queued    bool
+	Untrusted bool
+	MCPIssues int // servers needing sign-in or failed; shown as "mcp N!" when > 0
 }
 
 // Option configures a Model built by New.

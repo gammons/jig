@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/bubbles/statusbar"
 	"github.com/gammons/jig/internal/core"
@@ -24,9 +26,9 @@ func (s *sessionState) status(aliases map[string]string) statusbar.State {
 		CtxUsed:  s.usage.Input + s.usage.CacheRead,
 		CtxLimit: s.contextWindow(ref),
 		CostUSD:  s.cost,
-		Pending:  len(s.proj.Pending()),
-		Queued:   s.queued,
 	}
+	st.Pending = len(s.proj.Pending())
+	st.Queued = s.queued
 	if s.run.running {
 		st.Elapsed = s.clk.Now().Sub(s.run.startedAt)
 	}
@@ -72,6 +74,33 @@ func displayModel(ref string, aliases map[string]string) string {
 		return model
 	}
 	return ref
+}
+
+// sync points the permission card at its request (returning its arming
+// tick, if any) and rebuilds the status bar and the sidebar from the state.
+func (a *App) sync() tea.Cmd {
+	cmd := permCtl{a}.sync()
+	a.w.status.Set(a.statusState())
+	if a.lay.SideVisible {
+		a.w.side.SetSections(sidebarSections(a))
+	}
+	return cmd
+}
+
+// statusState is the full status bar state.
+func (a *App) statusState() statusbar.State {
+	st := a.sess.status(a.opts.Aliases)
+	st.Mode = a.mode.String()
+	st.Untrusted = a.opts.Untrusted
+	st.Hint = a.view.hint
+	st.Pending = len(a.sess.proj.Pending())
+	if st.Hint == "" && st.Pending > 0 && (a.mode != modeNormal || !permCtl{a}.onCard()) {
+		st.Hint = permissionHint
+	}
+	if !a.lay.SideVisible {
+		st.MCPIssues = mcpIssues(a.view.mcp.list)
+	}
+	return st
 }
 
 // lookupModel finds ref ("provider/model") in the cached catalog.

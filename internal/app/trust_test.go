@@ -260,6 +260,58 @@ func TestLoadEnv_ChangeBeforeTrustedReloadRestricts(t *testing.T) {
 	}
 }
 
+// TestHashProject_CoversMCPJSON pins that adding a .mcp.json changes the
+// project hash, and that the hash is stable across reloads.
+func TestHashProject_CoversMCPJSON(t *testing.T) {
+	env := newTestEnv(t)
+	env.writeProject(t, ".jig/config.toml", "[permissions]\nwrite = \"ask\"\n")
+	d := &countingDecider{}
+	before := mustLoadEnv(t, env, d.decide).trust.hash
+	if before == "" {
+		t.Fatal("hash with a project config.toml = empty, want non-empty")
+	}
+
+	env.writeProject(t, ".mcp.json", `{"mcpServers": {"x": {"command": "npx"}}}`)
+	after := mustLoadEnv(t, env, d.decide).trust.hash
+	if after == "" || after == before {
+		t.Errorf("hash after adding .mcp.json = %q, want a new non-empty hash (was %q)", after, before)
+	}
+
+	again := mustLoadEnv(t, env, d.decide).trust.hash
+	if again != after {
+		t.Errorf("hash not stable across reloads: %q then %q", after, again)
+	}
+}
+
+// TestHashProject_NoConfigNoMCPJSONStaysEmpty pins that a project with no
+// TOML config and no .mcp.json anywhere in its chain still hashes to ""
+// (nothing to trust), even though config.Load's ProjectMCPFiles lists
+// every candidate .mcp.json path whether or not it exists: a project with
+// zero effects must never show the trust dialog (AGENTS.md invariant), so
+// hashProject must not manufacture a non-empty hash out of purely absent
+// candidate files.
+func TestHashProject_NoConfigNoMCPJSONStaysEmpty(t *testing.T) {
+	env := newTestEnv(t)
+	root := env.workDir
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env.workDir = sub
+
+	d := &countingDecider{grant: true}
+	e := mustLoadEnv(t, env, d.decide)
+	if e.trust.hash != "" {
+		t.Errorf("hash = %q, want empty with no config files at all", e.trust.hash)
+	}
+	if d.calls != 0 {
+		t.Errorf("decider called %d times, want 0", d.calls)
+	}
+}
+
 // TestLoadEnv_MonorepoSubdirsKeepSeparateGrants pins F7: two subdirs of
 // one git root with different project configs are both trusted after one
 // grant each, instead of each grant revoking the other's.

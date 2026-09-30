@@ -19,6 +19,7 @@ type Ports struct {
 	Blobs    core.BlobService
 	Prefs    core.PrefsService
 	Editor   core.EditorService
+	MCP      core.MCPService
 	// Subscribe returns a fresh event.Subscription; the App calls it once
 	// at startup.
 	Subscribe func() *event.Subscription

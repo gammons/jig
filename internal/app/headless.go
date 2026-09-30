@@ -47,6 +47,12 @@ type drained struct{ event.Base }
 // returns the exit code. Send's error is printed only when the renderer
 // has not already reported it as the root session's RunFailed.
 func (rt *runtime) headless(ctx context.Context, opts runOpts, std Stdio) int {
+	if rt.svc.mcp != nil {
+		rt.svc.mcp.Settle(ctx, rt.svc.mcpSettle)
+		for _, w := range mcpWarnings(rt.svc.mcp.Servers()) {
+			printLine(std.Err, w)
+		}
+	}
 	r := startRendering(rt.bus, std.Out, std.Err)
 	res, err := rt.chat.Send(ctx, core.SendRequest{
 		SessionID:   core.SessionID(opts.session),
