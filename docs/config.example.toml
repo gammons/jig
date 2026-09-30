@@ -31,7 +31,7 @@ small_model = "anthropic/claude-haiku-4-5-20251001"
 # max. It is clamped to the nearest level the model supports; models
 # without effort levels ignore it. Unset, each model uses its catalog
 # default ("high" for most recent Claude models, but "medium" for
-# claude-opus-5-5), which may differ from the provider's own default.
+# claude-opus-5-5).
 default_effort = "high"
 
 # Reserved for the TUI (Plan 2); headless jig ignores it today.

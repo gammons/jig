@@ -96,7 +96,7 @@ a directory, and the like).
 
 - `jig models [provider]` — lists every provider in the catalog (or
   just one), each model's context window and per-million-token
-  pricing, for models that accept one their reasoning effort levels and
+  pricing, for models that accept one, their reasoning effort levels and
   default (e.g. `effort low…max (high)`), and whether jig has
   credentials for it.
 - `jig sessions` — lists root sessions, newest first, as `<id>
