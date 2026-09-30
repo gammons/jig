@@ -42,10 +42,12 @@ type widgets struct {
 	sideProj sideCache
 }
 
-// cardKey records where the permission card is rendered: the block that
-// carries it ("" for none), and the card version and width it was built
-// at, so a change to either re-renders that block.
+// cardKey records where the permission card is rendered: the pane and
+// block that carry it (pane nil, block "" for none), and the card
+// version and width it was built at, so a change to any of these
+// re-renders that block.
 type cardKey struct {
+	pane  *pane
 	block transcript.BlockID
 	ver   int
 	width int
@@ -58,18 +60,20 @@ func (w *widgets) upsert(p *pane, items []blocklist.Item) {
 	}
 	w.upserts++
 	w.gen++
-	p.list.Upsert(w.withCard(items)...)
+	p.list.Upsert(w.withCard(p, items)...)
 }
 
 // setItems replaces every item in p's transcript list.
 func (w *widgets) setItems(p *pane, items []blocklist.Item) {
 	w.gen++
-	p.list.SetItems(w.withCard(items))
+	p.list.SetItems(w.withCard(p, items))
 }
 
-// withCard puts the card's view on the item of the block that carries it.
-func (w *widgets) withCard(items []blocklist.Item) []blocklist.Item {
-	if w.cardAt.block == "" {
+// withCard puts the card's view on the item of the block that carries it,
+// only in the pane that carries it (spec §4.3: the card renders under
+// cardAt.block in cardAt.pane only).
+func (w *widgets) withCard(p *pane, items []blocklist.Item) []blocklist.Item {
+	if w.cardAt.pane != p || w.cardAt.block == "" {
 		return items
 	}
 	for i, it := range items {

@@ -307,6 +307,14 @@ func (ta *testApp) startSubagent() {
 // childBase is the event Base of the subagent session ses_c.
 func childBase() event.Base { return event.Base{SessionID: "ses_c", RootID: "ses_1"} }
 
+// startChildBash delivers a bash call id running cmd inside the open
+// subagent's session (childBase's SessionID).
+func (ta *testApp) startChildBash(id, cmd string) {
+	ta.t.Helper()
+	call := core.ToolCall{ID: id, Name: "bash", Input: []byte(`{"command":"` + cmd + `"}`)}
+	ta.event(event.ToolCallStarted{Base: childBase(), MessageID: "k1", Call: call})
+}
+
 func TestApp_SubagentPermissionSelectsOwner(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)

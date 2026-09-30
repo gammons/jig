@@ -301,6 +301,11 @@ func (a *App) flush(ids []transcript.BlockID) {
 	a.w.upsert(a.sess.main, a.sess.items(ids))
 }
 
+// flushPane re-renders the blocks ids in pane's transcript list.
+func (a *App) flushPane(pane *pane, ids []transcript.BlockID) {
+	a.w.upsert(pane, pane.items(ids, a.sess.run.frame))
+}
+
 // onResult handles port results and widget messages.
 func (a *App) onResult(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {

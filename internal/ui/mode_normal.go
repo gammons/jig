@@ -52,6 +52,9 @@ func (h normalKeys) handle(k tea.KeyPressMsg) tea.Cmd {
 		a.view.keyPrefix = "g"
 		return nil
 	case "a", "A", "d", "D":
+		if columnFocused(a).kind == paneDetails {
+			return nil
+		}
 		if (permCtl{a}).onCard() {
 			return permCtl{a}.key(k)
 		}

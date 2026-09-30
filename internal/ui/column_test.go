@@ -983,3 +983,191 @@ func TestColumn_GoldenNarrow(t *testing.T) {
 	ta.key("enter")
 	golden.Assert(t, "app_subagent_view_narrow", ta.view())
 }
+
+// TestColumn_ChildPermissionCardOnChildToolBlock (spec §4.3): a
+// subagent's own permission request shows its card under the child
+// pane's own tool block, once the column has the child open.
+func TestColumn_ChildPermissionCardOnChildToolBlock(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("find it")
+	ta.startSubagent()
+	ta.key("esc")
+	ta.key("enter") // open the child pane
+	ta.startChildBash("c1", "cat /etc/hosts")
+	ta.event(event.PermissionRequested{
+		Base: childBase(), RequestID: "p1", Tool: "bash", Subject: "cat /etc/hosts",
+		Call: core.ToolCall{ID: "c1", Name: "bash"},
+	})
+
+	if ta.app.view.focus != focusColumn {
+		t.Fatalf("focus = %v, want focusColumn", ta.app.view.focus)
+	}
+	child := columnTop(ta.app)
+	if sel, ok := child.list.Selected(); !ok || sel.ID != "t/c1" {
+		t.Fatalf("child selection = %+v, want t/c1", sel)
+	}
+	ta.arm()
+	if got := xansi.Strip(ta.view()); !strings.Contains(got, "bash wants to run:  cat /etc/hosts") {
+		t.Errorf("view has no permission card:\n%s", got)
+	}
+	// The card (including its hint line) must be sized to the column
+	// pane's own width, not main's: no rendered line overflows it.
+	colW := child.sz.listW
+	for _, line := range strings.Split(child.list.View(), "\n") {
+		if w := xansi.StringWidth(xansi.Strip(line)); w > colW {
+			t.Errorf("column line width %d exceeds pane width %d: %q", w, colW, line)
+		}
+	}
+
+	ta.key("a")
+	if len(ta.perms.replies) != 1 || ta.perms.replies[0].ID != "p1" {
+		t.Fatalf("replies = %+v, want one for p1", ta.perms.replies)
+	}
+
+	before := xansi.Strip(ta.view())
+	if !strings.Contains(before, "⚠") {
+		t.Errorf("main's owning subagent block lost its ⚠ before resolution:\n%s", before)
+	}
+	ta.event(event.PermissionResolved{Base: childBase(), RequestID: "p1", Reply: core.PermissionReply{Kind: core.ReplyOnce}})
+	after := xansi.Strip(ta.view())
+	if strings.Count(after, "wants to run") != 0 {
+		t.Errorf("card still drawn after resolution:\n%s", after)
+	}
+}
+
+// TestColumn_ChildPermissionWhenNotOpen: with the column closed, the
+// card still shows on main's owning subagent block t/c9 (unchanged
+// behaviour; TestApp_SubagentPermissionSelectsOwner covers this too).
+func TestColumn_ChildPermissionWhenNotOpen(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("find it")
+	ta.startSubagent()
+	ta.event(event.PermissionRequested{
+		Base: childBase(), RequestID: "p1", Tool: "bash", Subject: "cat /etc/hosts",
+		Call: core.ToolCall{ID: "c1", Name: "bash"},
+	})
+
+	if columnOpen(ta.app) {
+		t.Fatal("test setup: column should be closed")
+	}
+	if got := ta.selectedID(); got != "t/c9" {
+		t.Fatalf("selected = %q, want the owning subagent block t/c9", got)
+	}
+	ta.arm()
+	if got := xansi.Strip(ta.view()); !strings.Contains(got, "explore (subagent) wants to run bash: cat /etc/hosts") {
+		t.Errorf("view has no subagent card:\n%s", got)
+	}
+}
+
+// TestColumn_GpInFocusedPane: two pending requests in the child pane;
+// gp cycles between the child's blocks, not main's.
+func TestColumn_GpInFocusedPane(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("find it")
+	ta.startSubagent()
+	ta.key("esc")
+	ta.key("enter") // open the child pane
+	ta.startChildBash("c1", "one")
+	ta.startChildBash("c2", "two")
+	ta.event(event.PermissionRequested{
+		Base: childBase(), RequestID: "p1", Tool: "bash", Subject: "one",
+		Call: core.ToolCall{ID: "c1", Name: "bash"},
+	})
+	ta.event(event.PermissionRequested{
+		Base: childBase(), RequestID: "p2", Tool: "bash", Subject: "two",
+		Call: core.ToolCall{ID: "c2", Name: "bash"},
+	})
+
+	child := columnTop(ta.app)
+	sel := func() string {
+		it, ok := child.list.Selected()
+		if !ok {
+			return ""
+		}
+		return it.ID
+	}
+	// The second request's own focus rule selects its own block (t/c2).
+	if got := sel(); got != "t/c2" {
+		t.Fatalf("selected = %q, want t/c2", got)
+	}
+	ta.key("g")
+	ta.key("p")
+	if got := sel(); got != "t/c1" {
+		t.Fatalf("gp: selected = %q, want t/c1", got)
+	}
+	ta.key("g")
+	ta.key("p")
+	if got := sel(); got != "t/c2" {
+		t.Fatalf("gp: selected = %q, want t/c2", got)
+	}
+	if got := ta.selectedID(); got != "t/c9" {
+		t.Fatalf("gp in the column changed main's selection to %q", got)
+	}
+}
+
+// TestColumn_DetailsFocusedCardKeysDoNothing: a root bash with a pending
+// request, card armed on main's block; open a details entry and focus
+// the column with l; a/A/d/D do nothing there (Task 6 review
+// carryover).
+func TestColumn_DetailsFocusedCardKeysDoNothing(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("go")
+	ta.startBash("c1", "one")
+	ta.startBash("c2", "two")
+	ta.request("p1", "c1", "one")
+	ta.arm()
+
+	ta.key("k")     // select c2's block, away from the card
+	ta.key("enter") // open a details entry for it
+	ta.key("l")     // focus the column
+
+	if ta.app.view.focus != focusColumn {
+		t.Fatal("test setup: column not focused")
+	}
+	if columnTop(ta.app).kind != paneDetails {
+		t.Fatal("test setup: column top is not a details pane")
+	}
+	ta.key("a")
+	if len(ta.perms.replies) != 0 {
+		t.Fatalf("a with a details pane focused replied: %+v, want none", ta.perms.replies)
+	}
+}
+
+// TestColumn_ChildPermissionHoldsGroupOpen: three consecutive child read
+// calls form a group; a pending permission request on the group's third
+// member holds the group open in the child pane even though the user
+// never expanded it, so the card is never hidden inside a collapsed
+// group in a subagent pane.
+func TestColumn_ChildPermissionHoldsGroupOpen(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("find it")
+	ta.startSubagent()
+	ta.key("esc")
+	ta.key("enter") // open the child pane
+
+	for _, id := range []string{"c1", "c2"} {
+		call := core.ToolCall{ID: id, Name: "read", Input: []byte(`{"path":"a.go"}`)}
+		ta.event(event.ToolCallStarted{Base: childBase(), MessageID: "k1", Call: call})
+		ta.event(event.ToolCallFinished{Base: childBase(), MessageID: "k1", Result: core.ToolResult{CallID: id, Name: "read", Output: "ok"}})
+	}
+	call := core.ToolCall{ID: "c3", Name: "read", Input: []byte(`{"path":"b.go"}`)}
+	ta.event(event.ToolCallStarted{Base: childBase(), MessageID: "k1", Call: call})
+	ta.event(event.PermissionRequested{
+		Base: childBase(), RequestID: "p1", Tool: "read", Subject: "b.go",
+		Call: core.ToolCall{ID: "c3", Name: "read"},
+	})
+
+	child := columnTop(ta.app)
+	if sel, ok := child.list.Selected(); !ok || sel.ID != "t/c3" {
+		t.Fatalf("child selection = %+v, want t/c3", sel)
+	}
+	ta.arm()
+	if got := xansi.Strip(ta.view()); !strings.Contains(got, "wants to run") {
+		t.Errorf("view has no permission card (group not held open):\n%s", got)
+	}
+}
