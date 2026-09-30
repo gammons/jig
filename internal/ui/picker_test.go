@@ -13,6 +13,7 @@ import (
 	"github.com/gammons/jig/internal/bubbles/picker"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/golden"
+	"github.com/gammons/jig/internal/ui/actions"
 	"github.com/gammons/jig/internal/ui/theme"
 )
 
@@ -608,4 +609,123 @@ func TestPicker_GoldenModels(t *testing.T) {
 	ta.typeText("switch model")
 	ta.key("enter")
 	golden.Assert(t, "picker_models", ta.view())
+}
+
+// pickEffort opens "Switch effort…" and chooses the item matching query.
+func pickEffort(ta *testApp, query string) {
+	ta.key("ctrl+p")
+	ta.typeText("switch effort")
+	ta.key("enter")
+	ta.typeText(query)
+	ta.key("enter")
+}
+
+func TestPicker_EffortLevelListsModelLevels(t *testing.T) {
+	t.Parallel()
+	sess := resumed()
+	sess.Effort = core.EffortLow
+	ta := newTestApp(t, withCatalog(effortCatalog()), withResume(sess, nil, nil))
+	items := loadItems(ta, picker.Level{ID: levelEfforts})
+	var ids []string
+	for _, it := range items {
+		ids = append(ids, it.ID)
+	}
+	if want := []string{"default", "low", "medium", "high", "max"}; !slices.Equal(ids, want) {
+		t.Errorf("ids = %v, want %v", ids, want)
+	}
+	if items[0].Title != "Model default (high)" || items[0].Current {
+		t.Errorf("default item = %+v, want titled with the catalog default and not current", items[0])
+	}
+	if !itemByID(t, items, "low").Current {
+		t.Error("the session's low is not marked current")
+	}
+}
+
+func TestPicker_EffortSwitchSetsSessionEffort(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withCatalog(effortCatalog()), withResume(resumed(), nil, nil))
+	pickEffort(ta, "low")
+	if ta.app.sess.info.Effort != core.EffortLow {
+		t.Errorf("effort = %q, want low", ta.app.sess.info.Effort)
+	}
+	if want := []effortCall{{ID: "ses_r", Effort: core.EffortLow}}; !slices.Equal(ta.sessions.efforts, want) {
+		t.Errorf("SetEffort calls = %+v, want %+v", ta.sessions.efforts, want)
+	}
+	if v := xansi.Strip(ta.view()); !strings.Contains(v, "claude-sonnet-5 · low") {
+		t.Errorf("status bar lacks the new effort:\n%s", v)
+	}
+	pickEffort(ta, "default")
+	if ta.app.sess.info.Effort != "" || ta.sessions.efforts[1].Effort != "" {
+		t.Errorf("after Model default: effort = %q, calls = %+v; want cleared", ta.app.sess.info.Effort, ta.sessions.efforts)
+	}
+}
+
+func TestPicker_EffortSwitchWithoutSessionSendsIt(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withCatalog(effortCatalog()), func(c *testConfig) { c.opts.DefaultModel = "anthropic/claude-sonnet-5" })
+	pickEffort(ta, "max")
+	if len(ta.sessions.efforts) != 0 {
+		t.Errorf("SetEffort calls = %+v, want none without a session", ta.sessions.efforts)
+	}
+	ta.typeText("hi")
+	ta.key("enter")
+	if got := ta.chat.sends[0].Effort; got != "max" {
+		t.Errorf("new session sent with effort %q, want max", got)
+	}
+}
+
+func TestPicker_EffortDisabledWithoutLevels(t *testing.T) {
+	t.Parallel()
+	haiku := resumed()
+	haiku.Model = "anthropic/claude-haiku-4-5"
+	ta := newTestApp(t, withCatalog(effortCatalog()), withResume(haiku, nil, nil))
+	it := itemByID(t, loadItems(ta, rootLevel()), "effort.switch")
+	if !it.Disabled || it.Drill != nil {
+		t.Errorf("effort.switch = %+v, want disabled for a model without levels", it)
+	}
+	if cmd := (pickerCtl{ta.app}).action(actions.EffortSwitch); cmd != nil {
+		t.Error("action(effort.switch) returned a Cmd, want none for a model without levels")
+	}
+	if ta.app.w.picker.IsOpen() || !strings.Contains(ta.app.view.hint, "no effort levels") {
+		t.Errorf("open=%v hint=%q; want a hint and no picker", ta.app.w.picker.IsOpen(), ta.app.view.hint)
+	}
+}
+
+func TestPicker_EffortDefaultFallsBackToAgent(t *testing.T) {
+	t.Parallel()
+	sess := resumed()
+	sess.Effort = core.EffortMax
+	ta := newTestApp(t, withCatalog(effortCatalog()), withResume(sess, nil, nil),
+		func(c *testConfig) {
+			c.agents = fakeAgents{{Name: "build", Mode: core.ModePrimary, Effort: core.EffortLow}}
+		})
+	if v := xansi.Strip(ta.view()); !strings.Contains(v, "claude-sonnet-5 · max") {
+		t.Errorf("the session's max should win over the agent's low:\n%s", v)
+	}
+	pickEffort(ta, "default")
+	if v := xansi.Strip(ta.view()); !strings.Contains(v, "claude-sonnet-5 · low") {
+		t.Errorf("cleared, the agent's low should show:\n%s", v)
+	}
+}
+
+func TestApp_EffortSurvivesModelRoundTrip(t *testing.T) {
+	t.Parallel()
+	sess := resumed()
+	sess.Effort = core.EffortMax
+	ta := newTestApp(t, withCatalog(effortCatalog()), withResume(sess, nil, nil))
+	switchModel := func(q string) {
+		ta.key("ctrl+p")
+		ta.typeText("switch model")
+		ta.key("enter")
+		ta.typeText(q)
+		ta.key("enter")
+	}
+	switchModel("haiku")
+	if v := xansi.Strip(ta.view()); strings.Contains(v, "claude-haiku-4-5 ·") {
+		t.Errorf("haiku has no levels; want no effort shown:\n%s", v)
+	}
+	switchModel("sonnet")
+	if v := xansi.Strip(ta.view()); !strings.Contains(v, "claude-sonnet-5 · max") {
+		t.Errorf("back on sonnet, the session's max should show again:\n%s", v)
+	}
 }

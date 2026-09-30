@@ -145,6 +145,8 @@ func (p pickerCtl) chosen(msg picker.ChosenMsg) tea.Cmd {
 		cmds = append(cmds, p.resume(core.SessionID(first)))
 	case levelModels:
 		cmds = append(cmds, p.setModel(first))
+	case levelEfforts:
+		cmds = append(cmds, p.setEffort(first))
 	case levelAgents:
 		cmds = append(cmds, p.setAgent(first))
 	case levelFiles:
@@ -175,6 +177,11 @@ func (p pickerCtl) action(id actions.ID) tea.Cmd {
 	case actions.SessionRename:
 		if a.sess.info.ID == "" {
 			a.view.hint = "no session to rename"
+			return nil
+		}
+	case actions.EffortSwitch:
+		if !effortControllable(a.sess) {
+			a.view.hint = "this model has no effort levels"
 			return nil
 		}
 	}
@@ -273,6 +280,21 @@ func (p pickerCtl) setModel(ref string) tea.Cmd {
 		return nil
 	}
 	return configureCmd(a.ctx, a.ports, a.sess.info.ID, "", ref)
+}
+
+// setEffort makes the chosen level (none, for the Model default item)
+// the effort the next send uses, and the session's.
+func (p pickerCtl) setEffort(id string) tea.Cmd {
+	a := p.a
+	e := core.Effort(id)
+	if id == effortDefaultID {
+		e = ""
+	}
+	a.sess.info.Effort = e
+	if a.sess.info.ID == "" {
+		return nil
+	}
+	return setEffortCmd(a.ctx, a.ports, a.sess.info.ID, e)
 }
 
 // setAgent makes name the agent, like tab does.

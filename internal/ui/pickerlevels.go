@@ -20,6 +20,7 @@ const (
 	levelRoot     = "root"
 	levelSessions = "sessions"
 	levelModels   = "models"
+	levelEfforts  = "efforts"
 	levelAgents   = "agents"
 	levelThemes   = "themes"
 	levelRename   = "rename"
@@ -31,6 +32,10 @@ const (
 // lists.
 const maxSessions = 30
 
+// effortDefaultID is the efforts level's "Model default" item: choosing
+// it clears the session's effort.
+const effortDefaultID = "default"
+
 // levelAction is the action a drill-down level belongs to, recorded as
 // recent when one of its items is chosen.
 func levelAction(level string) actions.ID {
@@ -39,6 +44,8 @@ func levelAction(level string) actions.ID {
 		return actions.SessionOpen
 	case levelModels:
 		return actions.ModelSwitch
+	case levelEfforts:
+		return actions.EffortSwitch
 	case levelAgents:
 		return actions.AgentSwitch
 	case levelThemes:
@@ -67,6 +74,8 @@ func drillLevel(id actions.ID, title string) (picker.Level, bool) {
 		return picker.Level{ID: levelRename, Title: "Rename session", Input: true, Initial: ansi.SanitizeLine(title)}, true
 	case actions.ModelSwitch:
 		return picker.Level{ID: levelModels, Title: "Models"}, true
+	case actions.EffortSwitch:
+		return picker.Level{ID: levelEfforts, Title: "Effort"}, true
 	case actions.AgentSwitch:
 		return picker.Level{ID: levelAgents, Title: "Agents"}, true
 	case actions.ViewTheme:
@@ -88,13 +97,16 @@ func (l levels) load(level picker.Level) tea.Cmd {
 	a := l.a
 	switch level.ID {
 	case levelRoot:
-		return itemsCmd(level.ID, rootItems(a.opts.Actions, a.opts.Keymap, keymapMode(a.view.pick.prev), a.sess.info))
+		return itemsCmd(level.ID, rootItems(a.opts.Actions, a.opts.Keymap, keymapMode(a.view.pick.prev), a.sess.info, effortControllable(a.sess)))
 	case levelKeys:
 		return itemsCmd(level.ID, keyItems(a.opts.Actions, a.opts.Keymap))
 	case levelThemes:
 		return itemsCmd(level.ID, themeItems(a.theme.custom, a.theme.shown()))
 	case levelModels:
 		return modelsCmd(a.ports, a.sess.modelRef())
+	case levelEfforts:
+		m, _ := lookupModel(a.sess.cat.providers, a.sess.modelRef())
+		return itemsCmd(level.ID, effortItems(m, a.sess.info.Effort))
 	case levelAgents:
 		return agentItemsCmd(a.ports, a.sess.info.Agent)
 	case levelSessions:
@@ -118,8 +130,8 @@ func keymapMode(m mode) string {
 
 // rootItems lists every action but picker.open, with the keys bound to
 // it in mode as the detail. Drilling actions carry their level; renaming
-// needs a session.
-func rootItems(c *actions.Catalogue, km actions.Keymap, mode string, info core.Session) []picker.Item {
+// needs a session, and switching effort a model with levels.
+func rootItems(c *actions.Catalogue, km actions.Keymap, mode string, info core.Session, effortOK bool) []picker.Item {
 	if c == nil {
 		return nil
 	}
@@ -136,6 +148,9 @@ func rootItems(c *actions.Catalogue, km actions.Keymap, mode string, info core.S
 			it.Drill = &lvl
 		}
 		if act.ID == actions.SessionRename && info.ID == "" {
+			it.Drill, it.Disabled = nil, true
+		}
+		if act.ID == actions.EffortSwitch && !effortOK {
 			it.Drill, it.Disabled = nil, true
 		}
 		out = append(out, it)
@@ -222,6 +237,21 @@ func modelDetail(m core.ModelInfo) string {
 		return price
 	}
 	return fmtTokens(m.ContextWindow) + " ctx · " + price
+}
+
+// effortItems lists "Model default (<its level>)" and then m's levels
+// in catalog order; chosen (the session's stored effort, "" for none)
+// is marked current.
+func effortItems(m core.ModelInfo, chosen core.Effort) []picker.Item {
+	title := "Model default"
+	if m.DefaultEffort != "" {
+		title += " (" + string(m.DefaultEffort) + ")"
+	}
+	out := []picker.Item{{ID: effortDefaultID, Title: title, Current: chosen == ""}}
+	for _, e := range m.Efforts {
+		out = append(out, picker.Item{ID: string(e), Title: string(e), Current: e == chosen})
+	}
+	return out
 }
 
 // fmtTokens is n as "200k" or "1M".

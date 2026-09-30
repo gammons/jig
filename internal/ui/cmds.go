@@ -129,6 +129,16 @@ func configureCmd(ctx context.Context, p Ports, id core.SessionID, agent, model 
 	}
 }
 
+// setEffortCmd sets id's reasoning effort ("" clears it) through p.Sessions.
+func setEffortCmd(ctx context.Context, p Ports, id core.SessionID, e core.Effort) tea.Cmd {
+	return func() tea.Msg {
+		if err := p.Sessions.SetEffort(ctx, id, e); err != nil {
+			return errMsg{what: "effort", err: err}
+		}
+		return nil
+	}
+}
+
 // resumeCmd loads id's session, messages, and todos through p.Sessions.
 func resumeCmd(ctx context.Context, p Ports, id core.SessionID) tea.Cmd {
 	return func() tea.Msg {
