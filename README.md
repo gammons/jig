@@ -19,7 +19,7 @@ and [Bubble Tea](https://github.com/charmbracelet/bubbletea) for the UI.
 - Vim-style modal TUI: move through the transcript, search, and yank in
   NORMAL mode; every action is in the ctrl+p picker (no slash commands)
 - Subagent transcripts stream live in a side column, and runs of
-  read/grep/glob calls fold into collapsible groups
+  read/grep/glob/bash calls fold into collapsible groups
 - Permission cards answer with allow, always, deny, or deny with a
   message; a subagent can never exceed its parent's permissions
 - Project config is trust-gated: an untrusted repo can only tighten your

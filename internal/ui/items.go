@@ -179,7 +179,22 @@ func (t *itemTrack) entryItem(p *pane, e foldEntry, bump bool, frame int) (block
 	} else {
 		delete(t.live, e.id)
 	}
-	return blocklist.Item{ID: string(e.id), Version: t.versions[e.id], Data: data}, true
+	return blocklist.Item{ID: string(e.id), Version: t.versions[e.id], Data: data, Compact: isOneLine(e, data.Block)}, true
+}
+
+// isOneLine reports whether e (showing b; unused for a header) is a
+// compact one-line row, which the list stacks with no gap against another:
+// a group header or member, a tool or subagent call, or a reasoning block
+// the model is done thinking in. Only a reasoning block changes from one
+// to the other, and Projection.Apply reports it when its thinking ends.
+func isOneLine(e foldEntry, b transcript.Block) bool {
+	switch {
+	case e.kind != entryPlain:
+		return true
+	case b.Kind == transcript.KindTool, b.Kind == transcript.KindSubagent:
+		return true
+	}
+	return b.Kind == transcript.KindReasoning && !b.Thinking
 }
 
 // entryData is e's blockData and whether it animates: a header's members

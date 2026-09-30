@@ -37,9 +37,7 @@ func (h hitter) test(x, y int) (id string, line, col int, ok bool) {
 	i := itemAt(m.offsets, target)
 	col = x - 1
 
-	gap := gapOf(m.styles)
-	start := m.offsets[i]
-	ht := m.offsets[i+1] - gap - start
+	start, ht := m.offsets[i], itemHeight(&m, i)
 	l := target - start
 	if l < ht {
 		return m.items[i].ID, l, col, true

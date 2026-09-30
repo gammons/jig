@@ -41,7 +41,7 @@
 
 **Out of scope**
 
-- Grouping any other tools (`bash`, `edit`, `write`, `todo`, `skill`, `task`, extension tools).
+- Grouping any other tools (`edit`, `write`, `todo`, `skill`, `task`, extension tools). `bash` was added later (§10).
 - Grouping inside subagents. A subagent's calls already live inside its `↳` block.
 - Persisting which groups are expanded. A resumed session opens with every group collapsed.
 - The headless renderer (`ui/plain`). It keeps printing one line per call.
@@ -58,7 +58,7 @@ type Group struct {
 }
 ```
 
-- **Exploration call.** A `KindTool` block whose `Call.Name` is `read`, `grep`, or `glob`, in any state (running, awaiting permission, ok, error, denied, cancelled, pending).
+- **Exploration call.** A `KindTool` block whose `Call.Name` is `read`, `grep`, `glob`, or `bash` (§10), in any state (running, awaiting permission, ok, error, denied, cancelled, pending).
 - **A group** is a maximal run of blocks, in display order, containing at least two exploration calls, where every block is either an exploration call or an absorbed reasoning block.
 - **Absorbed reasoning.** A `KindReasoning` block joins the run only when an exploration call comes both before and after it within the run. Reasoning before the first call or after the last call is not a member.
 - **Breakers.** Every other block ends a run: `KindText`, `KindUser`, `KindNotice`, `KindSubagent`, and any `KindTool` with another name.
@@ -101,7 +101,7 @@ A collapsed header never shows `awaiting-permission`: a member awaiting permissi
 
 - The header is the same line with `▾` in place of `▸`. While live, the spinner replaces `▾`, and the current-call part is left off, since that call is visible below.
 - Each member (calls and absorbed reasoning) renders as its normal line (`renderTool`, `renderReasoning`), laid out two columns narrower and prefixed with two spaces.
-- Members keep the transcript's normal one-line gap between items, so an expanded group looks like today's lines plus a header and an indent.
+- ~~Members keep the transcript's normal one-line gap between items.~~ Superseded by §10: the header and its members stack with no gap.
 
 ### 4.3 Safety and width
 
@@ -225,3 +225,13 @@ The existing `internal/ui` benchmarks keep their budgets and their group-free hi
 ## 9. Error handling
 
 Grouping is pure and cannot fail. Group details and yank need no port calls, since they come from blocks already in memory. A member whose input does not parse is still counted by its tool name, and its summary falls back to what `toolLine` already shows for it (an empty path or pattern).
+
+## 10. Addendum: bash in groups, and tight tool lines (2026-10-01)
+
+Agreed in review after the first version shipped, from a transcript where runs of `bash` calls each took two rows.
+
+- **bash groups.** `bash` is an exploration call (§3), in the same run as `read`/`grep`/`glob`; `edit`, `write`, and the rest still end a run. Every bash call joins, including `agent-browser` commands and commands that change things. The header verb stays `explored`.
+- **Tally.** Commands come last: `2 reads, 1 grep, 3 commands` (`1 command` when there is one). The live current call is `bash <first line>`, or an `agent-browser` command's summary alone (it has no tool name).
+- **Failures.** A bash call that exited non-zero or timed out counts toward `· N failed ✗`, as its own line renders it as failed.
+- **Yank.** A bash member yanks its command, its lines joined with spaces (one member per line).
+- **No gaps between one-line rows.** A one-line row (a tool or subagent call, a group header, a nested member, or a reasoning block the model is done thinking in, shown as `∴ thought for …`) directly under another is laid out with no blank line between them; every other neighbor keeps the one-line gap, including a reasoning block still showing its text. `blocklist.Item` gains `Compact`, and the blocklist drops the gap between two neighboring `Compact` items. The App sets it from the item's own block each time it builds the item, so it needs no neighbor lookups and never forces a rebuild. A reasoning block stops thinking when the next block of its message arrives; `Projection.Apply` now reports it alongside the new block, so both are rebuilt in the same pass.

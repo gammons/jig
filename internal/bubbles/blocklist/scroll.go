@@ -3,18 +3,34 @@ package blocklist
 import "sort"
 
 // The list is one flattened line space: item i occupies lines
-// [offsets[i], offsets[i]+height(i)), followed by Gap blank lines (none
-// after the last item). yOffset is the first visible line.
+// [offsets[i], offsets[i]+height(i)), followed by gapAfter(i) blank lines:
+// Gap, or none when it and the next item are both Compact. The last item
+// is followed by Gap too, so offsets[n] = total + Gap. yOffset is the
+// first visible line.
 
 // gapOf is the effective blank-line count between items.
 func gapOf(st Styles) int { return max(0, st.Gap) }
+
+// gapAfter is the blank-line count after item i: none when it and the
+// item below it are both Compact.
+func gapAfter(m *Model, i int) int {
+	if i+1 < len(m.items) && m.items[i].Compact && m.items[i+1].Compact {
+		return 0
+	}
+	return gapOf(m.styles)
+}
+
+// itemHeight is item i's height in lines, from the offsets.
+func itemHeight(m *Model, i int) int {
+	return m.offsets[i+1] - gapAfter(m, i) - m.offsets[i]
+}
 
 // relayout recomputes every item's height (from the cache; only new,
 // changed, or restyled items render) and the offsets, then positions the
 // view: bottom-aligned when the last item is selected, otherwise with the
 // anchor item id's line within at the top.
 func (m *Model) relayout(id string, within int) {
-	iw, gap := m.w-2, gapOf(m.styles)
+	iw := m.w - 2
 	offsets := make([]int, len(m.items)+1)
 	line := 0
 	for i, it := range m.items {
@@ -23,13 +39,13 @@ func (m *Model) relayout(id string, within int) {
 		if iw >= 1 {
 			ht = m.c.height(it, iw, m.sv, m.styles, m.render)
 		}
-		line += ht + gap
+		line += ht + gapAfter(m, i)
 	}
 	offsets[len(m.items)] = line
 	m.offsets = offsets
 	m.total = 0
 	if len(m.items) > 0 {
-		m.total = line - gap
+		m.total = line - gapOf(m.styles)
 	}
 
 	if len(m.items) > 0 && m.flags.follow {
@@ -60,7 +76,7 @@ func (m *Model) ensureVisible() {
 		return
 	}
 	start := m.offsets[m.sel]
-	ht := m.offsets[m.sel+1] - gapOf(m.styles) - start
+	ht := itemHeight(m, m.sel)
 	switch {
 	case start < m.yOffset:
 		m.yOffset = start

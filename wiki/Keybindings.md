@@ -36,7 +36,7 @@ commands; every action is a key or a picker entry.
 | `ctrl+u` | half page up |
 | `/`, `n` / `N` | search the transcript, next / previous match |
 | `y` | yank (copy) the selected block |
-| `o` | expand / collapse a group of read/grep/glob calls |
+| `o` | expand / collapse a group of read/grep/glob/bash calls |
 | `enter` | open the selected block's details (or a subagent's live transcript) in the side column |
 | `tab` / `shift+tab`, `h` / `l` | with the column open: switch focus between main and the column |
 | `q` / `esc` | pop the column's top entry (from main: close the column) |

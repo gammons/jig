@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -26,6 +27,20 @@ func gm(id, name, input string, st transcript.ToolState) transcript.Block {
 		b.Result = toolResult(id, name, out, false)
 	}
 	return b
+}
+
+// bashExit is a finished (ok-state) bash call of command whose output
+// reports exit code code, as the bash tool does for a non-zero exit.
+func bashExit(id, command string, code int) transcript.Block {
+	out := "done"
+	if code != 0 {
+		out = fmt.Sprintf("boom\n[exit code %d]", code)
+	}
+	return transcript.Block{
+		ID: transcript.BlockID("t/" + id), Kind: transcript.KindTool, State: transcript.StateOK,
+		Call:   toolCall(id, "bash", `{"command":"`+command+`"}`),
+		Result: toolResult(id, "bash", out, false),
+	}
 }
 
 // headerOf is the blockData of group g1's header showing g.
@@ -72,6 +87,21 @@ func TestRender_GroupHeader(t *testing.T) {
 				gm("c1", "read", `{"path":"a.go"}`, transcript.StateError), gm("c2", "grep", `{"pattern":"x"}`, transcript.StateDenied),
 				gm("c3", "glob", `{"pattern":"*"}`, transcript.StateCancelled), readB}},
 			`▸ explored · 2 reads, 1 grep, 1 glob · 1 failed ✗ · 1 denied ⊘ · 1 cancelled ⊘`},
+		{"bash calls tally as commands, last",
+			groupData{Members: []transcript.Block{gm("c1", "bash", `{"command":"ls"}`, ok), readA, gm("c3", "bash", `{"command":"pwd"}`, ok)}},
+			`▸ explored · 1 read, 2 commands`},
+		{"one command is singular",
+			groupData{Members: []transcript.Block{readA, gm("c2", "bash", `{"command":"ls"}`, ok)}},
+			`▸ explored · 1 read, 1 command`},
+		{"live, collapsed, shows the running command",
+			groupData{Members: []transcript.Block{readA, gm("c2", "bash", `{"command":"git status\nmore"}`, run)}},
+			`⠋ exploring · 1 read, 1 command · bash git status`},
+		{"a running agent-browser command shows without a leading space",
+			groupData{Members: []transcript.Block{readA, gm("c2", "bash", `{"command":"agent-browser open a.test"}`, run)}},
+			`⠋ exploring · 1 read, 1 command · open a.test`},
+		{"a non-zero exit counts as failed",
+			groupData{Members: []transcript.Block{readA, bashExit("c2", "false", 1), bashExit("c3", "true", 0)}},
+			`▸ explored · 1 read, 2 commands · 1 failed ✗`},
 		{"interrupted (pending) calls add nothing",
 			groupData{Members: []transcript.Block{gm("c1", "read", `{"path":"a.go"}`, transcript.StatePending), readB}},
 			`▸ explored · 2 reads`},
@@ -202,8 +232,10 @@ func TestGroupYank(t *testing.T) {
 		gm("c2", "grep", `{"pattern":"TODO"}`, ok),
 		gm("c3", "glob", `{"pattern":"*.go"}`, ok),
 		gm("c4", "read", `{"path":"x\u001b[2Jy.go"}`, ok),
+		gm("c5", "bash", `{"command":"go test \u001b[2J./..."}`, ok),
+		gm("c6", "bash", `{"command":"cd x &&\nmake"}`, ok),
 	}
-	if got, want := groupYank(members), "a.go\nTODO\n*.go\nxy.go"; got != want {
+	if got, want := groupYank(members), "a.go\nTODO\n*.go\nxy.go\ngo test ./...\ncd x && make"; got != want {
 		t.Errorf("groupYank = %q, want %q", got, want)
 	}
 }

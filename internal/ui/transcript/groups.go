@@ -5,7 +5,7 @@ package transcript
 const groupPrefix = "g/"
 
 // Group is a run of at least two consecutive exploration calls (read,
-// grep, glob) with the reasoning blocks between them, shown as one line
+// grep, glob, bash) with the reasoning blocks between them, shown as one line
 // in the TUI (tool-call groups spec §3). ID is "g/" plus its first call's
 // ID, so it stays the same as the group grows and across reloads.
 type Group struct {
@@ -13,14 +13,14 @@ type Group struct {
 	Members []BlockID // display order: calls and absorbed reasoning
 }
 
-// isExploration reports whether b is a read, grep, or glob call, in any
-// state.
+// isExploration reports whether b is a read, grep, glob, or bash call, in
+// any state.
 func isExploration(b *Block) bool {
 	if b.Kind != KindTool || b.Call == nil {
 		return false
 	}
 	switch b.Call.Name {
-	case "read", "grep", "glob":
+	case "read", "grep", "glob", bashTool:
 		return true
 	}
 	return false
