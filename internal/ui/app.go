@@ -257,8 +257,7 @@ func (a *App) onEvent(ev event.Event) tea.Cmd {
 	if res.reload {
 		a.w.setItems(a.sess.allItems())
 	}
-	a.flush(res.upsert)
-	cmds := []tea.Cmd{waitEvent(a.sub)}
+	cmds := []tea.Cmd{waitEvent(a.sub), foldCtl{a}.apply(res)}
 	if res.settled {
 		cmds = append(cmds, a.sender().afterRun())
 	}
@@ -471,6 +470,8 @@ func dispatchAction(a *App, id actions.ID) tea.Cmd {
 		return normalKeys{a}.yank()
 	case actions.TranscriptDetails:
 		return normalKeys{a}.toggleDetails()
+	case actions.TranscriptFold:
+		return foldCtl{a}.toggle()
 	case actions.PickerOpen:
 		return pickerCtl{a}.open(rootLevel(), false)
 	case actions.AppQuit:

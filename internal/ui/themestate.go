@@ -58,8 +58,8 @@ func pushTheme(a *App) {
 	a.w.status.SetStyles(set.Status)
 	a.w.side.SetStyles(set.Sidebar)
 	a.w.confirm.SetStyles(set.Confirm)
-	for id := range a.sess.versions {
-		a.sess.versions[id]++
+	for id := range a.sess.track.versions {
+		a.sess.track.versions[id]++
 	}
 	a.w.list.SetStyles(set.Blocklist, a.theme.version)
 }

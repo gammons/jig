@@ -36,7 +36,9 @@ type blockData struct {
 	Card     string
 	Duration time.Duration
 	Frame    int
-	Thinking bool // a reasoning block the model is still thinking in (Projection.Thinking)
+	Thinking bool       // a reasoning block the model is still thinking in (Projection.Thinking)
+	Group    *groupData // set only on a group header's item
+	Nested   bool       // a member of an expanded group, indented under its header
 }
 
 // renderer renders blockData items for the transcript's blocklist.
@@ -63,7 +65,10 @@ func newRenderer(set *theme.Set) *renderer {
 // permission card, if any. Every string taken from the Block passes
 // ansi.SanitizeLine (one-liners) or ansi.Sanitize (bodies) before styling.
 // Content is laid out rightPad columns narrower than width, and every line
-// is cut to that, so nothing reaches the scrollbar column.
+// is cut to that, so nothing reaches the scrollbar column. A group header
+// renders as its one line (renderGroup); a nested member is laid out
+// nestIndent columns narrower and indented, its permission card (if any)
+// not.
 func (r *renderer) render(it blocklist.Item, width int, _ blocklist.Styles) []string {
 	data, ok := it.Data.(blockData)
 	if !ok {
@@ -71,6 +76,12 @@ func (r *renderer) render(it blocklist.Item, width int, _ blocklist.Styles) []st
 	}
 	b := data.Block
 	width = max(width-rightPad, 1)
+	if data.Group != nil {
+		return []string{r.fitLine(r.renderGroup(data.Group, data.Frame), width)}
+	}
+	if data.Nested {
+		width = max(width-nestIndent, 1)
+	}
 
 	var lines []string
 	switch b.Kind {
@@ -88,6 +99,12 @@ func (r *renderer) render(it blocklist.Item, width int, _ blocklist.Styles) []st
 		lines = []string{r.fitLine(r.renderNotice(b), width)}
 	}
 
+	if data.Nested {
+		pad := strings.Repeat(" ", nestIndent)
+		for i := range lines {
+			lines[i] = pad + lines[i]
+		}
+	}
 	if data.Card != "" {
 		lines = append(lines, strings.Split(data.Card, "\n")...)
 	}

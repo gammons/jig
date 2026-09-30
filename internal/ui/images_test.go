@@ -259,7 +259,7 @@ func TestTheme_PushBumpsAllVersions(t *testing.T) {
 	ta.request("p1", "c9", "make")
 	cardVer := ta.app.w.card.Version()
 	before := map[string]int{}
-	for id, v := range ta.app.sess.versions {
+	for id, v := range ta.app.sess.track.versions {
 		before[string(id)] = v
 	}
 	if len(before) == 0 {
@@ -273,7 +273,7 @@ func TestTheme_PushBumpsAllVersions(t *testing.T) {
 	ta.send(nil)
 
 	for id, v := range before {
-		if got := ta.app.sess.versions[transcript.BlockID(id)]; got <= v {
+		if got := ta.app.sess.track.versions[transcript.BlockID(id)]; got <= v {
 			t.Errorf("item %s version = %d, want > %d", id, got, v)
 		}
 	}

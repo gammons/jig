@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/jig/internal/bubbles/blocklist"
+	"github.com/gammons/jig/internal/bubbles/details"
 	"github.com/gammons/jig/internal/bubbles/selection"
 	"github.com/gammons/jig/internal/ui/transcript"
 )
@@ -131,24 +132,31 @@ func (h normalKeys) toggleDetails() tea.Cmd {
 	return h.openDetailsFor(transcript.BlockID(item.ID))
 }
 
-// openDetailsFor builds and shows id's details. It sizes the build for the
-// details split at the App's current width/height directly, rather than
-// a.lay (not yet recomputed for detailsOpen when opening for the first
-// time in this same key press), so the content is never built at a stale
-// width.
+// openDetailsFor builds and shows id's details: a group's member list, or
+// a block's own details. A block's build is sized for the details split
+// at the App's current width/height directly, rather than a.lay (not yet
+// recomputed for detailsOpen when opening for the first time in this same
+// key press), so the content is never built at a stale width.
 func (h normalKeys) openDetailsFor(id transcript.BlockID) tea.Cmd {
 	a := h.a
-	b, ok := a.sess.proj.Block(id)
-	if !ok {
+	members, durs, isGroup := foldCtl{a}.group(id)
+	b, isBlock := a.sess.proj.Block(id)
+	if !isGroup && !isBlock {
 		return nil
 	}
 	a.view.detailsFor = id
 	a.img.shown = nil
-	// Only the side slot's size is needed: the prompt beside it wraps
-	// the same at either width to within its height, and relayout sizes
-	// the prompt for real.
-	lay := computeLayout(a.width, a.height, a.w.prompt.Height(), a.view.sidebarPref, true)
-	content, cmd := buildDetails(a.ctx, b, lay.Side.W, lay.Side.H, a.w.render, a.ports, a.img)
+	var content details.Content
+	var cmd tea.Cmd
+	if isGroup {
+		content = groupDetails(members, durs)
+	} else {
+		// Only the side slot's size is needed: the prompt beside it wraps
+		// the same at either width to within its height, and relayout sizes
+		// the prompt for real.
+		lay := computeLayout(a.width, a.height, a.w.prompt.Height(), a.view.sidebarPref, true)
+		content, cmd = buildDetails(a.ctx, b, lay.Side.W, lay.Side.H, a.w.render, a.ports, a.img)
+	}
 	a.w.details.SetContent(content)
 	if a.view.mouse.pane == paneDetails {
 		a.view.mouse.sel = selection.Range{}
@@ -166,7 +174,7 @@ func (h normalKeys) closeOrClear() tea.Cmd {
 		return nil
 	}
 	a.w.list.SetSearch("")
-	return nil
+	return foldCtl{a}.setSearch(false)
 }
 
 // openSearch focuses the one-line search input, shown in place of the
@@ -186,9 +194,11 @@ func (h normalKeys) handleSearch(k tea.KeyPressMsg) tea.Cmd {
 	switch k.String() {
 	case "enter":
 		a.view.searching = false
-		a.w.list.SetSearch(a.w.search.Value())
+		query := a.w.search.Value()
+		cmd := foldCtl{a}.setSearch(query != "")
+		a.w.list.SetSearch(query)
 		a.w.search.Blur()
-		return nil
+		return cmd
 	case "esc":
 		a.view.searching = false
 		a.w.search.Reset()
@@ -200,13 +210,18 @@ func (h normalKeys) handleSearch(k tea.KeyPressMsg) tea.Cmd {
 	return cmd
 }
 
-// yank copies the selected block's text to the clipboard (spec §6.3, via
-// yankText) and shows a "yanked" hint.
+// yank copies the selected block's text (a group header's member subjects,
+// groupYank) to the clipboard (spec §6.3, via yankText) and shows a
+// "yanked" hint.
 func (h normalKeys) yank() tea.Cmd {
 	a := h.a
 	item, ok := a.w.list.Selected()
 	if !ok {
 		return nil
+	}
+	if members, _, ok := (foldCtl{a}).group(transcript.BlockID(item.ID)); ok {
+		a.view.hint = "yanked"
+		return tea.SetClipboard(groupYank(members))
 	}
 	b, ok := a.sess.proj.Block(transcript.BlockID(item.ID))
 	if !ok {

@@ -1,0 +1,7 @@
+[38;2;224;224;224m⠸ exploring · 1 read, 1 grep · grep "TODO"[m
+[38;2;136;136;136m▸ explored · 2 reads, 1 grep[m
+[38;2;136;136;136m▸ explored · 2 reads, 1 grep, 1 glob[m[38;2;224;64;64m · 1 failed ✗[m[38;2;224;64;64m · 1 denied ⊘[m[2;38;2;136;136;136m · 1 cancelled ⊘[m
+[38;2;136;136;136m▾ explored · 2 reads[m
+  [38;2;136;136;136m▸ read  a.go · 1 lines[m
+  [2;38;2;136;136;136m∴ thinking[m
+  [38;2;136;136;136m▸ read  b.go · 1 lines[m
