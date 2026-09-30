@@ -1,0 +1,45 @@
+name: Wiki
+
+# Publishes the in-repo wiki/ directory to the GitHub wiki
+# (github.com/<owner>/<repo>/wiki), so the wiki is edited through normal
+# PRs and never drifts from main. The wiki repo is overwritten: edits made
+# in the GitHub wiki UI are lost on the next publish.
+
+on:
+  push:
+    branches: [main]
+    paths: ["wiki/**", ".github/workflows/wiki.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wiki
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish wiki/
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/${REPO}.wiki.git" "$RUNNER_TEMP/wiki"
+          rsync -a --delete --exclude .git wiki/ "$RUNNER_TEMP/wiki/"
+          cd "$RUNNER_TEMP/wiki"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "wiki is already up to date"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "Sync wiki with ${REPO}@${SHA::7}"
+          git push
