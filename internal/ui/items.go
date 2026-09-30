@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"time"
 
 	"github.com/gammons/jig/internal/bubbles/blocklist"
@@ -86,19 +87,26 @@ func (t *itemTrack) visible(ids []transcript.BlockID) []foldEntry {
 }
 
 // upsert builds, each at a new version, the items that show ids (see
-// visible). An entry never issued before is one blocklist.Upsert appends
-// at the end of the list, so it joins fold.order too: regroup compares a
-// new layout against order, and an item listed by an upsert (a streaming
-// block's first tick) but missing from order would make a later layout
-// that absorbs it look like a plain append, leaving it listed.
+// visible). An item built that fold.order does not list yet is one
+// blocklist.Upsert appends at the end of the list, so it joins fold.order
+// too: regroup compares a new layout against order, and an item listed by
+// an upsert (a streaming block's first tick) but missing from order would
+// make a later layout that absorbs it look like a plain append, leaving it
+// listed. An entry already in order (a regroup just laid it out) is not
+// added twice, nor is one build skipped (it is not listed at all).
 func (t *itemTrack) upsert(s *sessionState, ids []transcript.BlockID) []blocklist.Item {
 	entries := t.visible(ids)
+	items := t.build(s, entries, bumpAll)
+	built := make(map[string]bool, len(items))
+	for _, it := range items {
+		built[it.ID] = true
+	}
 	for _, e := range entries {
-		if t.versions[e.id] == 0 {
+		if built[string(e.id)] && !slices.ContainsFunc(t.fold.order, func(o foldEntry) bool { return o.id == e.id }) {
 			t.fold.order = append(t.fold.order, e)
 		}
 	}
-	return t.build(s, entries, bumpAll)
+	return items
 }
 
 // layoutItems builds the whole list from entries (a full layout), so the

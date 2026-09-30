@@ -213,3 +213,22 @@ func TestFold_ReasoningAbsorbedIntoAnOpenGroupIsNested(t *testing.T) {
 		t.Error("the absorbed reasoning was never re-issued as nested")
 	}
 }
+
+func TestFold_UpsertDoesNotDuplicateTheLayout(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("look around")
+	ta.startTool("m1", "c1", "read", `{"path":"a.go"}`)
+	f := &ta.app.sess.track.fold
+	seen := map[string]bool{}
+	for _, e := range f.order {
+		if seen[string(e.id)] {
+			t.Fatalf("fold.order repeats %q: %v", e.id, f.order)
+		}
+		seen[string(e.id)] = true
+	}
+	ta.finishTool("m1", "c1", "read", "1: package a", false)
+	if _, changed := f.regroup(ta.app.sess.proj.Blocks()); changed {
+		t.Errorf("regroup with nothing new reports a restructure; order = %v", f.order)
+	}
+}
