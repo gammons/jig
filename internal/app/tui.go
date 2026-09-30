@@ -140,7 +140,14 @@ func tuiOptions(e env, rt *runtime, opts tuiOpts, prefTheme string, errw io.Writ
 		Themes: custom, Theme: chooseTheme(prefTheme, e.cfg().Theme, custom, errw),
 		Images: imageEnv(e.getenv), Tmux: e.getenv("TMUX") != "",
 		Aliases: e.cfg().ModelAliases, DefaultModel: defaultModel(rt.svc.agents),
+		DefaultEffort: configuredEffort(e.cfg()),
 	}
+}
+
+// configuredEffort is default_effort, parsed (loadEnv validated it).
+func configuredEffort(cfg core.Config) core.Effort {
+	e, _ := core.ParseEffort(cfg.DefaultEffort)
+	return e
 }
 
 // defaultModel is the resolved default_model, or "" when none resolves.

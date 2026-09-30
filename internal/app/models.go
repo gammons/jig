@@ -50,7 +50,24 @@ func credentialStatus(p core.ProviderInfo, e env) string {
 func printProvider(w io.Writer, p core.ProviderInfo, status string) {
 	printLine(w, p.ID+" "+status)
 	for _, m := range p.Models {
-		printLine(w, fmt.Sprintf("  %s  ctx %dk  $%.2f/$%.2f per 1M",
-			m.Ref.String(), m.ContextWindow/1000, m.CostIn, m.CostOut))
+		line := fmt.Sprintf("  %s  ctx %dk  $%.2f/$%.2f per 1M",
+			m.Ref.String(), m.ContextWindow/1000, m.CostIn, m.CostOut)
+		if len(m.Efforts) > 0 {
+			line += "  effort " + effortRange(m)
+		}
+		printLine(w, line)
 	}
+}
+
+// effortRange is m's effort levels as "low…max (high)": lowest to
+// highest as listed, then the catalog default when it has one.
+func effortRange(m core.ModelInfo) string {
+	s := string(m.Efforts[0])
+	if len(m.Efforts) > 1 {
+		s += "…" + string(m.Efforts[len(m.Efforts)-1])
+	}
+	if m.DefaultEffort != "" {
+		s += " (" + string(m.DefaultEffort) + ")"
+	}
+	return s
 }

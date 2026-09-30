@@ -52,6 +52,7 @@ func (rt *runtime) headless(ctx context.Context, opts runOpts, std Stdio) int {
 		SessionID:   core.SessionID(opts.session),
 		Agent:       opts.agent,
 		Model:       opts.model,
+		Effort:      opts.effort,
 		Text:        opts.prompt,
 		Attachments: opts.attach,
 	})
