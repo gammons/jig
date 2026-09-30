@@ -20,7 +20,7 @@ func (p *Projection) Load(msgs []core.Message) {
 	for _, b := range p.list.blocks {
 		old[b.ID] = b.Version
 	}
-	p.reset()
+	reset(p)
 	for _, m := range msgs {
 		if m.Role == core.RoleUser {
 			p.list.add(userBlock(m))

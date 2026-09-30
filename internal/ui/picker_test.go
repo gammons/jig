@@ -431,11 +431,11 @@ func TestApp_ViewPaintsThemeBackground(t *testing.T) {
 		t.Fatalf("previewed theme = %q, want ANSI Light", got)
 	}
 	v := ta.app.View()
-	if !reflect.DeepEqual(v.BackgroundColor, ta.app.theme.set.Background) || v.BackgroundColor == nil {
-		t.Errorf("View.BackgroundColor = %v, want the palette's Background %v", v.BackgroundColor, ta.app.theme.set.Background)
+	if !reflect.DeepEqual(v.BackgroundColor, ta.app.theme.set.Screen.Background) || v.BackgroundColor == nil {
+		t.Errorf("View.BackgroundColor = %v, want the palette's Background %v", v.BackgroundColor, ta.app.theme.set.Screen.Background)
 	}
-	if !reflect.DeepEqual(v.ForegroundColor, ta.app.theme.set.Foreground) || v.ForegroundColor == nil {
-		t.Errorf("View.ForegroundColor = %v, want the palette's Text %v", v.ForegroundColor, ta.app.theme.set.Foreground)
+	if !reflect.DeepEqual(v.ForegroundColor, ta.app.theme.set.Screen.Foreground) || v.ForegroundColor == nil {
+		t.Errorf("View.ForegroundColor = %v, want the palette's Text %v", v.ForegroundColor, ta.app.theme.set.Screen.Foreground)
 	}
 }
 

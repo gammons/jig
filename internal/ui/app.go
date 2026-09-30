@@ -223,8 +223,8 @@ func (a *App) View() tea.View {
 		AltScreen:       true,
 		MouseMode:       tea.MouseModeCellMotion,
 		WindowTitle:     a.windowTitle(),
-		BackgroundColor: a.theme.set.Background,
-		ForegroundColor: a.theme.set.Foreground,
+		BackgroundColor: a.theme.set.Screen.Background,
+		ForegroundColor: a.theme.set.Screen.Foreground,
 	}
 	if a.width <= 0 || a.height <= 0 {
 		return v

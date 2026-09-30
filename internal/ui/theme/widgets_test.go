@@ -8,6 +8,7 @@ import (
 
 	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/bubbles/blocklist"
+	"github.com/gammons/jig/internal/bubbles/breadcrumb"
 	"github.com/gammons/jig/internal/bubbles/coderender"
 	"github.com/gammons/jig/internal/bubbles/confirm"
 	"github.com/gammons/jig/internal/bubbles/details"
@@ -363,6 +364,33 @@ func TestBuild_SelectionFromPalette(t *testing.T) {
 	}
 }
 
+func TestBuild_BreadcrumbFromPalette(t *testing.T) {
+	t.Parallel()
+
+	p := Complete(Palette{
+		Name: "test",
+		BaseColors: BaseColors{
+			Primary: "#111111", Accent: "#222222", Warning: "#333333", Error: "#444444",
+			Background: "#555555", Surface: "#666666", SurfaceDark: "#777777",
+			Text: "#888888", TextMuted: "#999999", Border: "#aaaaaa",
+		},
+	})
+
+	set := Build(p, 3)
+
+	want := breadcrumb.Styles{
+		Muted:       lipgloss.NewStyle().Foreground(lipgloss.Color(p.TextMuted)),
+		Current:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
+		CurrentDim:  lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
+		Hint:        lipgloss.NewStyle().Foreground(lipgloss.Color(p.TextMuted)),
+		Rule:        lipgloss.NewStyle().Foreground(lipgloss.Color(p.Border)),
+		RuleFocused: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)),
+	}
+	if !reflect.DeepEqual(set.Breadcrumb, want) {
+		t.Errorf("Breadcrumb = %+v, want %+v", set.Breadcrumb, want)
+	}
+}
+
 func TestBuild_RenderFromPalette(t *testing.T) {
 	t.Parallel()
 
@@ -422,10 +450,10 @@ func TestBuild_ScreenFromPalette(t *testing.T) {
 
 	p := Palette{Name: "test", BaseColors: BaseColors{Background: "#fafafa", Text: "#101010"}}
 	set := Build(p, 1)
-	if !reflect.DeepEqual(set.Background, lipgloss.Color(p.Background)) {
-		t.Errorf("Background = %v, want %v", set.Background, lipgloss.Color(p.Background))
+	if !reflect.DeepEqual(set.Screen.Background, lipgloss.Color(p.Background)) {
+		t.Errorf("Background = %v, want %v", set.Screen.Background, lipgloss.Color(p.Background))
 	}
-	if !reflect.DeepEqual(set.Foreground, lipgloss.Color(p.Text)) {
-		t.Errorf("Foreground = %v, want %v", set.Foreground, lipgloss.Color(p.Text))
+	if !reflect.DeepEqual(set.Screen.Foreground, lipgloss.Color(p.Text)) {
+		t.Errorf("Foreground = %v, want %v", set.Screen.Foreground, lipgloss.Color(p.Text))
 	}
 }

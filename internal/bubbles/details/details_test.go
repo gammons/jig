@@ -232,6 +232,75 @@ func TestDetails_Lines(t *testing.T) {
 	}
 }
 
+func TestWithoutHeader_BodyFillsPane(t *testing.T) {
+	t.Parallel()
+	m := New(WithoutHeader())
+	m.SetSize(20, 3)
+	m.SetContent(Content{Header: "file.go", Lines: lines(5)})
+
+	got := m.View()
+	rows := splitLines(got)
+	if len(rows) != 3 {
+		t.Fatalf("View produced %d rows, want 3 (no header/rule rows)", len(rows))
+	}
+	if !strings.HasPrefix(rows[0], "line") {
+		t.Fatalf("row 0 = %q, want to start with first body line %q", rows[0], "line")
+	}
+}
+
+func TestWithoutHeader_ScrollBy(t *testing.T) {
+	t.Parallel()
+	m := New(WithoutHeader())
+	m.SetSize(20, 3)
+	m.SetContent(Content{Header: "file.go", Lines: lines(10)})
+
+	m.ScrollBy(100)
+	if got, want := m.scroll, 7; got != want { // maxScroll = 10-3
+		t.Fatalf("scroll after ScrollBy(100) = %d, want %d", got, want)
+	}
+}
+
+func TestWithoutHeader_BodyOrigin(t *testing.T) {
+	t.Parallel()
+	m := New(WithoutHeader())
+	m.SetSize(20, 3)
+	if x, y, ok := m.BodyOrigin(); !ok || x != 0 || y != 0 {
+		t.Fatalf("BodyOrigin = (%d,%d,%v), want (0,0,true)", x, y, ok)
+	}
+}
+
+func TestHeader_ReturnsContentHeader(t *testing.T) {
+	t.Parallel()
+	m := New()
+	m.SetContent(Content{Header: "file.go", Lines: lines(2)})
+	if got, want := m.Header(), "file.go"; got != want {
+		t.Fatalf("Header() = %q, want %q", got, want)
+	}
+}
+
+func TestGolden_DetailsWithoutHeader(t *testing.T) {
+	t.Parallel()
+	m := New(WithoutHeader(), WithStyles(pinnedStyles()))
+	m.SetSize(30, 4)
+	m.SetContent(Content{Header: "file.go", Lines: lines(2)})
+	golden.Assert(t, "details_without_header", m.View())
+}
+
+// TestDetails_HitTestWithoutHeader checks that with WithoutHeader a hit
+// on row 0 maps to the first content line (scroll+0), since there is no
+// header/rule row to skip.
+func TestDetails_HitTestWithoutHeader(t *testing.T) {
+	t.Parallel()
+	m := New(WithoutHeader())
+	m.SetSize(30, 4)
+	m.SetContent(Content{Header: "file.go", Lines: lines(10)})
+	m.ScrollBy(2)
+
+	if line, col, ok := m.HitTest(3, 0); !ok || line != 2 || col != 3 {
+		t.Fatalf("HitTest(3,0) = (%d,%d,%v), want (2,3,true) (row 0 is content with no header)", line, col, ok)
+	}
+}
+
 func TestGolden_DetailsCode(t *testing.T) {
 	t.Parallel()
 	kw := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5f87")).Bold(true)

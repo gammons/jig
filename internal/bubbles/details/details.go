@@ -40,13 +40,20 @@ type Option func(*Model)
 // WithStyles sets the initial Styles.
 func WithStyles(st Styles) Option { return func(m *Model) { m.styles = st } }
 
+// WithoutHeader omits the header line and border rule from View, so the
+// body fills the entire pane. Use it when a caller draws the header
+// itself (e.g. as a breadcrumb segment) and wants Header to fetch the
+// content's header text for that purpose.
+func WithoutHeader() Option { return func(m *Model) { m.noHeader = true } }
+
 // Model is the details pane. Use the Model most recently returned by any
 // pointer method; it is not safe for concurrent use.
 type Model struct {
-	styles  Styles
-	w, h    int
-	content Content
-	scroll  int
+	styles   Styles
+	w, h     int
+	content  Content
+	scroll   int
+	noHeader bool
 }
 
 // New builds an empty details pane.
@@ -87,13 +94,23 @@ func (m *Model) ScrollBy(n int) {
 }
 
 // bodyHeight is the number of body rows: the total height minus the
-// header row and the border row.
+// header row and the border row, or the full height when the header is
+// omitted (WithoutHeader).
 func (m Model) bodyHeight() int {
+	if m.noHeader {
+		return max(0, m.h)
+	}
 	return max(0, m.h-2)
 }
 
 func (m Model) maxScroll() int {
 	return max(0, len(m.content.Lines)-m.bodyHeight())
+}
+
+// Header returns the current content's header text, for a caller that
+// draws it itself (e.g. WithoutHeader, as a breadcrumb segment).
+func (m Model) Header() string {
+	return m.content.Header
 }
 
 // BodyOrigin is the cell offset of the first body line inside the pane
@@ -104,6 +121,9 @@ func (m Model) BodyOrigin() (x, y int, ok bool) {
 	if m.w <= 0 || m.bodyHeight() <= 0 {
 		return 0, 0, false
 	}
+	if m.noHeader {
+		return 0, 0, true
+	}
 	return 0, 2, true
 }
 
@@ -111,7 +131,8 @@ func (m Model) BodyOrigin() (x, y int, ok bool) {
 // cells. Body lines are cut or padded to width with ansi.Cut, which is
 // escape- and wide-rune-aware, so a line carrying SGR or a kitty
 // placeholder cell is never cut mid-escape. With w<=0 (and h>0) it still
-// returns exactly h rows, each zero cells wide.
+// returns exactly h rows, each zero cells wide. With WithoutHeader, the
+// header and border rows are omitted and the body fills the whole pane.
 func (m Model) View() string {
 	if m.h <= 0 {
 		return ""
@@ -120,8 +141,10 @@ func (m Model) View() string {
 		return strings.Repeat("\n", m.h-1)
 	}
 	lines := make([]string, 0, m.h)
-	lines = append(lines, m.headerLine())
-	lines = append(lines, m.borderLine())
+	if !m.noHeader {
+		lines = append(lines, m.headerLine())
+		lines = append(lines, m.borderLine())
+	}
 
 	bh := m.bodyHeight()
 	expanded := m.Lines()
@@ -149,14 +172,19 @@ func (m Model) Lines() []string {
 }
 
 // HitTest maps a cell (x, y) inside the pane to a content line and column.
-// ok is false for the header row (y=0), the rule row (y=1), any row at or
-// beyond the pane's height, any column at or beyond the pane's width, and
-// a body row past the end of the content.
+// ok is false for the header row (y=0) and the rule row (y=1) unless the
+// header is omitted (WithoutHeader), any row at or beyond the pane's
+// height, any column at or beyond the pane's width, and a body row past
+// the end of the content.
 func (m Model) HitTest(x, y int) (line, col int, ok bool) {
-	if x < 0 || x >= m.w || y < 2 || y >= m.h {
+	headerRows := 2
+	if m.noHeader {
+		headerRows = 0
+	}
+	if x < 0 || x >= m.w || y < headerRows || y >= m.h {
 		return 0, 0, false
 	}
-	idx := m.scroll + y - 2
+	idx := m.scroll + y - headerRows
 	if idx >= len(m.content.Lines) {
 		return 0, 0, false
 	}
