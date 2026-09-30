@@ -199,7 +199,7 @@ effort levels, shown by `jig models`) get one on every request. The
 level requested comes from, highest first:
 
 1. The session's effort: `--effort`, or "Switch effort…" in the TUI's
-   ctrl+p picker (its "Model default" item clears it).
+   ctrl+p picker (its "Default" item clears it).
 2. The running agent's own `effort` (`agents.<name>.effort`, TOML or
    markdown frontmatter).
 3. `default_effort`.

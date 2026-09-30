@@ -99,6 +99,12 @@ func requestedEffort(s *sessionState) core.Effort {
 	if s.info.Effort.Known() {
 		return s.info.Effort
 	}
+	return fallbackEffort(s)
+}
+
+// fallbackEffort is the effort requested with no session choice: the
+// agent's effort, then default_effort.
+func fallbackEffort(s *sessionState) core.Effort {
 	if i := s.agentIndex(); i >= 0 && s.cat.agents[i].Effort.Known() {
 		return s.cat.agents[i].Effort
 	}

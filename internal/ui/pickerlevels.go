@@ -32,7 +32,7 @@ const (
 // lists.
 const maxSessions = 30
 
-// effortDefaultID is the efforts level's "Model default" item: choosing
+// effortDefaultID is the efforts level's "Default" item: choosing
 // it clears the session's effort.
 const effortDefaultID = "default"
 
@@ -106,7 +106,7 @@ func (l levels) load(level picker.Level) tea.Cmd {
 		return modelsCmd(a.ports, a.sess.modelRef())
 	case levelEfforts:
 		m, _ := lookupModel(a.sess.cat.providers, a.sess.modelRef())
-		return itemsCmd(level.ID, effortItems(m, a.sess.info.Effort))
+		return itemsCmd(level.ID, effortItems(m, a.sess.info.Effort, fallbackEffort(a.sess)))
 	case levelAgents:
 		return agentItemsCmd(a.ports, a.sess.info.Agent)
 	case levelSessions:
@@ -239,13 +239,15 @@ func modelDetail(m core.ModelInfo) string {
 	return fmtTokens(m.ContextWindow) + " ctx · " + price
 }
 
-// effortItems lists "Model default (<its level>)" and then m's levels
-// in catalog order; chosen (the session's stored effort, "" for none)
-// is marked current.
-func effortItems(m core.ModelInfo, chosen core.Effort) []picker.Item {
-	title := "Model default"
-	if m.DefaultEffort != "" {
-		title += " (" + string(m.DefaultEffort) + ")"
+// effortItems lists "Default (<level>)" and then m's levels in catalog
+// order. The default item's level is the one a run resolves to with the
+// session's choice cleared: fallback (the agent's effort or
+// default_effort) against m. chosen (the session's stored effort, "" for
+// none) is marked current.
+func effortItems(m core.ModelInfo, chosen, fallback core.Effort) []picker.Item {
+	title := "Default"
+	if e := core.EffectiveEffort(m, fallback); e != "" {
+		title += " (" + string(e) + ")"
 	}
 	out := []picker.Item{{ID: effortDefaultID, Title: title, Current: chosen == ""}}
 	for _, e := range m.Efforts {

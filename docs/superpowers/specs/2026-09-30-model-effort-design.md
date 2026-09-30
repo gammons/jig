@@ -165,9 +165,9 @@ const (
 
 - `actions.EffortSwitch ID = "effort.switch"`, titled "Switch effort…", group "Agent & model", `Drill: true`, placed after "Switch model…". No default key.
 - `drillLevel` maps it to a new `levelEfforts` ("Effort") level. Its items come from the cached catalog (`s.cat.providers`) for the current model (`modelRef()`), with no port call:
-  - `Model default (<catalog default>)` (or `Model default` when the catalog default is `""`), which clears the session's choice;
+  - `Default (<level>)`, where `<level>` is what a run resolves to with the session's choice cleared (the agent's `effort`, then `default_effort`, then the catalog default, clamped to the model's levels), or `Default` when that is `""`; it clears the session's choice;
   - then each of the model's levels, in catalog order.
-  - `Current` marks the item that matches the session's stored choice (the "Model default" item when there is none).
+  - `Current` marks the item that matches the session's stored choice (the "Default" item when there is none).
 - `rootItems` shows the action disabled when the current model has no levels.
 - On a choice, `pickerCtl.chosen` calls `SessionService.SetEffort` in a Cmd (`cmds.go`) when a session exists, and updates `s.info.Effort`. Without a session, it only sets `s.info.Effort` locally; the next `Send` carries it as `SendRequest.Effort` (as the model picker does with `Model`).
 

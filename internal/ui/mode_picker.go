@@ -282,7 +282,7 @@ func (p pickerCtl) setModel(ref string) tea.Cmd {
 	return configureCmd(a.ctx, a.ports, a.sess.info.ID, "", ref)
 }
 
-// setEffort makes the chosen level (none, for the Model default item)
+// setEffort makes the chosen level (none, for the Default item)
 // the effort the next send uses, and the session's.
 func (p pickerCtl) setEffort(id string) tea.Cmd {
 	a := p.a

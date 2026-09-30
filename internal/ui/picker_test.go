@@ -633,7 +633,7 @@ func TestPicker_EffortLevelListsModelLevels(t *testing.T) {
 	if want := []string{"default", "low", "medium", "high", "max"}; !slices.Equal(ids, want) {
 		t.Errorf("ids = %v, want %v", ids, want)
 	}
-	if items[0].Title != "Model default (high)" || items[0].Current {
+	if items[0].Title != "Default (high)" || items[0].Current {
 		t.Errorf("default item = %+v, want titled with the catalog default and not current", items[0])
 	}
 	if !itemByID(t, items, "low").Current {
@@ -656,7 +656,7 @@ func TestPicker_EffortSwitchSetsSessionEffort(t *testing.T) {
 	}
 	pickEffort(ta, "default")
 	if ta.app.sess.info.Effort != "" || ta.sessions.efforts[1].Effort != "" {
-		t.Errorf("after Model default: effort = %q, calls = %+v; want cleared", ta.app.sess.info.Effort, ta.sessions.efforts)
+		t.Errorf("after Default: effort = %q, calls = %+v; want cleared", ta.app.sess.info.Effort, ta.sessions.efforts)
 	}
 }
 
@@ -701,6 +701,9 @@ func TestPicker_EffortDefaultFallsBackToAgent(t *testing.T) {
 		})
 	if v := xansi.Strip(ta.view()); !strings.Contains(v, "claude-sonnet-5 · max") {
 		t.Errorf("the session's max should win over the agent's low:\n%s", v)
+	}
+	if it := loadItems(ta, picker.Level{ID: levelEfforts})[0]; it.Title != "Default (low)" {
+		t.Errorf("default item title = %q, want the agent's level: Default (low)", it.Title)
 	}
 	pickEffort(ta, "default")
 	if v := xansi.Strip(ta.view()); !strings.Contains(v, "claude-sonnet-5 · low") {
