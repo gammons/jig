@@ -63,10 +63,9 @@ func (m Model) View() string {
 func (m Model) visibleRows(iw int, rows []string) []string {
 	p := newPainter(m.styles, m.query)
 	gapLine := strings.Repeat(" ", iw+1)
-	gap, y := gapOf(m.styles), m.yOffset
+	y := m.yOffset
 	for i := itemAt(m.offsets, y); i < len(m.items) && len(rows) < m.h; i++ {
-		start := m.offsets[i]
-		ht := m.offsets[i+1] - gap - start
+		start, ht, gap := m.offsets[i], itemHeight(&m, i), gapAfter(&m, i)
 		e := m.c.get(m.items[i], iw, m.sv, m.styles, m.render)
 		match := m.query != "" && m.c.matches(m.items[i], iw, m.sv, m.styles, m.render, m.query)
 		for k := max(0, y-start); k < ht && len(rows) < m.h; k++ {

@@ -47,16 +47,19 @@ func (r *renderer) renderGroup(g *groupData, frame int) string {
 
 // groupProblems renders the settled header's " · N failed ✗",
 // " · N denied ⊘", and " · N cancelled ⊘" suffixes, each only when N > 0.
-// A pending call (loaded, unanswered) adds nothing.
+// A pending call (loaded, unanswered) adds nothing. A bash call that
+// exited non-zero or timed out is an ok result but counts as failed, as
+// its own line renders it.
 func (r *renderer) groupProblems(members []transcript.Block) string {
 	var failed, denied, cancelled int
 	for _, m := range members {
-		switch m.State {
-		case transcript.StateError:
+		switch {
+		case m.State == transcript.StateError,
+			m.State == transcript.StateOK && m.Call != nil && m.Call.Name == "bash" && bashFailed(m.Result):
 			failed++
-		case transcript.StateDenied:
+		case m.State == transcript.StateDenied:
 			denied++
-		case transcript.StateCancelled:
+		case m.State == transcript.StateCancelled:
 			cancelled++
 		}
 	}
@@ -74,8 +77,9 @@ func (r *renderer) groupProblems(members []transcript.Block) string {
 	return out
 }
 
-// groupTally counts members' calls as "N reads, N greps, N globs", in
-// that order, singular for one, leaving out a tool with no calls.
+// groupTally counts members' calls as "N reads, N greps, N globs, N
+// commands" (bash), in that order, singular for one, leaving out a tool
+// with no calls.
 func groupTally(members []transcript.Block) string {
 	counts := map[string]int{}
 	for _, m := range members {
@@ -83,7 +87,9 @@ func groupTally(members []transcript.Block) string {
 			counts[m.Call.Name]++
 		}
 	}
-	kinds := [...][3]string{{"read", "read", "reads"}, {"grep", "grep", "greps"}, {"glob", "glob", "globs"}}
+	kinds := [...][3]string{
+		{"read", "read", "reads"}, {"grep", "grep", "greps"}, {"glob", "glob", "globs"}, {"bash", "command", "commands"},
+	}
 	parts := make([]string, 0, len(kinds))
 	for _, k := range kinds {
 		switch n := counts[k[0]]; {
@@ -108,12 +114,16 @@ func groupLive(members []transcript.Block) bool {
 }
 
 // currentCall is "<tool> <summary>" for the last running member call in
-// display order (several run at once in a parallel batch), or "".
+// display order (several run at once in a parallel batch), or "". An
+// agent-browser command has no tool name, so it is just its summary.
 func currentCall(members []transcript.Block) string {
 	for i := len(members) - 1; i >= 0; i-- {
 		m := members[i]
 		if m.Kind == transcript.KindTool && m.Call != nil && m.State == transcript.StateRunning {
 			_, name, summary, _ := toolLine(m, 0)
+			if name == "" {
+				return ansi.SanitizeLine(summary)
+			}
 			return ansi.SanitizeLine(name + " " + summary)
 		}
 	}
@@ -145,12 +155,17 @@ func reasoningLabel(d time.Duration) string {
 }
 
 // groupYank is what y copies for a group: each member call's subject, one
-// per line in order (a read's path, a grep's or glob's pattern),
-// sanitized. Reasoning is skipped.
+// per line in order (a read's path, a grep's or glob's pattern, a bash
+// call's command with its lines joined by spaces), sanitized. Reasoning
+// is skipped.
 func groupYank(members []transcript.Block) string {
 	subjects := make([]string, 0, len(members))
 	for _, m := range members {
 		if m.Kind != transcript.KindTool || m.Call == nil {
+			continue
+		}
+		if m.Call.Name == "bash" {
+			subjects = append(subjects, ansi.SanitizeLine(yankTool(m)))
 			continue
 		}
 		var in struct {

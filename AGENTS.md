@@ -96,7 +96,7 @@ internal/service/chat/                  ChatService facade the UIs call
 internal/service/media/                 image decode/scale/re-encode into blobs
 internal/ui/                            (Plan 2) the TUI App: bus bridge, wintree layout, modes, send/queue/cancel, streaming reconciliation
 internal/ui/plain/                      headless renderer (io.Writer)
-internal/ui/transcript/                 (Plan 2) transcript projection, core-only; Groups finds runs of read/grep/glob calls
+internal/ui/transcript/                 (Plan 2) transcript projection, core-only; Groups finds runs of read/grep/glob/bash calls
 internal/ui/theme/                      theme palettes + Complete/Custom (ported from slk); Set/Build maps a Palette into every widget's Styles
 internal/bubbles/                       (Plan 2) Bubble Tea widgets and helpers
 internal/bubbles/ansi/                  sanitize untrusted text; ANSI-safe width/wrap/highlight
@@ -410,7 +410,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Cache rendered images per (blob ref, cell box), LRU of 32; send a kitty upload only when the terminal lacks that size | `imageState` (`renderFor`, `store`, `cached`, `show`) and `placeSixel(a)` in `internal/ui/images.go`; `imgrender.(*Renderer).Forget(key)` makes the next render upload again |
 | The pane a transcript/details column holds, and the pane the top of the stack focuses NORMAL keys on | `pane` (`newTranscriptPane`, `.items`/`.allItems`/`.data`/`.tick`/`.withDirty`/`.timeTools`/`.resetBlocks`), `columnTop(a)` / `columnFocused(a)` in `internal/ui/column.go` and `internal/ui/pane.go` |
 | A subagent's live pane: create/find it on spawn, route child events to every open one, replay a buffered event against the loaded snapshot | `kidsCtl{a}` (`.kid`, `.routeKids`, `.childLoaded`, `.clearKids`) / `replayable(ev, loaded, lastStatus)` in `internal/ui/kids.go` |
-| Group consecutive exploration calls (read/grep/glob, with the reasoning between them) | `transcript.Groups(blocks)` in `internal/ui/transcript/groups.go` |
+| Group consecutive exploration calls (read/grep/glob/bash, with the reasoning between them) | `transcript.Groups(blocks)` in `internal/ui/transcript/groups.go` |
 | Rebuild the transcript list after a layout change, keeping the selection on a listed block | `foldCtl{a}.relist(changed)` in `internal/ui/foldctl.go` |
 | Resolve a tool's rule with glob keys | `permission.RuleFor` / `permission.EffectiveFor` |
 | Enabled MCP servers from a merged config | `config.ResolvedMCP` |
@@ -591,11 +591,12 @@ Each mode has one key handler that runs its fixed R21 keys first, then
 - PICKER (`mode_picker.go`, `pickerCtl`): the ctrl+p picker overlay owns
   every key but `ctrl+z`/`ctrl+d` until it closes (`esc`) or yields a `picker.ChosenMsg`.
 
-**Tool-call groups.** Two or more consecutive `read`/`grep`/`glob`
+**Tool-call groups.** Two or more consecutive `read`/`grep`/`glob`/`bash`
 calls, with the reasoning between them, show as one header line
 (`transcript.Groups`, pure; ID `g/<first call ID>`): `⠋ exploring · 3
-reads, 1 grep · read a.go` while live, `▸ explored · 4 reads, 2 greps`
-once settled. The projection is unchanged. `foldState`
+reads, 1 command · bash git status` while live, `▸ explored · 4 reads,
+2 greps, 3 commands` once settled (a bash call that exited non-zero
+counts as failed). The projection is unchanged. `foldState`
 (`internal/ui/fold.go`, in `sessionState.track`, an `itemTrack` in
 `internal/ui/items.go`) lays blocks out as plain items, headers, and
 nested members; `foldCtl` (`internal/ui/foldctl.go`) rebuilds the list
@@ -614,8 +615,12 @@ the user opened it (NORMAL `o`, the remappable `transcript.fold`),
 while a search is applied, or while a member awaits permission, so a
 card is never hidden. An item's version goes up whenever its nesting
 changes, so a cached render never keeps a stale indent. Headers get
-their own details (the member list) and yank (the members' paths and
-patterns).
+their own details (the member list) and yank (the members' paths,
+patterns, and commands). A tool line (a tool or subagent call, a group
+header, or a group member) right under another is laid out with no gap
+(`blocklist.Item.Tight`); `foldState.tight` records it per entry when
+the entry joins the layout (`layout`, or `itemTrack.appendOrder` on the
+upsert path), so it never forces a rebuild.
 
 **Actions.** Every command is an `actions.ID` run by `App.runAction`,
 reached through the picker or a key; see "Adding a picker action" below.

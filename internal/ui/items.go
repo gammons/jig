@@ -98,25 +98,36 @@ func (t *itemTrack) visible(ids []transcript.BlockID) []foldEntry {
 // an upsert (a streaming block's first tick) but missing from order would
 // make a later layout that absorbs it look like a plain append, leaving it
 // listed. An entry already in order (a regroup just laid it out) is not
-// added twice, nor is one build skipped (it is not listed at all). Only
+// added twice, nor is one build skips over (it is not listed at all). Only
 // an entry never issued before this build can be missing from order, so
-// only those scan it.
+// only those scan it. Joining order also records its tightness, so it is
+// appended before build reads it.
 func (t *itemTrack) upsert(p *pane, ids []transcript.BlockID, frame int) []blocklist.Item {
 	entries := t.visible(ids)
-	var unissued []foldEntry
 	for _, e := range entries {
-		if t.versions[e.id] == 0 {
-			unissued = append(unissued, e)
+		if t.versions[e.id] != 0 || slices.ContainsFunc(t.fold.order, func(o foldEntry) bool { return o.id == e.id }) {
+			continue
+		}
+		// build lists (and issues a version for) exactly the entries
+		// whose data exists.
+		if _, _, ok := t.entryData(p, e, frame); ok {
+			t.appendOrder(p, e)
 		}
 	}
-	items := t.build(p, entries, bumpAll, frame)
-	for _, e := range unissued {
-		// build issues a version exactly when it lists the item.
-		if t.versions[e.id] > 0 && !slices.ContainsFunc(t.fold.order, func(o foldEntry) bool { return o.id == e.id }) {
-			t.fold.order = append(t.fold.order, e)
-		}
+	return t.build(p, entries, bumpAll, frame)
+}
+
+// appendOrder appends e to the end of fold.order, as blocklist.Upsert
+// appends its item at the end of the list.
+func (t *itemTrack) appendOrder(p *pane, e foldEntry) {
+	prev := false
+	if n := len(t.fold.order); n > 0 {
+		last := t.fold.order[n-1]
+		lb, _ := p.proj.Block(last.id)
+		prev = isToolLine(last, lb)
 	}
-	return items
+	b, _ := p.proj.Block(e.id)
+	t.fold.order, _ = t.fold.appendEntry(t.fold.order, prev, e, b)
 }
 
 // layoutItems builds the whole list from entries (a full layout), so the
@@ -179,7 +190,7 @@ func (t *itemTrack) entryItem(p *pane, e foldEntry, bump bool, frame int) (block
 	} else {
 		delete(t.live, e.id)
 	}
-	return blocklist.Item{ID: string(e.id), Version: t.versions[e.id], Data: data}, true
+	return blocklist.Item{ID: string(e.id), Version: t.versions[e.id], Data: data, Tight: t.fold.tight[e.id]}, true
 }
 
 // entryData is e's blockData and whether it animates: a header's members

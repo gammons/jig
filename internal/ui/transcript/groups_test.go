@@ -41,9 +41,16 @@ func TestGroups(t *testing.T) {
 				gTool("c4", "read", StateAwaiting), gTool("c5", "read", StateRunning), gTool("c6", "read", StatePending)},
 			[]Group{{ID: "g/c1", Members: []BlockID{"t/c1", "t/c2", "t/c3", "t/c4", "t/c5", "t/c6"}}}},
 		{"a breaker splits two groups",
-			[]Block{gTool("c1", "read", ok), gTool("c2", "read", ok), gTool("c3", "bash", ok),
+			[]Block{gTool("c1", "read", ok), gTool("c2", "read", ok), gTool("c3", "edit", ok),
 				gTool("c4", "grep", ok), gTool("c5", "glob", ok)},
 			[]Group{{ID: "g/c1", Members: []BlockID{"t/c1", "t/c2"}}, {ID: "g/c4", Members: []BlockID{"t/c4", "t/c5"}}}},
+		{"consecutive bash calls group",
+			[]Block{gBlock("m/a/0", KindText), gTool("c1", "bash", ok), gTool("c2", "bash", ok), gTool("c3", "bash", ok)},
+			[]Group{{ID: "g/c1", Members: []BlockID{"t/c1", "t/c2", "t/c3"}}}},
+		{"bash mixes with reads and searches, reasoning between them joins",
+			[]Block{gTool("c1", "bash", ok), gBlock("m/b/0", KindReasoning), gTool("c2", "read", ok),
+				gTool("c3", "bash", StateError), gTool("c4", "write", ok)},
+			[]Group{{ID: "g/c1", Members: []BlockID{"t/c1", "m/b/0", "t/c2", "t/c3"}}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -59,7 +66,7 @@ func TestGroups_EveryBreakerEndsARun(t *testing.T) {
 	breakers := []Block{
 		gBlock("m/x/0", KindText), gBlock("u/x", KindUser), gBlock("n/0", KindNotice),
 		{ID: "t/s1", Kind: KindSubagent, Call: &core.ToolCall{ID: "s1", Name: "task"}},
-		gTool("b1", "bash", ok), gTool("b2", "edit", ok), gTool("b3", "write", ok),
+		gTool("b2", "edit", ok), gTool("b3", "write", ok),
 		gTool("b4", "todo", ok), gTool("b5", "skill", ok), gTool("b6", "mcp_search", ok),
 	}
 	for _, br := range breakers {
