@@ -13,21 +13,24 @@ import (
 // ID (versions only ever grow, so an ID shown again never matches a stale
 // cached render), the dirty streaming blocks (rendered on the next
 // streamTick), the live items, whose spinner each tick advances, each
-// block's nesting as last issued, and the tool-call groups (fold).
+// block's nesting as last issued, each group header's shown open state as
+// last issued, and the tool-call groups (fold).
 type itemTrack struct {
-	versions map[transcript.BlockID]int
-	dirty    idSet
-	live     map[transcript.BlockID]bool
-	nested   map[transcript.BlockID]bool
-	fold     foldState
+	versions  map[transcript.BlockID]int
+	dirty     idSet
+	live      map[transcript.BlockID]bool
+	nested    map[transcript.BlockID]bool
+	shownOpen map[transcript.BlockID]bool
+	fold      foldState
 }
 
 // newItemTrack returns an empty itemTrack.
 func newItemTrack() itemTrack {
 	return itemTrack{
-		versions: map[transcript.BlockID]int{},
-		live:     map[transcript.BlockID]bool{},
-		nested:   map[transcript.BlockID]bool{},
+		versions:  map[transcript.BlockID]int{},
+		live:      map[transcript.BlockID]bool{},
+		nested:    map[transcript.BlockID]bool{},
+		shownOpen: map[transcript.BlockID]bool{},
 	}
 }
 
@@ -118,16 +121,17 @@ func (t *itemTrack) layoutItems(s *sessionState, entries []foldEntry, bump func(
 }
 
 // relistItems builds every item of the current layout (fold.order),
-// re-rendering the group headers (a header's open state or tally may
-// have changed) and the items showing changed; every other item keeps
-// its version, so the list re-renders only those.
+// re-rendering the items showing changed (a header among them when one of
+// its members changed, for its tally) and the headers whose shown open
+// state flipped (entryItem); every other item keeps its version, so the
+// list re-renders only those.
 func (t *itemTrack) relistItems(s *sessionState, changed []transcript.BlockID) []blocklist.Item {
 	bumped := map[transcript.BlockID]bool{}
 	for _, e := range t.visible(changed) {
 		bumped[e.id] = true
 	}
 	return t.layoutItems(s, t.fold.order, func(e foldEntry) bool {
-		return e.kind == entryHeader || bumped[e.id]
+		return bumped[e.id]
 	})
 }
 
@@ -152,6 +156,13 @@ func (t *itemTrack) entryItem(s *sessionState, e foldEntry, bump bool) (blocklis
 		return blocklist.Item{}, false
 	}
 	nested := e.kind == entryNested
+	if e.kind == entryHeader {
+		open := data.Group.Open
+		if was, issued := t.shownOpen[e.id]; !issued || was != open {
+			bump = true
+		}
+		t.shownOpen[e.id] = open
+	}
 	if bump || t.versions[e.id] == 0 || t.nested[e.id] != nested {
 		t.versions[e.id]++
 	}

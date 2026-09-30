@@ -259,6 +259,43 @@ func TestFold_OTogglesAGroup(t *testing.T) {
 	}
 }
 
+func TestFold_ToggleRerendersOnlyTheFlippedHeader(t *testing.T) {
+	t.Parallel()
+	msgs := groupMessages()
+	msgs = append(msgs,
+		core.Message{ID: "a4", SessionID: "ses_1", Role: core.RoleAssistant, Status: core.StatusComplete, Parts: []core.Part{
+			{Kind: core.PartToolCall, Call: &core.ToolCall{ID: "d1", Name: "read", Input: json.RawMessage(`{"path":"c.go"}`)}},
+			{Kind: core.PartToolResult, Result: &core.ToolResult{CallID: "d1", Name: "read", Output: "1: package c"}},
+			{Kind: core.PartToolCall, Call: &core.ToolCall{ID: "d2", Name: "grep", Input: json.RawMessage(`{"pattern":"FIXME"}`)}},
+			{Kind: core.PartToolResult, Result: &core.ToolResult{CallID: "d2", Name: "grep", Output: "c.go:1: // FIXME"}},
+		}},
+		core.Message{ID: "a5", SessionID: "ses_1", Role: core.RoleAssistant, Status: core.StatusComplete, Parts: []core.Part{
+			{Kind: core.PartText, Text: "Done."},
+		}})
+	ta := newTestApp(t, withResume(core.Session{ID: "ses_1", Agent: "build"}, msgs, nil))
+	ta.key("esc")
+	if !ta.app.w.list.Select("g/c1") {
+		t.Fatal("no group g/c1 in the list")
+	}
+	v := ta.app.sess.track.versions
+	first, other := v["g/c1"], v["g/d1"]
+	ta.key("o")
+	if got := v["g/c1"]; got <= first {
+		t.Errorf("toggled header version %d → %d, want it re-rendered", first, got)
+	}
+	if got := v["g/d1"]; got != other {
+		t.Errorf("other header version %d → %d, want nothing re-rendered", other, got)
+	}
+	first = v["g/c1"]
+	ta.key("o")
+	if got := v["g/c1"]; got <= first {
+		t.Errorf("collapsed header version %d → %d, want it re-rendered", first, got)
+	}
+	if got := v["g/d1"]; got != other {
+		t.Errorf("other header version %d → %d, want nothing re-rendered", other, got)
+	}
+}
+
 func TestFold_OOnAMemberCollapsesToTheHeader(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, resumeGroups())
