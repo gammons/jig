@@ -1,7 +1,7 @@
 # jig example configuration.
 #
-# jig merges TOML files in this shape from two places (see README.md
-# "Config files" for the full discovery/merge rules):
+# jig merges TOML files in this shape from two places (see the wiki's
+# Configuration page for the full discovery/merge rules):
 #   - the global file: $XDG_CONFIG_HOME/jig/config.toml (default
 #     ~/.config/jig/config.toml)
 #   - project files: <dir>/.jig/config.toml for each directory from the
@@ -10,7 +10,7 @@
 #
 # Copy this file to one of those locations and trim it to what you need;
 # every key below is optional. Later files win, merged key by key (see
-# README.md for exactly how each key merges).
+# https://github.com/gammons/jig/wiki/Configuration for exactly how each key merges).
 #
 # Every string value may contain "{env:VAR}" (substituted with the
 # environment variable, or "" if unset) and "{file:path}" (substituted
@@ -34,7 +34,9 @@ small_model = "anthropic/claude-haiku-4-5-20251001"
 # claude-opus-5-5).
 default_effort = "high"
 
-# Reserved for the TUI (Plan 2); headless jig ignores it today.
+# The TUI's color theme (case-insensitive): a built-in or a custom theme
+# in $XDG_CONFIG_HOME/jig/themes/*.toml. A theme picked in the TUI
+# (ctrl+p "Switch theme...") is remembered and takes precedence.
 theme = "dark"
 
 # Extra files (or globs) whose contents are appended to the system
@@ -120,16 +122,19 @@ edit = "ask"
 "*" = "ask"
 
 # Extra directories to search for skills (SKILL.md files), in addition
-# to jig's built-in skill locations (see README.md "Skills").
+# to jig's built-in skill locations (see https://github.com/gammons/jig/wiki/Skills).
 [skills]
 paths = ["~/.agents/skills", ".jig/skills"]
 
-# Reserved for the TUI (Plan 2); headless jig ignores it today.
+# TUI key remaps: "<mode>.<key>" = "<action id>", mode insert or normal.
+# See https://github.com/gammons/jig/wiki/Keybindings for the action IDs and
+# the fixed keys that cannot be remapped.
 [keybinds]
-quit = "ctrl+c"
+"normal.x" = "transcript.yank"
 
-# MCP servers. Names must match ^[a-z0-9_-]+$. See README.md "MCP
-# servers" for trust, permissions, and .mcp.json compatibility.
+# MCP servers. Names must match ^[a-z0-9_-]+$. See
+# https://github.com/gammons/jig/wiki/MCP-Servers for trust, permissions, and
+# .mcp.json compatibility.
 [mcp]
 disabled = ["some-project-server"]     # names; applied after every layer
 

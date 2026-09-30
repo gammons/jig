@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 )
 
 // callbackPage is the fixed page shown after a callback; it echoes nothing
@@ -54,6 +55,10 @@ func Listen(port int) (*Listener, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", l.handleCallback)
 	l.srv = &http.Server{Handler: mux}
+	// One request per connection: the listener answers a single callback,
+	// so a kept-alive connection could only let a later request slip in
+	// past the shutdown.
+	l.srv.SetKeepAlivesEnabled(false)
 
 	go func() {
 		_ = l.srv.Serve(ln)
@@ -75,8 +80,8 @@ func (l *Listener) RedirectURL() string {
 
 // handleCallback answers only GET /callback; anything else is 404. The
 // first request delivers its code/state/iss (or its error) to Wait, writes
-// the fixed page, and shuts the server down in the background so this
-// handler can finish writing its response first.
+// the fixed page, and shuts the server down gracefully in the background
+// so this handler's response is fully sent first.
 func (l *Listener) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet || r.URL.Path != "/callback" {
 		http.NotFound(w, r)
@@ -100,11 +105,34 @@ func (l *Listener) handleCallback(w http.ResponseWriter, r *http.Request) {
 		// the server is shutting down anyway.
 	}
 
+	// Stop accepting now, before this handler returns, so no later request
+	// can reach a listener that has already had its callback. The
+	// in-flight connection is unaffected.
+	_ = l.ln.Close()
+
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(callbackPage))
 
-	go l.Close()
+	// Not Close: that can tear down this very connection before the
+	// buffered response is flushed (the handler hasn't returned yet), so
+	// the browser would get a reset instead of callbackPage.
+	go l.shutdown()
+}
+
+// shutdownGrace bounds how long the post-callback shutdown waits for
+// in-flight responses before forcing the server closed.
+const shutdownGrace = 2 * time.Second
+
+// shutdown stops the server gracefully: it stops accepting, lets any
+// in-flight response finish, then closes. A Close during it forces the
+// rest.
+func (l *Listener) shutdown() {
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+	defer cancel()
+	if err := l.srv.Shutdown(ctx); err != nil {
+		l.Close()
+	}
 }
 
 // Wait blocks until the callback arrives, ctx is done, or Close is called
@@ -138,9 +166,9 @@ func resultOrErr(res callbackResult) (code, state, iss string, err error) {
 	return res.code, res.state, res.iss, nil
 }
 
-// Close shuts the server down. It is idempotent and safe to call more than
-// once, including from the handler that just answered the one callback it
-// waits for.
+// Close shuts the server down at once, dropping any open connection. It
+// is idempotent and safe to call more than once, including while the
+// post-callback shutdown is still running.
 func (l *Listener) Close() {
 	l.closeOnce.Do(func() {
 		_ = l.srv.Close()

@@ -71,7 +71,7 @@ func TestLoad_ExampleConfigParses(t *testing.T) {
 	if len(merged.Instructions) != 1 {
 		t.Errorf("Instructions = %v, want 1 entry", merged.Instructions)
 	}
-	if merged.Keybinds["quit"] != "ctrl+c" {
-		t.Errorf("Keybinds[quit] = %q, want %q", merged.Keybinds["quit"], "ctrl+c")
+	if merged.Keybinds["normal.x"] != "transcript.yank" {
+		t.Errorf("Keybinds[normal.x] = %q, want %q", merged.Keybinds["normal.x"], "transcript.yank")
 	}
 }
