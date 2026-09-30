@@ -117,6 +117,7 @@ A new action `transcript.fold` ("Toggle group", picker group "Transcript"), boun
 - On a group header, it toggles the group. The selection stays on the header.
 - On a member of an expanded group, it collapses the group and selects the header.
 - On any other block, it does nothing.
+- On a group held open by a search or a pending permission, it flips the group's own state, which shows once the hold ends.
 - It is not bound in INSERT.
 
 When the view is following the bottom, expanding a group keeps the view pinned. Otherwise the blocklist's anchor keeps the header in place and the members open below it.
@@ -147,7 +148,7 @@ The blocklist searches rendered lines, so a collapsed group would hide its membe
 
 ### 6.1 `foldState` (`internal/ui/fold.go`)
 
-One new field on `sessionState`. It owns:
+`sessionState` is at archtest's limits (15 fields, 20 methods), so its list bookkeeping (`versions`, `dirty`, `live`) moves into a new `itemTrack` type (`internal/ui/items.go`), one field in their place, which also holds each block's last-issued nesting and the `foldState`. The App reaches the fold through a `foldCtl{a}` controller, like `permCtl`. `foldState` owns:
 
 - the current `[]transcript.Group` and a member-to-group index;
 - the set of group IDs the user expanded;
@@ -179,14 +180,14 @@ One new field on `sessionState`. It owns:
 
 ## 7. Performance
 
-New budgets, bound by AGENTS.md's rule: if a benchmark misses, fix the algorithm; never raise the budget. They run over a resumed 2,000-block session through the real `mdrender` at 150×40, in which a share of the tool calls form groups.
+New budgets, bound by AGENTS.md's rule: if a benchmark misses, fix the algorithm; never raise the budget. They run over a resumed session of 2,000 messages through the real `mdrender` at 150×40, in which every fourth message holds a group (reasoning, a read, and a grep).
 
 | Benchmark (`internal/ui`) | Budget |
 |---|---|
 | `BenchmarkApp_FoldToggle2000`: `o` on a group, then `View` | < 50 ms/op |
 | `BenchmarkApp_ToolStart2000`: one `ToolCallStarted` that joins a group (a structural rebuild), then `View` | < 5 ms/op |
 
-The five existing `internal/ui` benchmarks keep their budgets and also run over a session with groups. If `ToolStart2000` misses its budget with a full regroup and rebuild, regroup incrementally: blocks are only appended, so only the trailing group can change.
+The existing `internal/ui` benchmarks keep their budgets and their group-free history, so their recorded numbers stay comparable. If `ToolStart2000` misses its budget with a full regroup and rebuild, regroup incrementally: blocks are only appended, so only the trailing group can change.
 
 ## 8. Testing
 
@@ -217,7 +218,7 @@ The five existing `internal/ui` benchmarks keep their budgets and also run over 
 
 **Actions**: `transcript.fold` is in the catalogue (group "Transcript") and bound to `normal.o` by default.
 
-**End to end** (`e2e/tui_test.go`, under a pty): a `jigtest` script makes three reads across two steps; the screen shows `explored · 3 reads`, and after `o` it shows the three `read` lines.
+**End to end** (`e2e/`, under a pty): a `jigtest` script makes three reads across two steps and then replies. After the reply, `esc`, `k`, and `o` expand the group, and the screen shows `▾`. The pty output is redrawn cell by cell, so a line that changes in place (`exploring` to `explored · 3 reads`) never reaches the stream as one string; the test waits only for text drawn fresh. The header's exact text is covered by the App-level tests, which render whole frames.
 
 **Benchmarks**: the two in §7, plus the existing five, within budget.
 
