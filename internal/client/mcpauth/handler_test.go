@@ -225,6 +225,43 @@ func TestHandler_RefreshSaved(t *testing.T) {
 	}
 }
 
+func TestHandler_PortChangeReRegisters(t *testing.T) {
+	as := newFakeAS(t, "", "")
+	store := mcptokens.New(t.TempDir())
+
+	rec1 := signIn(t, as, store, nil)
+	if as.registrationCount() != 1 {
+		t.Fatalf("registrations after first sign-in = %d, want 1", as.registrationCount())
+	}
+
+	// Delete the stored record entirely, so the second handler has no
+	// InitialTokenSource and must drive a full sign-in through the gate
+	// (and thus register) again, rather than reusing the still-known
+	// client registration silently.
+	if err := store.Delete(as.mcpURL()); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	// A second sign-in, driven through a fresh listener (a different
+	// redirect port, as if the OS handed out a different loopback port
+	// this run), must register again and persist the new port.
+	rec2 := signIn(t, as, store, nil)
+	if rec2.RedirectPort == rec1.RedirectPort {
+		t.Skip("both sign-ins happened to get the same loopback port")
+	}
+	if as.registrationCount() != 2 {
+		t.Errorf("registrations after second sign-in = %d, want 2", as.registrationCount())
+	}
+
+	got, ok, err := store.Load(as.mcpURL())
+	if err != nil || !ok {
+		t.Fatalf("Load after second sign-in: ok=%v err=%v", ok, err)
+	}
+	if got.RedirectPort != rec2.RedirectPort {
+		t.Errorf("stored RedirectPort = %d, want %d", got.RedirectPort, rec2.RedirectPort)
+	}
+}
+
 // refreshViaFakeas hits as's token endpoint directly with
 // grant_type=refresh_token, as if another process performed the refresh.
 func refreshViaFakeas(t *testing.T, as *fakeas, refreshToken string) *oauth2.Token {

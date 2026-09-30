@@ -253,6 +253,10 @@ type fakeTokens struct {
 	has     map[string]bool
 	deleted []string
 	delErr  error
+
+	// block, if non-nil, is read once by Has before returning, so a test
+	// can hold Has open while asserting other Manager calls still work.
+	block chan struct{}
 }
 
 func newFakeTokens() *fakeTokens {
@@ -260,6 +264,12 @@ func newFakeTokens() *fakeTokens {
 }
 
 func (t *fakeTokens) Has(url string) bool {
+	t.mu.Lock()
+	block := t.block
+	t.mu.Unlock()
+	if block != nil {
+		<-block
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.has[url]

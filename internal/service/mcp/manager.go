@@ -264,20 +264,32 @@ func (m *Manager) Tools() []ext.Tool {
 	return out
 }
 
-// Servers reports every server's current status, in name order.
+// Servers reports every server's current status, in name order. It snapshots
+// state under the lock, then queries Tokens.Has (which may do disk I/O)
+// after releasing it, so a slow token store never blocks Tools or any other
+// Manager method.
 func (m *Manager) Servers() []core.MCPServerStatus {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	type pending struct {
+		idx int
+		url string
+	}
 
+	m.mu.Lock()
 	out := make([]core.MCPServerStatus, 0, len(m.servers))
+	var toCheck []pending
 	for _, name := range sortedNames(m.servers) {
 		st := m.servers[name]
 		s := st.status
 		s.ToolNames = append([]string(nil), s.ToolNames...)
 		if m.tokens != nil && (st.cfg.Transport == core.MCPHTTP || st.cfg.Transport == core.MCPSSE) {
-			s.HasToken = m.tokens.Has(st.cfg.URL)
+			toCheck = append(toCheck, pending{idx: len(out), url: st.cfg.URL})
 		}
 		out = append(out, s)
+	}
+	m.mu.Unlock()
+
+	for _, p := range toCheck {
+		out[p.idx].HasToken = m.tokens.Has(p.url)
 	}
 	return out
 }

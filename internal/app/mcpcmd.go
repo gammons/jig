@@ -211,7 +211,7 @@ func mcpLogoutCmd(args []string, e env, std Stdio) int {
 		printLine(std.Err, fmt.Sprintf("mcp: %s is a stdio server; it has no sign-in", name))
 		return exitConfig
 	}
-	tokens := mcptokens.New(filepath.Join(e.paths.DataDir, "mcp-auth"))
+	tokens := mcptokens.New(e.mcpAuthDir())
 	if err := tokens.Delete(srv.URL); err != nil {
 		printLine(std.Err, "error: "+err.Error())
 		return exitRunFailed

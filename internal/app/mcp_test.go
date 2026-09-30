@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	mcpclient "github.com/gammons/jig/internal/client/mcp"
@@ -70,10 +71,14 @@ func TestHeadless_MCPWarnings(t *testing.T) {
 		{Name: "disabled1", State: core.MCPDisabled},
 		{Name: "gh", State: core.MCPNeedsAuth},
 		{Name: "broken", State: core.MCPFailed, Err: "connection refused"},
+		{Name: "empty", State: core.MCPFailed},
+		{Name: "slow", State: core.MCPConnecting},
 	})
 	want := []string{
 		`mcp: gh needs sign-in; run "jig mcp auth gh"`,
 		"mcp: broken failed: connection refused",
+		"mcp: empty failed",
+		"mcp: slow still connecting; continuing without it",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("mcpWarnings = %v, want %v", got, want)
@@ -82,6 +87,18 @@ func TestHeadless_MCPWarnings(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("line %d = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+func TestMCPAuthDir_SharedByManagerAndLogout(t *testing.T) {
+	env := newTestEnv(t)
+	e, err := loadEnv(env.workDir, env.getenv, staticTrust(false))
+	if err != nil {
+		t.Fatalf("loadEnv: %v", err)
+	}
+	want := filepath.Join(e.paths.DataDir, "mcp-auth")
+	if got := e.mcpAuthDir(); got != want {
+		t.Errorf("mcpAuthDir = %q, want %q", got, want)
 	}
 }
 

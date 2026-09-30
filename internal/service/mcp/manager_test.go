@@ -525,7 +525,49 @@ func TestManager_AuthenticateNoSpuriousFailed(t *testing.T) {
 	}
 }
 
-// TestTool_MarkFailedIgnoresStaleGeneration pins finding 4: a CallTool
+// TestManager_ServersDoesNotHoldLockAcrossHas proves Servers() releases
+// m.mu before calling Tokens.Has, so a slow token store never blocks
+// Tools() (called by the Runner every model step).
+func TestManager_ServersDoesNotHoldLockAcrossHas(t *testing.T) {
+	h := newHarness(t, httpServer("gh", "https://gh.example/mcp"))
+
+	block := make(chan struct{})
+	h.tokens.mu.Lock()
+	h.tokens.block = block
+	h.tokens.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		h.m.Servers()
+		close(done)
+	}()
+
+	// Give Servers a moment to reach the blocked Has call.
+	select {
+	case <-done:
+		t.Fatal("Servers() returned before Has was unblocked")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	toolsDone := make(chan struct{})
+	go func() {
+		h.m.Tools()
+		close(toolsDone)
+	}()
+	select {
+	case <-toolsDone:
+	case <-time.After(testTimeout):
+		t.Fatal("Tools() blocked while Servers() was waiting on Has")
+	}
+
+	close(block)
+	select {
+	case <-done:
+	case <-time.After(testTimeout):
+		t.Fatal("Servers() never returned after Has unblocked")
+	}
+}
+
 // failure captured against an old (conn, gen) pair must not clobber a
 // newer connection that Reconnect, Logout, or Authenticate installed in
 // the meantime.

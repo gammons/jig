@@ -38,7 +38,7 @@ func newMCPManager(e env, clk clock.Clock, bus *event.Bus, images mcpsvc.Imager)
 	if len(servers) == 0 {
 		return nil
 	}
-	tokens := mcptokens.New(filepath.Join(e.paths.DataDir, "mcp-auth"))
+	tokens := mcptokens.New(e.mcpAuthDir())
 	adapters := newMCPAdapters(servers, e.workDir, tokens, clk)
 	return mcpsvc.New(mcpsvc.Deps{
 		Servers: servers, WorkDir: e.workDir,
@@ -248,6 +248,11 @@ func (s *authSession) Close() {
 // Begin starts a callback listener, opens srv's gate with a fetch
 // function that publishes the URL, opens the browser, and waits for the
 // redirect (bounded by a 5-minute clock timeout).
+//
+// Begin has no exclusion of its own against a concurrent Begin for the same
+// server: callers must reach it only through Manager.Authenticate, whose
+// beginAuthenticate critical section rejects a second Authenticate while
+// one is already in flight for that server.
 func (a authAdapter) Begin(ctx context.Context, srv core.MCPServer) (mcpsvc.Session, error) {
 	st := a.adapters.state(srv.Name)
 	if st == nil {
@@ -352,7 +357,13 @@ func mcpWarnings(servers []core.MCPServerStatus) []string {
 			continue
 		case core.MCPNeedsAuth:
 			out = append(out, fmt.Sprintf("mcp: %s needs sign-in; run \"jig mcp auth %s\"", s.Name, s.Name))
+		case core.MCPConnecting:
+			out = append(out, fmt.Sprintf("mcp: %s still connecting; continuing without it", s.Name))
 		default:
+			if s.Err == "" {
+				out = append(out, fmt.Sprintf("mcp: %s failed", s.Name))
+				continue
+			}
 			out = append(out, fmt.Sprintf("mcp: %s failed: %s", s.Name, s.Err))
 		}
 	}
