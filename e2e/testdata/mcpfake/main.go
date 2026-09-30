@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -64,7 +65,15 @@ func run() error {
 		fmt.Fprintln(os.Stderr, s.Stderr)
 	}
 	if s.HangInitialize {
-		select {}
+		// Block forever without answering initialize. Not `select {}`: in
+		// a cgo-less build (the macOS CI runner's) the runtime sees every
+		// goroutine asleep and exits 2 with "all goroutines are asleep -
+		// deadlock!", which the client sees as EOF, not a hang. A sleeping
+		// goroutine has a timer pending, so the deadlock detector stays
+		// quiet.
+		for {
+			time.Sleep(time.Hour)
+		}
 	}
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "mcpfake", Version: "dev"}, nil)
