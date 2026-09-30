@@ -37,6 +37,28 @@ func TestColumn_EnterOpensDetailsEntry(t *testing.T) {
 	}
 }
 
+// TestColumn_DetailsTitleSanitized: a bash block whose command carries
+// an escape sequence still shows a clean breadcrumb row (pinned at the
+// column, whether or not the builder already sanitized it).
+func TestColumn_DetailsTitleSanitized(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("go")
+	ta.startBash("c1", "ls\x1b[2Jx")
+	ta.key("esc")
+	ta.key("enter")
+
+	view := ta.view()
+	i := strings.IndexByte(view, '\n')
+	if i < 0 {
+		i = len(view)
+	}
+	firstLine := view[:i]
+	if strings.Contains(firstLine, "\x1b[2J") {
+		t.Errorf("breadcrumb row still contains the raw escape: %q", firstLine)
+	}
+}
+
 // TestColumn_EnterSameBlockCloses: enter twice on the same block opens
 // then closes the column.
 func TestColumn_EnterSameBlockCloses(t *testing.T) {

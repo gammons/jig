@@ -166,7 +166,73 @@ func TestE2E_TUISmoke(t *testing.T) {
 	}
 }
 
-// TestE2E_TUIMouseScrollAndCopy drives the built binary under a pty: a
+// TestE2E_TUISubagentView drives a real task spawn through the TUI: the
+// subagent block is selected and pushed into the column, its breadcrumb
+// and live child text appear, then popping it closes the column again.
+func TestE2E_TUISubagentView(t *testing.T) {
+	env := newEnv(t)
+	writeFile(t, filepath.Join(env.work, ".jig", "config.toml"), "[permissions]\nread = \"ask\"\n")
+	input := `{"agent":"explore","description":"look around","prompt":"find"}`
+	script := writeScript(t, env, "tui.json", jigtest.Script{Models: map[string][]jigtest.Turn{
+		"m1": {
+			{Calls: []jigtest.Call{call("t1", "task", input)}},
+			{Text: "parent done"},
+		},
+		"m2": {{Text: "**child** found it"}},
+	}})
+	writeConfig(t, env, jigtestConfig(script, "\n[agents.explore]\nmodel = \"jigtest/m2\"\n"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), tuiTimeout)
+	defer cancel()
+	cmd := command(ctx, env, "--cwd", env.work)
+	cmd.Env = append(cmd.Env, "TERM=xterm-256color", "JIG_IMAGES=off")
+	tty, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 30, Cols: 160})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tty.Close()
+	scr := newScreen()
+	go scr.read(tty)
+
+	write := func(s string) {
+		t.Helper()
+		if _, err := tty.WriteString(s); err != nil {
+			t.Fatalf("writing %q: %v", s, err)
+		}
+	}
+	step := func(want, keys string) {
+		t.Helper()
+		scr.waitFor(ctx, t, 0, want)
+		write(keys)
+	}
+
+	step("Trust this project", "t")
+	step("Message build", "delegate\r")
+	step("parent done", "\x1b")
+	scr.waitFor(ctx, t, 0, "NORMAL") // wait for esc to land in NORMAL before navigating
+	// gg selects the first block (the user prompt); j moves onto the
+	// subagent block, which comes right after it.
+	write("ggj")
+	from := scr.mark()
+	write("\r")
+	scr.waitFor(ctx, t, from, "main › ↳ explore: look around")
+	scr.waitFor(ctx, t, from, "child found it")
+	from = scr.mark()
+	write("\x1b")
+	// The column closed: at 160 columns (≥ the 120-column sidebar
+	// threshold) the column only ever took the right half, so main's own
+	// region (left half, already showing "parent done") never needed to
+	// retransmit — the terminal only resends changed cells. The sidebar
+	// reclaiming that half instead (its "Subagents" panel) is the
+	// observable proof the column closed.
+	scr.waitFor(ctx, t, from, "Subagents")
+	write("\x04")
+
+	err = cmd.Wait()
+	if code := exitCode(t, err, scr.snapshot()); code != 0 {
+		t.Fatalf("jig exited %d\nscreen:\n%s", code, scr.snapshot())
+	}
+}
 // wheel-up scrolls the transcript back into text that scrolled off the
 // bottom, and a press-drag-release over the reply selects text and
 // copies it to the clipboard via an OSC 52 sequence (spec §3.1/§3.2).
