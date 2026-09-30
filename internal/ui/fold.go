@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"maps"
 	"slices"
 
 	"github.com/gammons/jig/internal/ui/transcript"
@@ -27,15 +28,17 @@ type foldEntry struct {
 // foldState is the root transcript's tool-call groups (tool-call groups
 // spec §6.1): the groups, which group each member is in (owner) and each
 // group's index (byID), the groups the user expanded (open), whether a
-// search forces every group open, and the layout last computed (order),
-// so regroup can tell an append from a restructure.
+// search forces every group open, the groups holding a member awaiting
+// permission (awaiting), and the layout last computed (order), so
+// regroup can tell an append from a restructure.
 type foldState struct {
-	groups []transcript.Group
-	owner  map[transcript.BlockID]int
-	byID   map[transcript.BlockID]int
-	open   map[transcript.BlockID]bool
-	search bool
-	order  []foldEntry
+	groups   []transcript.Group
+	owner    map[transcript.BlockID]int
+	byID     map[transcript.BlockID]int
+	open     map[transcript.BlockID]bool
+	search   bool
+	awaiting map[transcript.BlockID]bool
+	order    []foldEntry
 }
 
 // regroup recomputes the groups and the layout of blocks, keeps the
@@ -51,8 +54,17 @@ func (f *foldState) regroup(blocks []transcript.Block) ([]foldEntry, bool) {
 			f.owner[id] = gi
 		}
 	}
+	held := f.awaiting
+	f.awaiting = map[transcript.BlockID]bool{}
+	for _, b := range blocks {
+		if gi, ok := f.owner[b.ID]; ok && b.State == transcript.StateAwaiting {
+			f.awaiting[f.groups[gi].ID] = true
+		}
+	}
 	entries := f.layout(blocks)
-	appended := len(entries) >= len(f.order) && slices.Equal(entries[:len(f.order)], f.order)
+	// A hold starting reveals members that already exist, several at
+	// once, so it is a restructure even when they land at the list's end.
+	appended := maps.Equal(held, f.awaiting) && len(entries) >= len(f.order) && slices.Equal(entries[:len(f.order)], f.order)
 	f.order = entries
 	return entries, !appended
 }
@@ -79,14 +91,16 @@ func (f *foldState) layout(blocks []transcript.Block) []foldEntry {
 }
 
 // expanded reports whether group gi shows its members: the user opened
-// it, or a search is applied.
+// it, a search is applied, or a member awaits permission (its card must
+// never be hidden).
 func (f *foldState) expanded(gi int) bool {
-	return f.open[f.groups[gi].ID] || f.search
+	id := f.groups[gi].ID
+	return f.open[id] || f.search || f.awaiting[id]
 }
 
 // toggle flips the user's state of the group id heads, or collapses the
 // group id is a member of, and returns that group's ID. It reports false
-// for any other block. A group held open (a search) keeps showing until
+// for any other block. A group held open (a search, a pending permission) keeps showing until
 // the hold ends; the flipped state applies then.
 func (f *foldState) toggle(id transcript.BlockID) (transcript.BlockID, bool) {
 	if f.open == nil {

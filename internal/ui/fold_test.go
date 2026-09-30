@@ -156,3 +156,18 @@ func TestFold_GroupOfAndMembers(t *testing.T) {
 		t.Error("members(a member) = true, want false")
 	}
 }
+
+func TestFold_AwaitingPermissionForcesOpen(t *testing.T) {
+	t.Parallel()
+	blocks := foldBlocks()
+	blocks[3].State = transcript.StateAwaiting // t/c2
+	var f foldState
+	got, _ := f.regroup(blocks)
+	wantEntries(t, got, "plain u/u1", "header g/c1", "nested t/c1", "nested m/a2/0", "nested t/c2", "plain m/a3/0")
+	blocks[3].State = transcript.StateRunning
+	got, changed := f.regroup(blocks)
+	wantEntries(t, got, "plain u/u1", "header g/c1", "plain m/a3/0")
+	if !changed {
+		t.Error("releasing the hold: regroup = false, want true (members leave the list)")
+	}
+}

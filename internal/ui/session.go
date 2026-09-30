@@ -221,10 +221,12 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 }
 
 // regroupsOn reports whether ev can change how the root's blocks group:
-// a tool call starting or finishing, or a run settling its calls.
+// a tool call starting or finishing, or a run settling its calls, or a
+// permission request holding a group open or releasing it.
 func regroupsOn(ev event.Event) bool {
 	switch ev.(type) {
-	case event.ToolCallStarted, event.ToolCallFinished, event.RunFinished, event.RunFailed:
+	case event.ToolCallStarted, event.ToolCallFinished, event.RunFinished, event.RunFailed,
+		event.PermissionRequested, event.PermissionResolved:
 		return true
 	}
 	return false

@@ -395,3 +395,44 @@ func TestFold_ClearingSearchKeepsAUserExpandedGroupOpen(t *testing.T) {
 		t.Errorf("after clearing the search, list = %v, want g/c1 still expanded", got)
 	}
 }
+
+func TestFold_PermissionForcesGroupOpen(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("look around")
+	ta.startTool("m1", "c1", "read", `{"path":"a.go"}`)
+	ta.finishTool("m1", "c1", "read", "1: package a", false)
+	ta.startTool("m1", "c2", "read", `{"path":"/etc/hosts"}`)
+	ta.event(event.PermissionRequested{Base: rootBase(), RequestID: "p1", Tool: "read", Subject: "/etc/hosts",
+		Call: core.ToolCall{ID: "c2", Name: "read"}})
+
+	if got := ta.listIDs(); !slices.Equal(got[1:], []string{"g/c1", "t/c1", "t/c2"}) {
+		t.Fatalf("with a pending permission, list = %v, want [<user> g/c1 t/c1 t/c2]", got)
+	}
+	if got := ta.selectedID(); got != "t/c2" {
+		t.Fatalf("selected = %q, want the requesting member t/c2 (the focus rule)", got)
+	}
+	ta.app.w.list.Top()
+	ta.key("g")
+	ta.key("p")
+	if got := ta.selectedID(); got != "t/c2" {
+		t.Fatalf("gp selected %q, want t/c2", got)
+	}
+	if req := ta.app.w.card.Request(); req == nil || req.ID != "p1" || !(permCtl{ta.app}).onCard() {
+		t.Fatalf("card = %+v on %q, want p1 on the selected member", req, ta.app.w.cardAt.block)
+	}
+	ta.arm()
+	ta.key("a")
+	if len(ta.perms.replies) != 1 || ta.perms.replies[0].ID != "p1" {
+		t.Fatalf("replies = %+v, want one for p1", ta.perms.replies)
+	}
+
+	ta.event(event.PermissionResolved{Base: rootBase(), RequestID: "p1", Reply: core.PermissionReply{Kind: core.ReplyOnce}})
+	ta.finishTool("m1", "c2", "read", "1: 127.0.0.1 localhost", false)
+	if got := ta.listIDs(); !slices.Equal(got[1:], []string{"g/c1"}) {
+		t.Errorf("after the reply, list = %v, want the group collapsed again", got)
+	}
+	if got := ta.selectedID(); got != "g/c1" {
+		t.Errorf("selected = %q, want the header g/c1", got)
+	}
+}
