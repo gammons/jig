@@ -92,7 +92,7 @@ internal/service/chat/                  ChatService facade the UIs call
 internal/service/media/                 image decode/scale/re-encode into blobs
 internal/ui/                            (Plan 2) the TUI App: bus bridge, wintree layout, modes, send/queue/cancel, streaming reconciliation
 internal/ui/plain/                      headless renderer (io.Writer)
-internal/ui/transcript/                 (Plan 2) transcript projection, core-only
+internal/ui/transcript/                 (Plan 2) transcript projection, core-only; Groups finds runs of read/grep/glob calls
 internal/ui/theme/                      theme palettes + Complete/Custom (ported from slk); Set/Build maps a Palette into every widget's Styles
 internal/bubbles/                       (Plan 2) Bubble Tea widgets and helpers
 internal/bubbles/ansi/                  sanitize untrusted text; ANSI-safe width/wrap/highlight
@@ -377,6 +377,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Push the App's current theme `Set` to every widget (and bump item versions) | `pushTheme(a)` in `internal/ui/themestate.go` |
 | The agent-browser `--session` a bash command runs in (else `default`) | `transcript.BrowserSession(command)` |
 | Cache rendered images per (blob ref, cell box), LRU of 32; send a kitty upload only when the terminal lacks that size | `imageState` (`renderFor`, `store`, `cached`, `show`) and `placeSixel(a)` in `internal/ui/images.go`; `imgrender.(*Renderer).Forget(key)` makes the next render upload again |
+| Group consecutive exploration calls (read/grep/glob, with the reasoning between them) | `transcript.Groups(blocks)` in `internal/ui/transcript/groups.go` |
+| Rebuild the transcript list after a layout change, keeping the selection on a listed block | `foldCtl{a}.relist(changed)` in `internal/ui/foldctl.go` |
 
 ## Performance budgets
 
@@ -397,6 +399,8 @@ the budget. Run with `go test -run XXX -bench . -benchmem <pkg>`.
 | `BenchmarkApp_Wheel2000` — one wheel notch over the transcript, then `View` | < 1.5 ms/op | 1.16 ms/op |
 | `BenchmarkApp_StreamTick2000` — one streaming delta, its tick, and `View`, with the reply already ~16 KB | < 5 ms/op | 1.9 ms/op |
 | `BenchmarkApp_ReasoningTick2000` — one streaming reasoning delta, its tick, and `View`, with the thinking already ~16 KB and shown | < 5 ms/op | 0.79 ms/op (QEMU VM, 4 vCPU) |
+| `BenchmarkApp_FoldToggle2000` — `o` on a group header (a list rebuild), then `View`, over 2,000 messages holding 500 groups | < 50 ms/op | 2.30 ms/op (QEMU VM, 4 vCPU) |
+| `BenchmarkApp_ToolStart2000` — one `ToolCallStarted` that joins a group and absorbs the reasoning before it (a list rebuild), then `View` | < 5 ms/op | 2.59 ms/op (QEMU VM, 4 vCPU) |
 
 Every keystroke and wheel notch re-renders the whole frame, so
 `compose` (`internal/ui/layout.go`) measures each widget's output once:
@@ -519,6 +523,7 @@ Each mode has one key handler that runs its fixed R21 keys first, then
   run (never clears or quits), starting the same `cancelGrace`; vim-style navigation of the
   transcript list (`j k gg G ctrl+u`, `n`/`N` search matches),
   `enter` toggles the details split (`ctrl+e`/`ctrl+y` scroll it),
+  `o` expands or collapses a tool-call group,
   `q`/`esc` close the split or clear the search (or a mouse selection,
   cleared first), `gp` jumps to the next
   pending permission, and `a A d D` answer the card on the selected
@@ -529,6 +534,29 @@ Each mode has one key handler that runs its fixed R21 keys first, then
   work the same as in INSERT, without leaving NORMAL.
 - PICKER (`mode_picker.go`, `pickerCtl`): the ctrl+p picker overlay owns
   every key but `ctrl+z`/`ctrl+d` until it closes (`esc`) or yields a `picker.ChosenMsg`.
+
+**Tool-call groups.** Two or more consecutive `read`/`grep`/`glob`
+calls, with the reasoning between them, show as one header line
+(`transcript.Groups`, pure; ID `g/<first call ID>`): `⠋ exploring · 3
+reads, 1 grep · read a.go` while live, `▸ explored · 4 reads, 2 greps`
+once settled. The projection is unchanged. `foldState`
+(`internal/ui/fold.go`, in `sessionState.track`, an `itemTrack` in
+`internal/ui/items.go`) lays blocks out as plain items, headers, and
+nested members; `foldCtl` (`internal/ui/foldctl.go`) rebuilds the list
+(`relist`) when that layout changes other than by growing at its end,
+and content changes still upsert, a hidden member mapping to its
+header. The upsert path (`itemTrack.upsert`) records newly listed items
+in the layout, so a later call that absorbs one (e.g. streamed
+reasoning) is seen as a restructure; a permission hold starting or
+ending also counts as one. A rebuild re-renders only the headers whose
+members changed or whose shown open state flipped
+(`itemTrack.shownOpen`), not every header. A group shows expanded when
+the user opened it (NORMAL `o`, the remappable `transcript.fold`),
+while a search is applied, or while a member awaits permission, so a
+card is never hidden. An item's version goes up whenever its nesting
+changes, so a cached render never keeps a stale indent. Headers get
+their own details (the member list) and yank (the members' paths and
+patterns).
 
 **Actions.** Every command is an `actions.ID` run by `App.runAction`,
 reached through the picker or a key; see "Adding a picker action" below.
