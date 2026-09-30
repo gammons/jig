@@ -22,8 +22,11 @@ type RunContext struct {
 	MessageID core.MessageID
 	Agent     core.Agent
 	Model     core.ModelRef
-	WorkDir   string
-	Depth     int
+	// Effort is the requested reasoning effort (not yet clamped to the
+	// model's levels; the Runner does that per request).
+	Effort  core.Effort
+	WorkDir string
+	Depth   int
 	// Ancestors holds the permission rules of every agent above this one
 	// in the subagent chain, root first. A tool call must pass each of
 	// them as well as Agent.Permissions.

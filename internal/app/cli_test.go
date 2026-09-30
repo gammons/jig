@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -96,5 +97,15 @@ func TestCLI_UnknownFlagExits2(t *testing.T) {
 	code, _, _ := env.run(t, "run", "--bogus", "hi")
 	if code != exitConfig {
 		t.Errorf("exit = %d, want %d", code, exitConfig)
+	}
+}
+
+func TestParseRun_Effort(t *testing.T) {
+	o, err := parseRun([]string{"--effort", "high", "fix", "it"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.effort != "high" || o.prompt != "fix it" {
+		t.Errorf("opts = %+v, want effort high and prompt %q", o, "fix it")
 	}
 }

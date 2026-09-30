@@ -13,6 +13,7 @@ import (
 	"github.com/gammons/jig/internal/bubbles/picker"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/golden"
+	"github.com/gammons/jig/internal/ui/actions"
 	"github.com/gammons/jig/internal/ui/theme"
 )
 
@@ -57,6 +58,88 @@ func twoModelCatalog() fakeCatalog {
 // resumed is a stored session on anthropic/claude-sonnet-5.
 func resumed() core.Session {
 	return core.Session{ID: "ses_r", Title: "Old title", Agent: "build", Model: "anthropic/claude-sonnet-5", Cwd: testWorkDir}
+}
+
+// pickReasoning opens "Streamed reasoning…" and chooses the item matching
+// query ("on" or "off").
+func pickReasoning(ta *testApp, query string) {
+	ta.t.Helper()
+	ta.key("ctrl+p")
+	ta.typeText("streamed reasoning")
+	ta.key("enter")
+	ta.typeText(query)
+	ta.key("enter")
+}
+
+// currentReasoning is the ID of the reasoning level's item marked current.
+func currentReasoning(t *testing.T, ta *testApp) string {
+	t.Helper()
+	var cur []string
+	for _, it := range loadItems(ta, picker.Level{ID: levelReasoning}) {
+		if it.Current {
+			cur = append(cur, it.ID)
+		}
+	}
+	if len(cur) != 1 {
+		t.Fatalf("reasoning level marks %v current, want exactly one", cur)
+	}
+	return cur[0]
+}
+
+// TestPicker_ReasoningLevelMarksCurrent: "Streamed reasoning…" drills into
+// a level of On and Off, with the state in effect marked current: On by
+// default, Off with HideReasoning saved.
+func TestPicker_ReasoningLevelMarksCurrent(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	root := itemByID(t, loadItems(ta, rootLevel()), string(actions.ViewReasoning))
+	if root.Title != "Streamed reasoning…" || root.Drill == nil || root.Drill.ID != levelReasoning {
+		t.Errorf("view.reasoning item = %+v, want \"Streamed reasoning…\" drilling into the reasoning level", root)
+	}
+	var got []string
+	for _, it := range loadItems(ta, picker.Level{ID: levelReasoning}) {
+		got = append(got, it.ID+"="+it.Title)
+	}
+	if want := []string{"on=On", "off=Off"}; !slices.Equal(got, want) {
+		t.Errorf("reasoning items = %v, want %v", got, want)
+	}
+	if cur := currentReasoning(t, ta); cur != "on" {
+		t.Errorf("by default %q is current, want on", cur)
+	}
+
+	saved := newTestApp(t, withPrefs(core.Prefs{HideReasoning: true}))
+	if cur := currentReasoning(t, saved); cur != "off" {
+		t.Errorf("with HideReasoning saved %q is current, want off", cur)
+	}
+}
+
+// TestPicker_ReasoningChoiceSavesPref: choosing Off saves HideReasoning,
+// closes the picker, and records the action as recent; the level then
+// marks Off current. Choosing On clears it again.
+func TestPicker_ReasoningChoiceSavesPref(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	pickReasoning(ta, "off")
+	if ta.app.w.picker.IsOpen() || ta.app.mode != modeInsert {
+		t.Errorf("after choosing: picker open=%v mode=%v, want closed and back in INSERT", ta.app.w.picker.IsOpen(), ta.app.mode)
+	}
+	if !ta.prefs.Get().HideReasoning {
+		t.Error("prefs.HideReasoning = false after choosing Off, want true")
+	}
+	if cur := currentReasoning(t, ta); cur != "off" {
+		t.Errorf("after choosing Off, %q is current", cur)
+	}
+	if r := ta.prefs.Get().Recent; len(r) == 0 || r[0] != string(actions.ViewReasoning) {
+		t.Errorf("recent = %v, want view.reasoning first", r)
+	}
+
+	pickReasoning(ta, "on")
+	if ta.prefs.Get().HideReasoning {
+		t.Error("prefs.HideReasoning = true after choosing On, want false")
+	}
+	if cur := currentReasoning(t, ta); cur != "on" {
+		t.Errorf("after choosing On, %q is current", cur)
+	}
 }
 
 func TestPicker_RootListsActionsWithKeysAndRecent(t *testing.T) {
@@ -608,4 +691,126 @@ func TestPicker_GoldenModels(t *testing.T) {
 	ta.typeText("switch model")
 	ta.key("enter")
 	golden.Assert(t, "picker_models", ta.view())
+}
+
+// pickEffort opens "Switch effort…" and chooses the item matching query.
+func pickEffort(ta *testApp, query string) {
+	ta.key("ctrl+p")
+	ta.typeText("switch effort")
+	ta.key("enter")
+	ta.typeText(query)
+	ta.key("enter")
+}
+
+func TestPicker_EffortLevelListsModelLevels(t *testing.T) {
+	t.Parallel()
+	sess := resumed()
+	sess.Effort = core.EffortLow
+	ta := newTestApp(t, withCatalog(effortCatalog()), withResume(sess, nil, nil))
+	items := loadItems(ta, picker.Level{ID: levelEfforts})
+	var ids []string
+	for _, it := range items {
+		ids = append(ids, it.ID)
+	}
+	if want := []string{"default", "low", "medium", "high", "max"}; !slices.Equal(ids, want) {
+		t.Errorf("ids = %v, want %v", ids, want)
+	}
+	if items[0].Title != "Default (high)" || items[0].Current {
+		t.Errorf("default item = %+v, want titled with the catalog default and not current", items[0])
+	}
+	if !itemByID(t, items, "low").Current {
+		t.Error("the session's low is not marked current")
+	}
+}
+
+func TestPicker_EffortSwitchSetsSessionEffort(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withCatalog(effortCatalog()), withResume(resumed(), nil, nil))
+	pickEffort(ta, "low")
+	if ta.app.sess.info.Effort != core.EffortLow {
+		t.Errorf("effort = %q, want low", ta.app.sess.info.Effort)
+	}
+	if want := []effortCall{{ID: "ses_r", Effort: core.EffortLow}}; !slices.Equal(ta.sessions.efforts, want) {
+		t.Errorf("SetEffort calls = %+v, want %+v", ta.sessions.efforts, want)
+	}
+	if v := xansi.Strip(ta.view()); !strings.Contains(v, "claude-sonnet-5 · low") {
+		t.Errorf("status bar lacks the new effort:\n%s", v)
+	}
+	pickEffort(ta, "default")
+	if ta.app.sess.info.Effort != "" || ta.sessions.efforts[1].Effort != "" {
+		t.Errorf("after Default: effort = %q, calls = %+v; want cleared", ta.app.sess.info.Effort, ta.sessions.efforts)
+	}
+}
+
+func TestPicker_EffortSwitchWithoutSessionSendsIt(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withCatalog(effortCatalog()), func(c *testConfig) { c.opts.DefaultModel = "anthropic/claude-sonnet-5" })
+	pickEffort(ta, "max")
+	if len(ta.sessions.efforts) != 0 {
+		t.Errorf("SetEffort calls = %+v, want none without a session", ta.sessions.efforts)
+	}
+	ta.typeText("hi")
+	ta.key("enter")
+	if got := ta.chat.sends[0].Effort; got != "max" {
+		t.Errorf("new session sent with effort %q, want max", got)
+	}
+}
+
+func TestPicker_EffortDisabledWithoutLevels(t *testing.T) {
+	t.Parallel()
+	haiku := resumed()
+	haiku.Model = "anthropic/claude-haiku-4-5"
+	ta := newTestApp(t, withCatalog(effortCatalog()), withResume(haiku, nil, nil))
+	it := itemByID(t, loadItems(ta, rootLevel()), "effort.switch")
+	if !it.Disabled || it.Drill != nil {
+		t.Errorf("effort.switch = %+v, want disabled for a model without levels", it)
+	}
+	if cmd := (pickerCtl{ta.app}).action(actions.EffortSwitch); cmd != nil {
+		t.Error("action(effort.switch) returned a Cmd, want none for a model without levels")
+	}
+	if ta.app.w.picker.IsOpen() || !strings.Contains(ta.app.view.hint, "no effort levels") {
+		t.Errorf("open=%v hint=%q; want a hint and no picker", ta.app.w.picker.IsOpen(), ta.app.view.hint)
+	}
+}
+
+func TestPicker_EffortDefaultFallsBackToAgent(t *testing.T) {
+	t.Parallel()
+	sess := resumed()
+	sess.Effort = core.EffortMax
+	ta := newTestApp(t, withCatalog(effortCatalog()), withResume(sess, nil, nil),
+		func(c *testConfig) {
+			c.agents = fakeAgents{{Name: "build", Mode: core.ModePrimary, Effort: core.EffortLow}}
+		})
+	if v := xansi.Strip(ta.view()); !strings.Contains(v, "claude-sonnet-5 · max") {
+		t.Errorf("the session's max should win over the agent's low:\n%s", v)
+	}
+	if it := loadItems(ta, picker.Level{ID: levelEfforts})[0]; it.Title != "Default (low)" {
+		t.Errorf("default item title = %q, want the agent's level: Default (low)", it.Title)
+	}
+	pickEffort(ta, "default")
+	if v := xansi.Strip(ta.view()); !strings.Contains(v, "claude-sonnet-5 · low") {
+		t.Errorf("cleared, the agent's low should show:\n%s", v)
+	}
+}
+
+func TestApp_EffortSurvivesModelRoundTrip(t *testing.T) {
+	t.Parallel()
+	sess := resumed()
+	sess.Effort = core.EffortMax
+	ta := newTestApp(t, withCatalog(effortCatalog()), withResume(sess, nil, nil))
+	switchModel := func(q string) {
+		ta.key("ctrl+p")
+		ta.typeText("switch model")
+		ta.key("enter")
+		ta.typeText(q)
+		ta.key("enter")
+	}
+	switchModel("haiku")
+	if v := xansi.Strip(ta.view()); strings.Contains(v, "claude-haiku-4-5 ·") {
+		t.Errorf("haiku has no levels; want no effort shown:\n%s", v)
+	}
+	switchModel("sonnet")
+	if v := xansi.Strip(ta.view()); !strings.Contains(v, "claude-sonnet-5 · max") {
+		t.Errorf("back on sonnet, the session's max should show again:\n%s", v)
+	}
 }

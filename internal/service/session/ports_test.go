@@ -293,3 +293,30 @@ func TestTodos_ReturnsStoredList(t *testing.T) {
 		}
 	}
 }
+
+func TestSetEffort_SetsClearsAndPublishes(t *testing.T) {
+	f := newFixture(t, defaultCfg())
+	sess := f.create("build")
+	ctx := context.Background()
+
+	if err := f.svc.SetEffort(ctx, sess.ID, "turbo"); err == nil {
+		t.Error("SetEffort(turbo): want error")
+	}
+	if err := f.svc.SetEffort(ctx, sess.ID, core.EffortHigh); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := f.svc.Get(ctx, sess.ID); got.Effort != core.EffortHigh {
+		t.Errorf("Effort = %q, want high", got.Effort)
+	}
+	evs := f.rec.all()
+	su, ok := evs[len(evs)-1].(event.SessionUpdated)
+	if !ok || su.Info.Effort != core.EffortHigh || su.RootID != sess.ID {
+		t.Errorf("last event = %#v, want SessionUpdated with effort high", evs[len(evs)-1])
+	}
+	if err := f.svc.SetEffort(ctx, sess.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := f.svc.Get(ctx, sess.ID); got.Effort != "" {
+		t.Errorf("after clear Effort = %q, want empty", got.Effort)
+	}
+}

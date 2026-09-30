@@ -8,11 +8,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"charm.land/fantasy/providers/anthropic"
+
 	"github.com/gammons/jig/internal/core"
+	"github.com/gammons/jig/internal/core/ext"
 )
 
 // serveFixture returns an httptest.Server that responds to every request
@@ -197,23 +201,14 @@ func TestAnthropicFactory_WiresCacheControlHookRegardlessOfProviderID(t *testing
 	}
 }
 
-// TestOpenAIFactory_DoesNotWireCacheControlHook proves the converse: a
-// non-anthropic factory Type never gets Anthropic's cache-control hook.
-func TestOpenAIFactory_DoesNotWireCacheControlHook(t *testing.T) {
-	client, err := openaiFactory{}.New(
-		core.ProviderInfo{ID: "openai", Type: "openai"},
-		core.ProviderConfig{APIKey: "test-key"},
-		"gpt-4o-mini",
-	)
-	if err != nil {
-		t.Fatalf("New: unexpected error: %v", err)
-	}
-	a, ok := client.(*adapter)
-	if !ok {
-		t.Fatalf("got %T, want *adapter", client)
-	}
-	if a.prepare != nil {
-		t.Error("openaiFactory must not wire the cache-control prepare hook")
+// TestOpenAIFactory_NeverAppliesCacheControl proves a non-anthropic
+// factory Type never gets Anthropic's cache-control breakpoints.
+func TestOpenAIFactory_NeverAppliesCacheControl(t *testing.T) {
+	call := prepared(t, "openai", core.EffortHigh)
+	for i, m := range call.Prompt {
+		if anthropic.GetCacheControl(m.ProviderOptions) != nil {
+			t.Errorf("message %d carries cache_control", i)
+		}
 	}
 }
 
@@ -256,5 +251,53 @@ func TestAnthropicFactory_AppliesCacheControlOnStream(t *testing.T) {
 
 	if !bytes.Contains(capturedBody, []byte(`"cache_control"`)) {
 		t.Errorf("request body sent to the provider carries no cache_control: %s", capturedBody)
+	}
+}
+
+// countingTransport answers every request with a 500 and counts them.
+type countingTransport struct{ n atomic.Int64 }
+
+func (c *countingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	c.n.Add(1)
+	return &http.Response{
+		StatusCode: http.StatusInternalServerError,
+		Body:       io.NopCloser(strings.NewReader(`{}`)),
+		Header:     http.Header{},
+		Request:    req,
+	}, nil
+}
+
+func TestFactories_WithHTTPClientRoutesEveryProvider(t *testing.T) {
+	for _, typ := range []string{"anthropic", "openai", "openai-compat", "openrouter", "google"} {
+		t.Run(typ, func(t *testing.T) {
+			rt := &countingTransport{}
+			var f ext.ProviderFactory
+			for _, cand := range Factories(WithHTTPClient(&http.Client{Transport: rt})) {
+				if cand.Type() == typ {
+					f = cand
+				}
+			}
+			if f == nil {
+				t.Fatalf("no factory of type %q", typ)
+			}
+			client, err := f.New(
+				core.ProviderInfo{Endpoint: "http://example.invalid"},
+				core.ProviderConfig{APIKey: "k"},
+				"m",
+			)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			req := core.LLMRequest{
+				Messages: []core.Message{{Role: core.RoleUser, Parts: []core.Part{{Kind: core.PartText, Text: "hi"}}}},
+			}
+			for range client.Stream(ctx, req) {
+			}
+			if got := rt.n.Load(); got < 1 {
+				t.Errorf("injected transport saw %d requests, want >= 1", got)
+			}
+		})
 	}
 }

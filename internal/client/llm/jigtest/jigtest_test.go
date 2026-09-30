@@ -234,3 +234,14 @@ func TestStream_ExpectPromptContains(t *testing.T) {
 	_, err := collect(context.Background(), l, mediaRequest())
 	assertLLMError(t, err, `jigtest: prompt does not contain "zebra"`, false)
 }
+
+func TestStream_ExpectEffort(t *testing.T) {
+	want := "low"
+	turn := Turn{Text: "ok", ExpectEffort: &want}
+	l, _, _ := newLLM(t, Script{Models: map[string][]Turn{"m1": {turn, turn}}}, "m1")
+	if _, err := collect(context.Background(), l, core.LLMRequest{Effort: core.EffortLow}); err != nil {
+		t.Fatalf("matching effort: %v", err)
+	}
+	_, err := collect(context.Background(), l, core.LLMRequest{Effort: core.EffortHigh})
+	assertLLMError(t, err, `effort "high", want "low"`, false)
+}

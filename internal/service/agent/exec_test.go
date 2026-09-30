@@ -90,7 +90,8 @@ func newExecRunner(hooks ...ext.ToolHook) (*Runner, *recorder) {
 		}
 	}
 	rec := newRecorder()
-	return NewRunner(Deps{Ext: reg.Freeze(), Bus: rec}), rec
+	clk := clock.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	return NewRunner(Deps{Ext: reg.Freeze(), Bus: rec, Clock: clk}), rec
 }
 
 func execRC() ext.RunContext {

@@ -2,6 +2,8 @@ package catalog
 
 import (
 	"path/filepath"
+	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -46,7 +48,7 @@ func TestConvert_PricingMapping(t *testing.T) {
 		CostCacheRead:    0.3,
 		CanReason:        true,
 	}
-	if m != want {
+	if !reflect.DeepEqual(m, want) {
 		t.Errorf("convertModel() = %+v, want %+v", m, want)
 	}
 }
@@ -209,6 +211,66 @@ func TestCustomProvider_ImageModels(t *testing.T) {
 		}
 		if m.SupportsImages != want {
 			t.Errorf("local/%s SupportsImages = %v, want %v", model, m.SupportsImages, want)
+		}
+	}
+}
+
+func TestConvertModel_Efforts(t *testing.T) {
+	m := convertModel("anthropic", catwalk.Model{
+		ID:                     "claude-x",
+		CanReason:              true,
+		ReasoningLevels:        []string{"low", "medium", "bogus", "high"},
+		DefaultReasoningEffort: "high",
+	})
+	want := []core.Effort{core.EffortLow, core.EffortMedium, core.EffortHigh}
+	if !slices.Equal(m.Efforts, want) || m.DefaultEffort != core.EffortHigh {
+		t.Errorf("Efforts = %v default %q, want %v default high", m.Efforts, m.DefaultEffort, want)
+	}
+
+	none := convertModel("anthropic", catwalk.Model{ID: "claude-old", CanReason: true, DefaultReasoningEffort: "bogus"})
+	if none.Efforts != nil || none.DefaultEffort != "" {
+		t.Errorf("no levels: Efforts = %v default %q, want none", none.Efforts, none.DefaultEffort)
+	}
+}
+
+func TestConvertProvider_Opus45HasNoEfforts(t *testing.T) {
+	levels := []string{"low", "medium", "high"}
+	models := []catwalk.Model{
+		{ID: "claude-opus-4-5-20251101", CanReason: true, ReasoningLevels: levels, DefaultReasoningEffort: "high"},
+		{ID: "claude-opus-4-6", CanReason: true, ReasoningLevels: levels, DefaultReasoningEffort: "high"},
+	}
+	want := []core.Effort{core.EffortLow, core.EffortMedium, core.EffortHigh}
+
+	anth := convertProvider(catwalk.Provider{ID: "anthropic", Type: "anthropic", Models: models})
+	if m := anth.Models[0]; m.Efforts != nil || m.DefaultEffort != "" {
+		t.Errorf("anthropic opus-4-5: Efforts = %v default %q, want none", m.Efforts, m.DefaultEffort)
+	}
+	if m := anth.Models[1]; !slices.Equal(m.Efforts, want) || m.DefaultEffort != core.EffortHigh {
+		t.Errorf("anthropic opus-4-6: Efforts = %v default %q, want %v default high", m.Efforts, m.DefaultEffort, want)
+	}
+
+	or := convertProvider(catwalk.Provider{ID: "openrouter", Type: "openrouter", Models: models[:1]})
+	if m := or.Models[0]; !slices.Equal(m.Efforts, want) || m.DefaultEffort != core.EffortHigh {
+		t.Errorf("openrouter opus-4-5: Efforts = %v default %q, want %v default high", m.Efforts, m.DefaultEffort, want)
+	}
+}
+
+func TestCustomProvider_Efforts(t *testing.T) {
+	clk := clock.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	c := New(Options{
+		CachePath: filepath.Join(t.TempDir(), "catalog.json"),
+		Clock:     clk,
+		Custom: map[string]core.ProviderConfig{
+			"local": {Type: "openai-compat", Models: []string{"a", "b"}, Efforts: []string{"low", "High"}},
+		},
+	})
+	for _, id := range []string{"a", "b"} {
+		m, ok := c.Model(core.ModelRef{Provider: "local", Model: id})
+		if !ok {
+			t.Fatalf("Model(local/%s) not found", id)
+		}
+		if !slices.Equal(m.Efforts, []core.Effort{core.EffortLow, core.EffortHigh}) || m.DefaultEffort != "" {
+			t.Errorf("local/%s Efforts = %v default %q, want [low high] and no default", id, m.Efforts, m.DefaultEffort)
 		}
 	}
 }

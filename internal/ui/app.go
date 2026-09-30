@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"slices"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -45,6 +44,7 @@ type Options struct {
 	Tmux                bool
 	Aliases             map[string]string // alias → "provider/model", for the status bar
 	DefaultModel        string            // resolved default_model ("provider/model"), for the status bar
+	DefaultEffort       core.Effort       // resolved default_effort, for the status bar
 	Clock               clock.Clock
 }
 
@@ -146,7 +146,7 @@ func New(p Ports, o Options) *App {
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &App{
 		ports: p, opts: o, ctx: ctx, cancel: cancel,
-		sess:  newSessionState(o.Session, o.Clock, o.DefaultModel),
+		sess:  newSessionState(o.Session, o.Clock, catalog{defaultModel: o.DefaultModel, defaultEffort: o.DefaultEffort}),
 		theme: newThemeState(o.Theme, o.Themes),
 		img:   newImageState(imgrender.Detect(o.Images, ""), o.Tmux),
 		after: tick,
@@ -337,11 +337,7 @@ func (a *App) onResult(msg tea.Msg) tea.Cmd {
 func (a *App) onPortResult(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case prefsMsg:
-		a.view.sidebarPref = msg.prefs.Sidebar
-		a.view.history = append([]string(nil), msg.prefs.History[a.opts.ProjectKey]...)
-		a.w.prompt.SetHistory(a.view.history)
-		a.view.pick.recent = slices.Clone(msg.prefs.Recent[:min(len(msg.prefs.Recent), maxRecent)])
-		a.w.picker.SetRecent(a.view.pick.recent)
+		prefsCtl{a}.load(msg.prefs)
 	case agentsMsg:
 		a.sess.cat.agents = msg.agents
 		if a.sess.info.Agent == "" && len(msg.agents) > 0 {
@@ -464,9 +460,7 @@ func (a *App) runAction(id actions.ID) tea.Cmd {
 func dispatchAction(a *App, id actions.ID) tea.Cmd {
 	switch id {
 	case actions.ViewSidebar:
-		show := !a.lay.SideVisible
-		a.view.sidebarPref = &show
-		return prefsUpdateCmd(a.ports, func(p *core.Prefs) { p.Sidebar = &show })
+		return prefsCtl{a}.toggleSidebar()
 	case actions.PromptEditor:
 		return editorCmd(a.ports, a.w.prompt.Value())
 	case actions.RunCancel:

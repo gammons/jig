@@ -35,6 +35,7 @@ type fakeLLMs struct {
 	mu      sync.Mutex
 	clients map[core.ModelRef]*llmtest.Client
 	errs    map[core.ModelRef]error
+	infos   map[core.ModelRef]core.ModelInfo
 	asked   []core.ModelRef
 }
 
@@ -49,7 +50,9 @@ func (f *fakeLLMs) For(ref core.ModelRef) (core.LLM, core.ModelInfo, error) {
 	if !ok {
 		return nil, core.ModelInfo{}, fmt.Errorf("unknown model %q", ref.String())
 	}
-	return c, core.ModelInfo{Ref: ref}, nil
+	info := f.infos[ref]
+	info.Ref = ref
+	return c, info, nil
 }
 
 type recorder struct {

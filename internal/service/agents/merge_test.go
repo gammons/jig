@@ -262,3 +262,18 @@ func TestPrimary_Order(t *testing.T) {
 		}
 	}
 }
+
+func TestMerge_Effort(t *testing.T) {
+	svc, err := New(core.Config{}, Sources{GlobalTOML: map[string]core.AgentConfig{"plan": {Effort: "High"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := svc.Get("plan"); a.Effort != core.EffortHigh {
+		t.Errorf("plan.Effort = %q, want high", a.Effort)
+	}
+
+	_, err = New(core.Config{}, Sources{ProjectMD: map[string]core.AgentConfig{"custom": {Effort: "turbo"}}})
+	if err == nil || !strings.HasPrefix(err.Error(), `agent "custom": unknown effort "turbo"`) {
+		t.Errorf("err = %v, want an unknown-effort error naming the agent", err)
+	}
+}

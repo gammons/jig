@@ -21,7 +21,11 @@ func convertProviders(providers []catwalk.Provider) []core.ProviderInfo {
 func convertProvider(p catwalk.Provider) core.ProviderInfo {
 	models := make([]core.ModelInfo, 0, len(p.Models))
 	for _, m := range p.Models {
-		models = append(models, convertModel(string(p.ID), m))
+		info := convertModel(string(p.ID), m)
+		if !effortSupported(string(p.Type), m.ID) {
+			info.Efforts, info.DefaultEffort = nil, ""
+		}
+		models = append(models, info)
 	}
 	return core.ProviderInfo{
 		ID:        string(p.ID),
@@ -33,12 +37,21 @@ func convertProvider(p catwalk.Provider) core.ProviderInfo {
 	}
 }
 
+// effortSupported reports whether jig can send a reasoning effort to
+// modelID on a provider of type typ. fantasy sends Anthropic effort as
+// adaptive thinking, which Claude Opus 4.5 (extended-thinking only,
+// budget tokens) rejects.
+func effortSupported(typ, modelID string) bool {
+	return typ != "anthropic" || !strings.Contains(modelID, "claude-opus-4-5")
+}
+
 // convertModel maps a catwalk model onto core.ModelInfo. The pricing
 // mapping matches crush's usage: CostPer1MIn/Out map straight across, but
 // the cached fields cross over — CostPer1MInCached (the cost of writing to
 // cache) becomes CostCacheWrite, and CostPer1MOutCached (the cost of a
 // cache hit) becomes CostCacheRead.
 func convertModel(providerID string, m catwalk.Model) core.ModelInfo {
+	def, _ := core.ParseEffort(m.DefaultReasoningEffort)
 	return core.ModelInfo{
 		Ref:              core.ModelRef{Provider: providerID, Model: m.ID},
 		Name:             m.Name,
@@ -50,6 +63,8 @@ func convertModel(providerID string, m catwalk.Model) core.ModelInfo {
 		CostCacheWrite:   m.CostPer1MInCached,
 		CanReason:        m.CanReason,
 		SupportsImages:   m.SupportsImages,
+		Efforts:          parseEfforts(m.ReasoningLevels),
+		DefaultEffort:    def,
 	}
 }
 
@@ -98,7 +113,8 @@ func mergeCustom(infos []core.ProviderInfo, custom map[string]core.ProviderConfi
 
 // customModels builds one zero-cost ModelInfo per model ID in cfg.Models,
 // named after the model ID itself (custom providers have no pricing data).
-// A model accepts images iff cfg.ImageModels lists it (R10).
+// A model accepts images iff cfg.ImageModels lists it (R10). Every model
+// gets cfg.Efforts as its effort levels, with no default.
 func customModels(providerID string, cfg core.ProviderConfig) []core.ModelInfo {
 	models := make([]core.ModelInfo, 0, len(cfg.Models))
 	for _, id := range cfg.Models {
@@ -106,7 +122,20 @@ func customModels(providerID string, cfg core.ProviderConfig) []core.ModelInfo {
 			Ref:            core.ModelRef{Provider: providerID, Model: id},
 			Name:           id,
 			SupportsImages: slices.Contains(cfg.ImageModels, id),
+			Efforts:        parseEfforts(cfg.Efforts),
 		})
 	}
 	return models
+}
+
+// parseEfforts keeps the levels that are on jig's effort scale, in
+// order, dropping any others; nil when none are.
+func parseEfforts(levels []string) []core.Effort {
+	var out []core.Effort
+	for _, l := range levels {
+		if e, err := core.ParseEffort(l); err == nil && e != "" {
+			out = append(out, e)
+		}
+	}
+	return out
 }

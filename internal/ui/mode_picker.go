@@ -145,8 +145,12 @@ func (p pickerCtl) chosen(msg picker.ChosenMsg) tea.Cmd {
 		cmds = append(cmds, p.resume(core.SessionID(first)))
 	case levelModels:
 		cmds = append(cmds, p.setModel(first))
+	case levelEfforts:
+		cmds = append(cmds, p.setEffort(first))
 	case levelAgents:
 		cmds = append(cmds, p.setAgent(first))
+	case levelReasoning:
+		cmds = append(cmds, prefsCtl{a}.setReasoning(first == reasoningOff))
 	case levelFiles:
 		for _, it := range msg.Items {
 			a.w.prompt.Insert("@" + it.ID + " ")
@@ -181,6 +185,11 @@ func (p pickerCtl) action(id actions.ID) tea.Cmd {
 	case actions.SessionRename:
 		if a.sess.info.ID == "" {
 			a.view.hint = "no session to rename"
+			return nil
+		}
+	case actions.EffortSwitch:
+		if !effortControllable(a.sess) {
+			a.view.hint = "this model has no effort levels"
 			return nil
 		}
 	}
@@ -263,12 +272,11 @@ func (p pickerCtl) resume(id core.SessionID) tea.Cmd {
 }
 
 // freshSession is a new session state for id, keeping old's cached
-// catalog, agent, and model. Recorded attachments don't carry over: a
+// catalog, agent, model, and effort. Recorded attachments don't carry over: a
 // path picked for the old session must not attach to the new one.
 func freshSession(old *sessionState, id core.SessionID) *sessionState {
-	s := newSessionState(id, old.clk, old.cat.defaultModel)
-	s.cat = old.cat
-	s.info.Agent, s.info.Model = old.info.Agent, old.info.Model
+	s := newSessionState(id, old.clk, old.cat)
+	s.info.Agent, s.info.Model, s.info.Effort = old.info.Agent, old.info.Model, old.info.Effort
 	return s
 }
 
@@ -280,6 +288,21 @@ func (p pickerCtl) setModel(ref string) tea.Cmd {
 		return nil
 	}
 	return configureCmd(a.ctx, a.ports, a.sess.info.ID, "", ref)
+}
+
+// setEffort makes the chosen level (none, for the Default item)
+// the effort the next send uses, and the session's.
+func (p pickerCtl) setEffort(id string) tea.Cmd {
+	a := p.a
+	e := core.Effort(id)
+	if id == effortDefaultID {
+		e = ""
+	}
+	a.sess.info.Effort = e
+	if a.sess.info.ID == "" {
+		return nil
+	}
+	return setEffortCmd(a.ctx, a.ports, a.sess.info.ID, e)
 }
 
 // setAgent makes name the agent, like tab does.

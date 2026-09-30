@@ -163,13 +163,14 @@ func TestRender_ReasoningLabel(t *testing.T) {
 // TestRender_ThinkingSpinner: while the model is still thinking the block
 // shows the bash spinner in place of "∴", advancing with Frame, and no
 // duration even if one is set; once thinking ends it's the static "∴".
+// Only the label line is checked (the text below it has its own tests).
 func TestRender_ThinkingSpinner(t *testing.T) {
 	t.Parallel()
 	set := darkSet()
 	r := newRenderer(&set)
 	b := transcript.Block{Kind: transcript.KindReasoning, Text: "one two"}
 	at := func(thinking bool, frame int) string {
-		return strings.TrimRight(xansi.Strip(renderOne(t, r, blockData{Block: b, Thinking: thinking, Frame: frame, Duration: time.Second}, 80)), " ")
+		return plainLines(renderOne(t, r, blockData{Block: b, Thinking: thinking, Frame: frame, Duration: time.Second}, 80))[0]
 	}
 	if got, want := at(true, 0), string(spinnerGlyph(0))+" thinking"; got != want {
 		t.Errorf("thinking frame 0 = %q, want %q", got, want)
@@ -179,6 +180,127 @@ func TestRender_ThinkingSpinner(t *testing.T) {
 	}
 	if got, want := at(false, 1), "∴ thought for 1.0s"; got != want {
 		t.Errorf("done thinking = %q, want %q", got, want)
+	}
+}
+
+// plainLines strips styling from out's lines and trims their right ends.
+func plainLines(out string) []string {
+	lines := strings.Split(xansi.Strip(out), "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " ")
+	}
+	return lines
+}
+
+// TestRender_ReasoningStreamsWhileThinking: while the model is thinking,
+// the reasoning text shows under the spinner line, dim, indented two
+// columns, blank lines kept, tabs expanded; once thinking ends the block
+// is the one line again.
+func TestRender_ReasoningStreamsWhileThinking(t *testing.T) {
+	t.Parallel()
+	set := darkSet()
+	r := newRenderer(&set)
+	b := transcript.Block{ID: "m/m1/0", Kind: transcript.KindReasoning, Text: "First, check the Makefile.\n\nThen\trun it.\n"}
+
+	out := renderOne(t, r, blockData{Block: b, Thinking: true}, 40)
+	want := []string{string(spinnerGlyph(0)) + " thinking", "  First, check the Makefile.", "", "  Then    run it."}
+	if got := plainLines(out); !slices.Equal(got, want) {
+		t.Errorf("thinking renders %q, want %q", got, want)
+	}
+	if !strings.Contains(out, set.Render.Dim.Render("First, check the Makefile.")) {
+		t.Errorf("reasoning text is not Dim-styled: %q", out)
+	}
+
+	done := renderOne(t, r, blockData{Block: b, Duration: time.Second}, 40)
+	if got, want := plainLines(done), []string{"∴ thought for 1.0s"}; !slices.Equal(got, want) {
+		t.Errorf("finished renders %q, want %q", got, want)
+	}
+}
+
+// TestRender_ReasoningOneLineWhenHiddenOrEmpty: a thinking block shows
+// only its spinner line when streamed reasoning is turned off, or when
+// it has no text yet (or only blank lines).
+func TestRender_ReasoningOneLineWhenHiddenOrEmpty(t *testing.T) {
+	t.Parallel()
+	set := darkSet()
+	tests := []struct {
+		name string
+		hide bool
+		text string
+	}{
+		{"hidden", true, "some thoughts"},
+		{"empty", false, ""},
+		{"blank lines", false, "\n \n"},
+	}
+	for _, tt := range tests {
+		r := newRenderer(&set)
+		r.hideReasoning = tt.hide
+		data := blockData{Block: transcript.Block{ID: "a", Kind: transcript.KindReasoning, Text: tt.text}, Thinking: true}
+		want := []string{string(spinnerGlyph(0)) + " thinking"}
+		if got := plainLines(renderOne(t, r, data, 40)); !slices.Equal(got, want) {
+			t.Errorf("%s: renders %q, want %q", tt.name, got, want)
+		}
+	}
+}
+
+// TestRender_ReasoningWrapsAndSanitizes: streamed reasoning wraps inside
+// the content width (a long word hard-breaks, nothing lost) and an escape
+// sequence in the model's text never reaches the terminal.
+func TestRender_ReasoningWrapsAndSanitizes(t *testing.T) {
+	t.Parallel()
+	set := darkSet()
+	r := newRenderer(&set)
+	const width = 40
+	long := strings.Repeat("x", 120)
+	out := renderOne(t, r, blockData{Block: transcript.Block{ID: "a", Kind: transcript.KindReasoning, Text: long}, Thinking: true}, width)
+	for i, l := range strings.Split(out, "\n") {
+		if w := xansi.StringWidth(l); w > width-rightPad {
+			t.Errorf("line %d is %d cells, want <= %d: %q", i, w, width-rightPad, xansi.Strip(l))
+		}
+	}
+	if n := strings.Count(out, "x"); n != 120 {
+		t.Errorf("wrapped text has %d x's, want 120", n)
+	}
+
+	hostile := renderOne(t, r, blockData{Block: transcript.Block{ID: "b", Kind: transcript.KindReasoning, Text: "\x1b]52;c;aGk=\x07hi\x1b[2J"}, Thinking: true}, width)
+	if strings.Contains(hostile, "]52;") || strings.Contains(hostile, "\x1b[2J") {
+		t.Errorf("hostile reasoning reached the output: %q", hostile)
+	}
+	if !strings.Contains(hostile, "hi") {
+		t.Errorf("hostile reasoning lost its text: %q", hostile)
+	}
+}
+
+// TestRender_ReasoningCacheMatchesFreshRender: streamed reasoning is
+// rendered from a per-block cache of its finished lines; at every step of
+// a stream (deltas ending mid-line, blank lines, a tab, a width change)
+// it must render exactly as a fresh renderer does, and the cache entry
+// goes once thinking ends.
+func TestRender_ReasoningCacheMatchesFreshRender(t *testing.T) {
+	t.Parallel()
+	set := darkSet()
+	r := newRenderer(&set)
+	deltas := []string{"Let me ", "look at the Makefile", " first, it runs every linter.\n", "\n", "Then the\ttests", "\n\nand", " the race detector ", "run last.\n"}
+	text := ""
+	step := func(width int) {
+		t.Helper()
+		data := blockData{Block: transcript.Block{ID: "m/m1/0", Kind: transcript.KindReasoning, Text: text}, Thinking: true}
+		fresh := newRenderer(&set)
+		if got, want := renderOne(t, r, data, width), renderOne(t, fresh, data, width); got != want {
+			t.Fatalf("after %q at width %d, cached render\n %q\nwant\n %q", text, width, plainLines(got), plainLines(want))
+		}
+	}
+	for _, d := range deltas {
+		text += d
+		step(40)
+	}
+	step(24)
+	text += "One more thought."
+	step(24)
+
+	renderOne(t, r, blockData{Block: transcript.Block{ID: "m/m1/0", Kind: transcript.KindReasoning, Text: text}}, 24)
+	if n := len(r.thinking); n != 0 {
+		t.Errorf("after thinking ended the cache holds %d entries, want 0", n)
 	}
 }
 

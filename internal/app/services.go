@@ -1,9 +1,12 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"io"
+	"log/slog"
+	"net/http"
 	"os"
 	"time"
 
@@ -35,6 +38,8 @@ type runtime struct {
 	chat     *chat.Service
 	spillDir string // private (0700) per-process dir for bash spill files
 	svc      tuiServices
+	log      *slog.Logger // JIG_DEBUG log; discards when unset
+	logFile  io.Closer    // closed last
 }
 
 // tuiServices are the runtime's services the TUI reaches through ports
@@ -63,17 +68,20 @@ func staticAsker(allow bool) askerFunc {
 // caused by configuration are configErrors.
 func newRuntime(ctx context.Context, e env, askerFor askerFunc, errw io.Writer) (*runtime, error) {
 	clk := clock.Real()
+	log, logFile := startDebugLog(e, errw)
 	st, err := openStore(ctx, e)
 	if err != nil {
+		_ = logFile.Close()
 		return nil, err
 	}
 	spillDir, err := os.MkdirTemp("", "jig-*")
 	if err != nil {
 		st.Close()
+		_ = logFile.Close()
 		return nil, err
 	}
 	cat := newCatalog(e, clk)
-	rt := &runtime{bus: event.NewBus(), store: st, spillDir: spillDir}
+	rt := &runtime{bus: event.NewBus(), store: st, spillDir: spillDir, log: log, logFile: logFile}
 	if rt.chat, err = newChat(ctx, e, rt, cat, askerFor(rt.bus), errw); err != nil {
 		_ = rt.close()
 		return nil, err
@@ -90,11 +98,12 @@ func newChat(ctx context.Context, e env, rt *runtime, cat *catalog.Catalog, aske
 	if err != nil {
 		return nil, configError{err}
 	}
-	pv, err := providerView()
+	clk := clock.Real()
+	hc := debugHTTPClient(rt.log, clk)
+	pv, err := providerView(hc)
 	if err != nil {
 		return nil, err
 	}
-	clk := clock.Real()
 	idGen := ids.New(clk, rand.Reader)
 	blobs := blobfs.New(e.blobsDir())
 	src := llm.NewSource(cat, pv, e.cfg().Providers, e.getenv, blobs)
@@ -107,14 +116,13 @@ func newChat(ctx context.Context, e env, rt *runtime, cat *catalog.Catalog, aske
 		env: e, clk: clk, bus: rt.bus, store: rt.store,
 		skills: skills.New(disc.skills, skillFS{}), sessions: sess, agents: ag,
 		proxy: proxy, asker: asker, ids: idGen, spillDir: rt.spillDir,
-		blobs: blobs, media: pipeline, tracker: tracker, mcp: mcpToolSource(mcpMgr),
+		media: pipeline, tracker: tracker, mcp: mcpToolSource(mcpMgr),
+		debugDeps: debugDeps{log: rt.log, httpClient: hc},
 	})
 	if err != nil {
 		return nil, err
 	}
-	if mcpMgr != nil {
-		mcpMgr.Start(ctx)
-	}
+	startMCP(ctx, mcpMgr)
 	rt.svc = tuiServices{sessions: sess, agents: ag, catalog: catalogPort{cat: cat, src: src}, blobs: blobs, view: view, mcp: mcpMgr, mcpSettle: maxStartupTimeout(resolvedMCPServers(e))}
 	runner := newRunner(rt, src, view, sess, clk, idGen)
 	proxy.Set(runner)
@@ -128,7 +136,7 @@ func newChat(ctx context.Context, e env, rt *runtime, cat *catalog.Catalog, aske
 func newRunner(rt *runtime, src *llm.Source, view ext.View, sess *session.Service, clk clock.Clock, idGen *ids.Gen) *agent.Runner {
 	return agent.NewRunner(agent.Deps{
 		LLMs: src, Ext: view, Store: rt.store, History: sess, Bus: rt.bus,
-		Clock: clk, IDs: idGen, ToolsFor: agents.ToolsFor,
+		Clock: clk, IDs: idGen, ToolsFor: agents.ToolsFor, Log: rt.log,
 	})
 }
 
@@ -144,23 +152,22 @@ func (rt *runtime) closeChat(ctx context.Context) {
 // The llm.Source must exist before the main registry is frozen (the
 // session service needs it, and the task tool in that registry needs the
 // session service), so the Source resolves factories through this view.
-func providerView() (ext.View, error) {
+func providerView(hc *http.Client) (ext.View, error) {
 	r := ext.NewRegistry()
-	if err := addProviders(r, registryDeps{}); err != nil {
+	if err := addProviders(r, registryDeps{debugDeps: debugDeps{httpClient: hc}}); err != nil {
 		return ext.View{}, err
 	}
 	return r.Freeze(), nil
 }
 
 // close releases rt's store and removes its spill dir, after closing the
-// MCP manager, if any.
+// MCP manager, if any, then closes the debug log.
 func (rt *runtime) close() error {
 	if rt.svc.mcp != nil {
 		_ = rt.svc.mcp.Close()
 	}
 	rmErr := os.RemoveAll(rt.spillDir)
-	if err := rt.store.Close(); err != nil {
-		return err
-	}
-	return rmErr
+	stErr := rt.store.Close()
+	logErr := rt.logFile.Close()
+	return cmp.Or(stErr, rmErr, logErr)
 }

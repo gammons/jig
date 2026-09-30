@@ -24,7 +24,7 @@ const (
 
 const usage = `usage:
   jig [--cwd DIR] [--session ID] [--trust-project]
-  jig run [--agent A] [--model M] [--yes] [--trust-project] [--session ID] [--cwd DIR] <prompt...>
+  jig run [--agent A] [--model M] [--effort E] [--yes] [--trust-project] [--session ID] [--cwd DIR] <prompt...>
   jig models [provider]
   jig sessions
   jig mcp list|auth|logout <name>

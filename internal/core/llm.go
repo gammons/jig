@@ -20,6 +20,9 @@ type LLMRequest struct {
 	Messages        []Message
 	Tools           []ToolSpec
 	MaxOutputTokens int64
+	// Effort is the effective reasoning effort (already defaulted and
+	// clamped against the model's levels); "" sends none.
+	Effort Effort
 }
 
 // StreamKind distinguishes the kinds of events an LLM emits while streaming.

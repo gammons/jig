@@ -20,14 +20,15 @@ func (s *sessionState) status(aliases map[string]string) statusbar.State {
 		Branch:   s.cat.branch,
 		Agent:    ansi.SanitizeLine(s.info.Agent),
 		Model:    ansi.SanitizeLine(displayModel(ref, aliases)),
+		Effort:   ansi.SanitizeLine(string(shownEffort(s))),
 		Running:  s.run.running,
 		Frame:    s.run.frame,
 		CtxUsed:  s.usage.Input + s.usage.CacheRead,
 		CtxLimit: s.contextWindow(ref),
 		CostUSD:  s.cost,
-		Pending:  len(s.proj.Pending()),
-		Queued:   s.queued,
 	}
+	st.Pending = len(s.proj.Pending())
+	st.Queued = s.queued
 	if s.run.running {
 		st.Elapsed = s.clk.Now().Sub(s.run.startedAt)
 	}
@@ -52,21 +53,8 @@ func (s *sessionState) modelRef() string {
 
 // contextWindow looks ref up in the cached catalog; 0 when unknown.
 func (s *sessionState) contextWindow(ref string) int64 {
-	mr, err := core.ParseModelRef(ref)
-	if err != nil {
-		return 0
-	}
-	for _, p := range s.cat.providers {
-		if p.Info.ID != mr.Provider {
-			continue
-		}
-		for _, m := range p.Info.Models {
-			if m.Ref == mr {
-				return m.ContextWindow
-			}
-		}
-	}
-	return 0
+	m, _ := lookupModel(s.cat.providers, ref)
+	return m.ContextWindow
 }
 
 // displayModel shows ref by an alias that maps to it (the first by name,
@@ -113,4 +101,57 @@ func (a *App) statusState() statusbar.State {
 		st.MCPIssues = mcpIssues(a.view.mcp.list)
 	}
 	return st
+}
+
+// lookupModel finds ref ("provider/model") in the cached catalog.
+func lookupModel(providers []core.ProviderStatus, ref string) (core.ModelInfo, bool) {
+	mr, err := core.ParseModelRef(ref)
+	if err != nil {
+		return core.ModelInfo{}, false
+	}
+	for _, p := range providers {
+		if p.Info.ID != mr.Provider {
+			continue
+		}
+		for _, m := range p.Info.Models {
+			if m.Ref == mr {
+				return m, true
+			}
+		}
+	}
+	return core.ModelInfo{}, false
+}
+
+// requestedEffort mirrors chat's precedence for a primary run: the
+// session's choice, then the agent's effort, then default_effort.
+func requestedEffort(s *sessionState) core.Effort {
+	if s.info.Effort.Known() {
+		return s.info.Effort
+	}
+	return fallbackEffort(s)
+}
+
+// fallbackEffort is the effort requested with no session choice: the
+// agent's effort, then default_effort.
+func fallbackEffort(s *sessionState) core.Effort {
+	if i := s.agentIndex(); i >= 0 && s.cat.agents[i].Effort.Known() {
+		return s.cat.agents[i].Effort
+	}
+	return s.cat.defaultEffort
+}
+
+// shownEffort is the level the next send's requests carry: the requested
+// one defaulted and clamped against the current model's catalog entry.
+func shownEffort(s *sessionState) core.Effort {
+	m, ok := lookupModel(s.cat.providers, s.modelRef())
+	if !ok {
+		return ""
+	}
+	return core.EffectiveEffort(m, requestedEffort(s))
+}
+
+// effortControllable reports whether the current model lists effort levels.
+func effortControllable(s *sessionState) bool {
+	m, ok := lookupModel(s.cat.providers, s.modelRef())
+	return ok && len(m.Efforts) > 0
 }

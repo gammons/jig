@@ -82,6 +82,7 @@ func (f fakeSessions) Rename(context.Context, core.SessionID, string) error     
 func (f fakeSessions) Configure(context.Context, core.SessionID, string, string) error {
 	return nil
 }
+func (f fakeSessions) SetEffort(context.Context, core.SessionID, core.Effort) error { return nil }
 
 // testRenderer returns a renderer styled from the default theme, for
 // details tests that need coderender/mdrender styling.

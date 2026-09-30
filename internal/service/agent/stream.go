@@ -10,11 +10,15 @@ import (
 
 // consume streams one attempt of req into msg. It reports whether any
 // stream event arrived, which decides whether the error may be retried.
-func (r *Runner) consume(ctx context.Context, st *run, req core.LLMRequest, msg *core.Message) (bool, error) {
+func (r *Runner) consume(ctx context.Context, st *run, req core.LLMRequest, msg *core.Message, tm *stepTiming) (bool, error) {
 	received := false
+	*tm = stepTiming{start: r.d.Clock.Now()}
 	for ev, err := range st.llm.Stream(ctx, req) {
 		if err != nil {
 			return received, err
+		}
+		if !received {
+			tm.firstEvent = r.d.Clock.Now()
 		}
 		received = true
 		if err := r.apply(ctx, st, msg, ev); err != nil {

@@ -38,6 +38,9 @@ func (s *state) applyScalars(dto tomlFile, md toml.MetaData) {
 	if md.IsDefined("small_model") {
 		s.cfg.SmallModel = dto.SmallModel
 	}
+	if md.IsDefined("default_effort") {
+		s.cfg.DefaultEffort = dto.DefaultEffort
+	}
 	if md.IsDefined("theme") {
 		s.cfg.Theme = dto.Theme
 	}
@@ -79,6 +82,9 @@ func mergeProviderFields(dst *core.ProviderConfig, name string, p providerDTO, m
 	if md.IsDefined("providers", name, "image_models") {
 		dst.ImageModels = p.ImageModels
 	}
+	if md.IsDefined("providers", name, "efforts") {
+		dst.Efforts = p.Efforts
+	}
 }
 
 // applyAgents merges dtoAgents into dst, field by field (mergeAgentFields),
@@ -116,6 +122,10 @@ func mergeAgentFields(dst *core.AgentConfig, name string, a agentDTO, md toml.Me
 	}
 	if md.IsDefined("agents", name, "model") {
 		dst.Model = a.Model
+		touched = true
+	}
+	if md.IsDefined("agents", name, "effort") {
+		dst.Effort = a.Effort
 		touched = true
 	}
 	if md.IsDefined("agents", name, "prompt") {
@@ -258,6 +268,9 @@ func mergeConfigScalars(dst *core.Config, hi core.Config) {
 	if hi.SmallModel != "" {
 		dst.SmallModel = hi.SmallModel
 	}
+	if hi.DefaultEffort != "" {
+		dst.DefaultEffort = hi.DefaultEffort
+	}
 	if hi.Theme != "" {
 		dst.Theme = hi.Theme
 	}
@@ -307,6 +320,9 @@ func mergeProviderConfigFields(dst *core.ProviderConfig, hi core.ProviderConfig)
 	if hi.ImageModels != nil {
 		dst.ImageModels = hi.ImageModels
 	}
+	if hi.Efforts != nil {
+		dst.Efforts = hi.Efforts
+	}
 }
 
 // mergeAgentsMap is Merge's counterpart of applyAgents: it overlays hi's
@@ -346,6 +362,10 @@ func mergeAgentConfigFields(dst *core.AgentConfig, hi core.AgentConfig) bool {
 	}
 	if hi.Model != "" {
 		dst.Model = hi.Model
+		touched = true
+	}
+	if hi.Effort != "" {
+		dst.Effort = hi.Effort
 		touched = true
 	}
 	if hi.Prompt != "" {

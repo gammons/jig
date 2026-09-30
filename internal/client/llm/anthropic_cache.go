@@ -21,14 +21,6 @@ func anthropicCacheOptions() fantasy.ProviderOptions {
 	})
 }
 
-// applyAnthropicCacheToCall is the adapter-level prepare hook anthropicFactory
-// wires into every core.LLM it builds, keyed on the factory's Type (so a
-// custom provider ID of type "anthropic" gets it too, and no other
-// provider type ever does).
-func applyAnthropicCacheToCall(call *fantasy.Call) {
-	applyAnthropicCache(call.Prompt)
-}
-
 // applyAnthropicCache marks messages for Anthropic's ephemeral prompt
 // caching: the last part of a leading system message, and the last
 // cacheLastMessages messages overall (message-level, so it can land on a

@@ -17,14 +17,16 @@ const maxRetryAfter = 60 * time.Second
 
 // stream consumes req into msg, retrying retryable provider errors that
 // arrive before any stream event.
-func (r *Runner) stream(ctx context.Context, st *run, req core.LLMRequest, msg *core.Message) error {
+func (r *Runner) stream(ctx context.Context, st *run, req core.LLMRequest, msg *core.Message, tm *stepTiming) error {
 	for attempt := 1; ; attempt++ {
-		received, err := r.consume(ctx, st, req, msg)
+		received, err := r.consume(ctx, st, req, msg, tm)
 		if err == nil {
 			return nil
 		}
 		delay, ok := retryDelay(err, received, attempt)
-		if !ok || ctx.Err() != nil {
+		giveUp := !ok || ctx.Err() != nil
+		logAttempt(ctx, r.d.Log, attempt, received, err, delay, giveUp)
+		if giveUp {
 			return err
 		}
 		select {

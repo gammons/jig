@@ -17,6 +17,7 @@ const (
 	SessionCompact    ID = "session.compact"
 	AgentSwitch       ID = "agent.switch"
 	ModelSwitch       ID = "model.switch"
+	EffortSwitch      ID = "effort.switch"
 	PromptAttach      ID = "prompt.attach"
 	PromptEditor      ID = "prompt.editor"
 	TranscriptSearch  ID = "transcript.search"
@@ -25,6 +26,7 @@ const (
 	RunCancel         ID = "run.cancel"
 	ViewSidebar       ID = "view.sidebar"
 	ViewTheme         ID = "view.theme"
+	ViewReasoning     ID = "view.reasoning"
 	MCPServers        ID = "mcp.servers"
 	HelpKeys          ID = "help.keys"
 	AppQuit           ID = "app.quit"
@@ -52,6 +54,7 @@ func builtinActions() []Action {
 		{ID: SessionCompact, Title: "Compact session", Group: "Session"},
 		{ID: AgentSwitch, Title: "Switch agent…", Group: "Agent & model", Drill: true},
 		{ID: ModelSwitch, Title: "Switch model…", Group: "Agent & model", Drill: true},
+		{ID: EffortSwitch, Title: "Switch effort…", Group: "Agent & model", Drill: true},
 		{ID: PromptAttach, Title: "Attach files…", Group: "Prompt", Drill: true},
 		{ID: PromptEditor, Title: "Edit prompt in $EDITOR", Group: "Prompt"},
 		{ID: TranscriptSearch, Title: "Search transcript", Group: "Transcript"},
@@ -60,6 +63,7 @@ func builtinActions() []Action {
 		{ID: RunCancel, Title: "Cancel run", Group: "Transcript"},
 		{ID: ViewSidebar, Title: "Toggle sidebar", Group: "View"},
 		{ID: ViewTheme, Title: "Switch theme…", Group: "View", Drill: true},
+		{ID: ViewReasoning, Title: "Streamed reasoning…", Group: "View", Drill: true},
 		{ID: MCPServers, Title: "MCP servers…", Group: "MCP", Drill: true},
 		{ID: HelpKeys, Title: "Keybindings", Group: "App", Drill: true},
 		{ID: AppQuit, Title: "Quit", Group: "App"},

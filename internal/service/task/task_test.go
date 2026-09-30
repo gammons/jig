@@ -5,11 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
 	"github.com/gammons/jig/internal/core/ext"
 )
+
+func testClock() *clock.Fake {
+	return clock.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+}
 
 // fakeSessions is a scripted Sessions for task tests.
 type fakeSessions struct {
@@ -53,9 +59,19 @@ func (f *fakeSessions) Get(ctx context.Context, id core.SessionID) (core.Session
 
 // fakeAgents is a scripted Agents for task tests.
 type fakeAgents struct {
-	byName       map[string]core.Agent
-	subs         []core.Agent
-	resolveModel func(a core.Agent, parent, session core.ModelRef) (core.ModelRef, error)
+	byName        map[string]core.Agent
+	subs          []core.Agent
+	resolveModel  func(a core.Agent, parent, session core.ModelRef) (core.ModelRef, error)
+	defaultEffort core.Effort
+}
+
+func (f *fakeAgents) ResolveEffort(a core.Agent, session core.Effort) core.Effort {
+	for _, e := range []core.Effort{session, a.Effort, f.defaultEffort} {
+		if e != "" {
+			return e
+		}
+	}
+	return ""
 }
 
 func (f *fakeAgents) Get(name string) (core.Agent, bool) {
@@ -130,7 +146,7 @@ func TestTask_SpawnsChildWithResolvedModel(t *testing.T) {
 	agentsSvc := &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}}
 	runner := &fakeRunner{}
 	pub := &recordingPublisher{}
-	tool := New(sessions, agentsSvc, runner, pub)
+	tool := New(sessions, agentsSvc, runner, pub, testClock(), nil)
 
 	rc := ext.RunContext{SessionID: "parent1", Model: opus, WorkDir: "/work", Depth: 1}
 	call := mustTaskCall(t, map[string]any{"agent": "explore", "description": "look around", "prompt": "find X"})
@@ -209,7 +225,7 @@ func TestTask_InheritsParentModelWhenUnset(t *testing.T) {
 	agentsSvc := &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}}
 	runner := &fakeRunner{}
 	pub := &recordingPublisher{}
-	tool := New(sessions, agentsSvc, runner, pub)
+	tool := New(sessions, agentsSvc, runner, pub, testClock(), nil)
 
 	rc := ext.RunContext{SessionID: "parent1", Model: opus}
 	call := mustTaskCall(t, map[string]any{"agent": "explore", "description": "d", "prompt": "p"})
@@ -240,7 +256,7 @@ func TestTask_ModelResolveError(t *testing.T) {
 	}
 	runner := &fakeRunner{}
 	pub := &recordingPublisher{}
-	tool := New(sessions, agentsSvc, runner, pub)
+	tool := New(sessions, agentsSvc, runner, pub, testClock(), nil)
 
 	rc := ext.RunContext{SessionID: "parent1"}
 	call := mustTaskCall(t, map[string]any{"agent": "explore", "description": "d", "prompt": "p"})
@@ -265,7 +281,7 @@ func TestTask_DepthLimit(t *testing.T) {
 	agentsSvc := &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}}
 	runner := &fakeRunner{}
 	pub := &recordingPublisher{}
-	tool := New(sessions, agentsSvc, runner, pub)
+	tool := New(sessions, agentsSvc, runner, pub, testClock(), nil)
 
 	rc := ext.RunContext{SessionID: "parent1", Depth: MaxDepth}
 	call := mustTaskCall(t, map[string]any{"agent": "explore", "description": "d", "prompt": "p"})
@@ -298,7 +314,7 @@ func TestTask_UnknownAgentListsAvailable(t *testing.T) {
 			byName: map[string]core.Agent{"explore": explore, "general": general},
 			subs:   []core.Agent{general, explore}, // deliberately unsorted
 		}
-		tool := New(&fakeSessions{}, agentsSvc, &fakeRunner{}, &recordingPublisher{})
+		tool := New(&fakeSessions{}, agentsSvc, &fakeRunner{}, &recordingPublisher{}, testClock(), nil)
 		call := mustTaskCall(t, map[string]any{"agent": "bogus", "description": "d", "prompt": "p"})
 		res, err := tool.Run(context.Background(), ext.RunContext{SessionID: "p1"}, call)
 		if err != nil {
@@ -318,7 +334,7 @@ func TestTask_UnknownAgentListsAvailable(t *testing.T) {
 			byName: map[string]core.Agent{"build": primaryOnly, "explore": explore},
 			subs:   []core.Agent{explore},
 		}
-		tool := New(&fakeSessions{}, agentsSvc, &fakeRunner{}, &recordingPublisher{})
+		tool := New(&fakeSessions{}, agentsSvc, &fakeRunner{}, &recordingPublisher{}, testClock(), nil)
 		call := mustTaskCall(t, map[string]any{"agent": "build", "description": "d", "prompt": "p"})
 		res, err := tool.Run(context.Background(), ext.RunContext{SessionID: "p1"}, call)
 		if err != nil {
@@ -344,7 +360,7 @@ func TestTask_ContinueRequiresOwnChild(t *testing.T) {
 		agentsSvc := &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}}
 		runner := &fakeRunner{}
 		pub := &recordingPublisher{}
-		tool := New(sessions, agentsSvc, runner, pub)
+		tool := New(sessions, agentsSvc, runner, pub, testClock(), nil)
 
 		rc := ext.RunContext{SessionID: "parent1", RootID: "root1"}
 		call := mustTaskCall(t, map[string]any{
@@ -388,7 +404,7 @@ func TestTask_ContinueRequiresOwnChild(t *testing.T) {
 		}}
 		agentsSvc := &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}}
 		runner := &fakeRunner{}
-		tool := New(sessions, agentsSvc, runner, &recordingPublisher{})
+		tool := New(sessions, agentsSvc, runner, &recordingPublisher{}, testClock(), nil)
 
 		rc := ext.RunContext{SessionID: "parent1"}
 		call := mustTaskCall(t, map[string]any{
@@ -414,7 +430,7 @@ func TestTask_ContinueRequiresOwnChild(t *testing.T) {
 		sessions := &fakeSessions{sessions: map[core.SessionID]core.Session{}}
 		agentsSvc := &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}}
 		runner := &fakeRunner{}
-		tool := New(sessions, agentsSvc, runner, &recordingPublisher{})
+		tool := New(sessions, agentsSvc, runner, &recordingPublisher{}, testClock(), nil)
 
 		rc := ext.RunContext{SessionID: "parent1"}
 		call := mustTaskCall(t, map[string]any{
@@ -445,7 +461,7 @@ func TestTask_ContinueRequiresOwnChild(t *testing.T) {
 		}
 		agentsSvc := &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}}
 		runner := &fakeRunner{}
-		tool := New(sessions, agentsSvc, runner, &recordingPublisher{})
+		tool := New(sessions, agentsSvc, runner, &recordingPublisher{}, testClock(), nil)
 
 		rc := ext.RunContext{SessionID: "parent1"}
 		call := mustTaskCall(t, map[string]any{
@@ -472,7 +488,7 @@ func TestTask_ParentCancelCancelsChild(t *testing.T) {
 		<-ctx.Done()
 		return core.Message{}, ctx.Err()
 	}}
-	tool := New(sessions, agentsSvc, runner, &recordingPublisher{})
+	tool := New(sessions, agentsSvc, runner, &recordingPublisher{}, testClock(), nil)
 
 	rc := ext.RunContext{SessionID: "parent1"}
 	call := mustTaskCall(t, map[string]any{"agent": "explore", "description": "d", "prompt": "p"})
@@ -489,7 +505,7 @@ func TestTask_ChildErrorIsWrapped(t *testing.T) {
 	runner := &fakeRunner{runFn: func(ctx context.Context, rc ext.RunContext, text string) (core.Message, error) {
 		return core.Message{}, errors.New("boom")
 	}}
-	tool := New(sessions, agentsSvc, runner, &recordingPublisher{})
+	tool := New(sessions, agentsSvc, runner, &recordingPublisher{}, testClock(), nil)
 
 	rc := ext.RunContext{SessionID: "parent1"}
 	call := mustTaskCall(t, map[string]any{"agent": "explore", "description": "d", "prompt": "p"})
@@ -519,7 +535,7 @@ func TestTask_ChildBusyErrorIsWrapped(t *testing.T) {
 	runner := &fakeRunner{runFn: func(ctx context.Context, rc ext.RunContext, text string) (core.Message, error) {
 		return core.Message{}, busyErr
 	}}
-	tool := New(sessions, agentsSvc, runner, &recordingPublisher{})
+	tool := New(sessions, agentsSvc, runner, &recordingPublisher{}, testClock(), nil)
 
 	rc := ext.RunContext{SessionID: "parent1"}
 	call := mustTaskCall(t, map[string]any{"agent": "explore", "description": "d", "prompt": "p"})
@@ -542,7 +558,7 @@ func TestTask_DescriptionListsSubagents(t *testing.T) {
 		{Name: "general", Description: "General-purpose subagent with full tool access."},
 	}
 	agentsSvc := &fakeAgents{subs: subs}
-	tool := New(&fakeSessions{}, agentsSvc, &fakeRunner{}, &recordingPublisher{})
+	tool := New(&fakeSessions{}, agentsSvc, &fakeRunner{}, &recordingPublisher{}, testClock(), nil)
 
 	want := "Launch a subagent to handle a task autonomously.\n\n" +
 		"Available agents:\n" +
@@ -568,7 +584,7 @@ func TestTask_MissingRequiredFields(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tool := New(&fakeSessions{}, agentsSvc, &fakeRunner{}, &recordingPublisher{})
+			tool := New(&fakeSessions{}, agentsSvc, &fakeRunner{}, &recordingPublisher{}, testClock(), nil)
 			call := mustTaskCall(t, tt.input)
 			res, err := tool.Run(context.Background(), ext.RunContext{SessionID: "p1"}, call)
 			if err != nil {
@@ -587,7 +603,7 @@ func TestTask_MissingRequiredFields(t *testing.T) {
 func TestTask_ChildCarriesAncestorPermissions(t *testing.T) {
 	sub := exploreAgent(core.ModelRef{})
 	runner := &fakeRunner{}
-	tool := New(&fakeSessions{}, &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}}, runner, &recordingPublisher{})
+	tool := New(&fakeSessions{}, &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}}, runner, &recordingPublisher{}, testClock(), nil)
 
 	grand := core.PermissionRules{"bash": {Default: core.Deny}}
 	parent := core.PermissionRules{"bash": {Default: core.Ask}}
@@ -614,5 +630,36 @@ func TestTask_ChildCarriesAncestorPermissions(t *testing.T) {
 	// The child's slice must not alias the parent's spare capacity.
 	if len(rc.Ancestors) != 1 || &got[0] == &ancestors[0] {
 		t.Error("child Ancestors aliases the parent's slice")
+	}
+}
+
+func TestTask_ChildEffortIsItsAgentsNotTheParents(t *testing.T) {
+	opus := core.ModelRef{Provider: "anthropic", Model: "opus"}
+	tests := []struct {
+		name     string
+		sub      core.Effort
+		fallback core.Effort
+		want     core.Effort
+	}{
+		{"agent effort", core.EffortLow, core.EffortMedium, core.EffortLow},
+		{"default_effort", "", core.EffortMedium, core.EffortMedium},
+		{"catalog default", "", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sub := exploreAgent(core.ModelRef{})
+			sub.Effort = tt.sub
+			agentsSvc := &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}, defaultEffort: tt.fallback}
+			runner := &fakeRunner{}
+			tool := New(&fakeSessions{}, agentsSvc, runner, &recordingPublisher{}, testClock(), nil)
+			rc := ext.RunContext{SessionID: "parent1", Model: opus, Effort: core.EffortMax}
+			res, err := tool.Run(context.Background(), rc, mustTaskCall(t, map[string]any{"agent": "explore", "description": "d", "prompt": "p"}))
+			if err != nil || res.IsError {
+				t.Fatalf("Run = %+v, %v", res, err)
+			}
+			if runner.gotRC.Effort != tt.want {
+				t.Errorf("child rc.Effort = %q, want %q (never the parent's max)", runner.gotRC.Effort, tt.want)
+			}
+		})
 	}
 }

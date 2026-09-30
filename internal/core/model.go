@@ -45,6 +45,10 @@ type ModelInfo struct {
 	CostCacheWrite   float64
 	CanReason        bool
 	SupportsImages   bool
+	// Efforts are the reasoning effort levels the model accepts, in
+	// catalog order; none means effort is not controllable.
+	Efforts       []Effort
+	DefaultEffort Effort // the catalog's default level, "" if none
 }
 
 // perMillionTokens is the unit m's Cost* fields are priced per.

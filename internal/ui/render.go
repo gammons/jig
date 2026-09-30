@@ -40,14 +40,22 @@ type blockData struct {
 }
 
 // renderer renders blockData items for the transcript's blocklist.
+// hideReasoning (Prefs.HideReasoning) keeps a thinking block to its one
+// spinner line; like the Set, whoever changes it re-renders the blocks
+// it affects (prefsCtl.setHideReasoning).
 type renderer struct {
-	md  *mdrender.Renderer
-	set *theme.Set
+	md            *mdrender.Renderer
+	set           *theme.Set
+	thinking      map[string]*reasoningCache // by block ID, while a block streams its reasoning
+	hideReasoning bool
 }
 
 // newRenderer builds a renderer styled from set.
 func newRenderer(set *theme.Set) *renderer {
-	return &renderer{md: mdrender.New(mdrender.WithStyles(set.Markdown)), set: set}
+	return &renderer{
+		md: mdrender.New(mdrender.WithStyles(set.Markdown)), set: set,
+		thinking: map[string]*reasoningCache{},
+	}
 }
 
 // render is a blocklist.RenderFunc: it dispatches on the block's Kind to
@@ -71,7 +79,7 @@ func (r *renderer) render(it blocklist.Item, width int, _ blocklist.Styles) []st
 	case transcript.KindText:
 		lines = r.renderText(b, width)
 	case transcript.KindReasoning:
-		lines = []string{r.fitLine(r.renderReasoning(data.Thinking, data.Duration, data.Frame), width)}
+		lines = r.renderReasoningBlock(data, width)
 	case transcript.KindTool:
 		lines = []string{r.fitLine(r.renderTool(b, data.Duration, data.Frame), width)}
 	case transcript.KindSubagent:

@@ -10,6 +10,7 @@ type Session struct {
 	Title     string
 	Agent     string
 	Model     string
+	Effort    Effort // the session's chosen effort; "" = none chosen
 	Cwd       string
 	CreatedAt time.Time
 	UpdatedAt time.Time

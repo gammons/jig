@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/gammons/jig/internal/core"
 )
 
 // sseEvent formats one Anthropic SSE event.
@@ -163,5 +165,28 @@ models = ["m1"]
 	code, out, _ = env.run(t, "sessions")
 	if code != exitOK || strings.Count(out, "\n") != 1 || !strings.HasPrefix(out, "ses_") {
 		t.Errorf("sessions: exit %d, stdout %q; want one session", code, out)
+	}
+}
+
+func TestWarnIgnoredEffort(t *testing.T) {
+	providers := []core.ProviderStatus{{Info: core.ProviderInfo{ID: "anthropic", Models: []core.ModelInfo{
+		{Ref: core.ModelRef{Provider: "anthropic", Model: "opus"}, Efforts: []core.Effort{core.EffortLow, core.EffortHigh}},
+		{Ref: core.ModelRef{Provider: "anthropic", Model: "haiku"}},
+	}}}}
+	tests := []struct {
+		name, model, effort, want string
+	}{
+		{"no levels", "anthropic/haiku", "high", "warning: anthropic/haiku has no reasoning effort levels; --effort is ignored\n"},
+		{"has levels", "anthropic/opus", "high", ""},
+		{"unknown model", "anthropic/nope", "high", ""},
+		{"no effort", "anthropic/haiku", "", ""},
+		{"no model", "", "high", ""},
+	}
+	for _, tt := range tests {
+		var buf bytes.Buffer
+		warnIgnoredEffort(&buf, providers, tt.model, tt.effort)
+		if buf.String() != tt.want {
+			t.Errorf("%s: output %q, want %q", tt.name, buf.String(), tt.want)
+		}
 	}
 }

@@ -11,7 +11,10 @@ type SendRequest struct {
 	SessionID SessionID
 	Agent     string
 	Model     string
-	Text      string
+	// Effort is a reasoning effort level ("" leaves the session's);
+	// it is stored on the session like Model.
+	Effort string
+	Text   string
 	// Attachments is a list of file paths to attach to Text; a relative
 	// path resolves against the ChatService's WorkDir.
 	Attachments []string
@@ -46,6 +49,9 @@ type SessionService interface {
 	Rename(ctx context.Context, id SessionID, title string) error
 	// Configure sets id's agent and/or model. "" leaves a field unchanged.
 	Configure(ctx context.Context, id SessionID, agent, model string) error
+	// SetEffort sets id's reasoning effort; "" clears it back to the
+	// agent's, default_effort, or the model's default.
+	SetEffort(ctx context.Context, id SessionID, effort Effort) error
 }
 
 // ReplyKind is a user's decision on a pending permission request.

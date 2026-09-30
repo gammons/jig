@@ -75,6 +75,9 @@ func texts(s State) [segCount]string {
 	var t [segCount]string
 	if s.Agent != "" || s.Model != "" {
 		t[segAgent] = s.Agent + " · " + s.Model
+		if s.Effort != "" {
+			t[segAgent] += " · " + s.Effort
+		}
 	}
 	t[segRun] = "idle"
 	if s.Running {

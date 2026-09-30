@@ -44,10 +44,11 @@ func TestEffect_String(t *testing.T) {
 func everyKindLayers() Layers {
 	return Layers{
 		Project: core.Config{
-			DefaultModel: "anthropic/claude-opus-5-5",
-			SmallModel:   "anthropic/claude-haiku-4-5",
-			Theme:        "dark",
-			AgentBrowser: core.ToggleTrue,
+			DefaultModel:  "anthropic/claude-opus-5-5",
+			DefaultEffort: "high",
+			SmallModel:    "anthropic/claude-haiku-4-5",
+			Theme:         "dark",
+			AgentBrowser:  core.ToggleTrue,
 			Providers: map[string]core.ProviderConfig{"anthropic": {
 				Type:        "anthropic",
 				APIKey:      "sk-secret",
@@ -55,6 +56,7 @@ func everyKindLayers() Layers {
 				Models:      []string{"m1", "m2"},
 				Options:     map[string]any{"token": "opt-secret"},
 				ImageModels: []string{"m1"},
+				Efforts:     []string{"low", "high"},
 			}},
 			Instructions: []string{"docs/rules.md"},
 			SkillPaths:   []string{"/p/skills"},
@@ -67,6 +69,7 @@ func everyKindLayers() Layers {
 				Description: "Reviews code.",
 				Mode:        "subagent",
 				Model:       "fast",
+				Effort:      "low",
 				Prompt:      "You review.",
 				MaxSteps:    5,
 				CanSpawn:    boolPtr(true),
@@ -89,6 +92,7 @@ func TestEffects_SortedAndComplete(t *testing.T) {
 	want := []string{
 		"agents.reviewer can_spawn → true",
 		"agents.reviewer description",
+		"agents.reviewer effort → low",
 		"agents.reviewer hidden → false",
 		"agents.reviewer max_steps → 5",
 		"agents.reviewer mode → subagent",
@@ -98,6 +102,7 @@ func TestEffects_SortedAndComplete(t *testing.T) {
 		"agents.reviewer prompt",
 		"agents.reviewer " + md + " prompt",
 		"agents.reviewer tools → read, grep",
+		"default_effort → high",
 		"default_model → anthropic/claude-opus-5-5",
 		"instructions += docs/rules.md",
 		"integrations.agent_browser.enabled → true",
@@ -107,6 +112,7 @@ func TestEffects_SortedAndComplete(t *testing.T) {
 		`permissions.bash "git push*" → deny`,
 		"providers.anthropic.api_key → (set)",
 		"providers.anthropic.base_url → https://x",
+		"providers.anthropic.efforts → low, high",
 		"providers.anthropic.image_models → m1",
 		"providers.anthropic.models → m1, m2",
 		"providers.anthropic.options → (set)",

@@ -1,6 +1,6 @@
 // Package statusbar is jig's one-line, lualine-style status bar: colored
 // blocks joined by powerline arrows (Nerd Font glyphs). Left to right: the
-// mode, the git branch, then agent/model, run state, and an optional hint
+// mode, the git branch, then agent/model/effort, run state, and an optional hint
 // on the filler; right-aligned, the indicators, context/cost, and a ctrl+p
 // reminder in the mode's color. It does no I/O; the App feeds it a fresh
 // State on every change.
@@ -15,17 +15,24 @@ type State struct {
 	Mode         string // "INSERT", "NORMAL", "PICKER"
 	Branch       string // git branch; "" hides section b
 	Agent, Model string
+	Effort       string // reasoning effort; "" hides it
 	Running      bool
 	Elapsed      time.Duration
 	Frame        int // spinner frame index
 	CtxUsed      int64
 	CtxLimit     int64
 	CostUSD      float64
-	Pending      int
-	Queued       bool
-	Untrusted    bool
 	Hint         string // e.g. "⚠ permission pending · esc gp"
-	MCPIssues    int    // servers needing sign-in or failed; shown as "mcp N!" when > 0
+	Indicators
+}
+
+// Indicators are the right-side counters and flags, embedded in State so
+// their fields read as st.Pending, st.Queued, and so on.
+type Indicators struct {
+	Pending   int
+	Queued    bool
+	Untrusted bool
+	MCPIssues int // servers needing sign-in or failed; shown as "mcp N!" when > 0
 }
 
 // Option configures a Model built by New.

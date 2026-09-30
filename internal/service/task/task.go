@@ -7,10 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
 	"github.com/gammons/jig/internal/core/ext"
@@ -31,6 +33,7 @@ type Agents interface {
 	Get(name string) (core.Agent, bool)
 	Subagents() []core.Agent
 	ResolveModel(a core.Agent, parent, session core.ModelRef) (core.ModelRef, error)
+	ResolveEffort(a core.Agent, session core.Effort) core.Effort
 }
 
 // Runner drives a session's turn to completion.
@@ -52,12 +55,31 @@ type taskTool struct {
 	agents   Agents
 	runner   Runner
 	pub      event.Publisher
+	clk      clock.Clock
+	log      *slog.Logger
 }
 
 // New returns the "task" tool, backed by s, a, and r, publishing
-// event.SubagentSpawned on pub whenever a subagent is engaged.
-func New(s Sessions, a Agents, r Runner, pub event.Publisher) ext.Tool {
-	return &taskTool{sessions: s, agents: a, runner: r, pub: pub}
+// event.SubagentSpawned on pub whenever a subagent is engaged. It debug-logs
+// spawns, rejections, and outcomes to log (nil discards), timing runs with clk.
+func New(s Sessions, a Agents, r Runner, pub event.Publisher, clk clock.Clock, log *slog.Logger) ext.Tool {
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
+	return &taskTool{sessions: s, agents: a, runner: r, pub: pub, clk: clk, log: log}
+}
+
+// debug logs msg at debug level under cat=task, with the parent run's ctx
+// attrs followed by kv.
+func (t *taskTool) debug(ctx context.Context, msg string, kv ...any) {
+	args := append([]any{"cat", "task"}, core.LogArgs(ctx)...)
+	t.log.Debug(msg, append(args, kv...)...)
+}
+
+// reject logs a rejection and returns the ToolError carrying the same reason.
+func (t *taskTool) reject(ctx context.Context, call core.ToolCall, reason string) core.ToolResult {
+	t.debug(ctx, "task rejected", "reason", reason)
+	return core.ToolError(call, reason)
 }
 
 func (t *taskTool) Name() string { return "task" }
@@ -101,17 +123,17 @@ func (t *taskTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 	}
 
 	if rc.Depth >= MaxDepth {
-		return core.ToolError(call, fmt.Sprintf("subagent depth limit (%d) reached", MaxDepth)), nil
+		return t.reject(ctx, call, fmt.Sprintf("subagent depth limit (%d) reached", MaxDepth)), nil
 	}
 
 	sub, ok := t.agents.Get(in.Agent)
 	if !ok || !isSubagent(t.agents.Subagents(), in.Agent) {
-		return core.ToolError(call, unknownAgentMsg(in.Agent, t.agents.Subagents())), nil
+		return t.reject(ctx, call, unknownAgentMsg(in.Agent, t.agents.Subagents())), nil
 	}
 
 	model, err := t.agents.ResolveModel(sub, rc.Model, core.ModelRef{})
 	if err != nil {
-		return core.ToolError(call, err.Error()), nil
+		return t.reject(ctx, call, err.Error()), nil
 	}
 
 	childID, errMsg, err := t.resolveChild(ctx, rc, in, model)
@@ -119,7 +141,7 @@ func (t *taskTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 		return core.ToolResult{}, err
 	}
 	if errMsg != "" {
-		return core.ToolError(call, errMsg), nil
+		return t.reject(ctx, call, errMsg), nil
 	}
 
 	t.pub.Publish(event.SubagentSpawned{
@@ -135,17 +157,30 @@ func (t *taskTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 		RootID:    rootID(rc),
 		Agent:     sub,
 		Model:     model,
+		Effort:    t.agents.ResolveEffort(sub, ""),
 		WorkDir:   rc.WorkDir,
 		Depth:     rc.Depth + 1,
 		Ancestors: append(slices.Clone(rc.Ancestors), rc.Agent.Permissions),
 	}
+	t.debug(ctx, "task spawn",
+		"parent", string(rc.SessionID), "child", string(childID),
+		"resumed", in.SessionID != "", "subagent", in.Agent,
+		"model", model.String(), "effort", string(childRC.Effort), "depth", childRC.Depth)
+	start := t.clk.Now()
 	msg, err := t.runner.Run(ctx, childRC, in.Prompt)
+	dur := t.clk.Now().Sub(start)
 	if err != nil {
+		outcome := "error"
+		if ctx.Err() != nil {
+			outcome = "cancelled"
+		}
+		t.debug(ctx, "task end", "child", string(childID), "dur", dur, "outcome", outcome, "err", err)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return core.ToolResult{}, ctxErr
 		}
 		return core.ToolError(call, wrapResult(childID, fmt.Sprintf("error: %v", err))), nil
 	}
+	t.debug(ctx, "task end", "child", string(childID), "dur", dur, "outcome", "ok")
 
 	return core.ToolOK(call, wrapResult(childID, joinText(msg))), nil
 }

@@ -38,12 +38,12 @@ func (s sender) submit(text string) tea.Cmd {
 // cancel it even before the new session is known): the user block
 // appears at once, the prompt resets, the text joins the project's
 // history, and streamTick starts. A new session is created with the
-// chosen agent and model.
+// chosen agent, model, and effort.
 func (s sender) send(text string) tea.Cmd {
 	a := s.a
 	req := core.SendRequest{SessionID: a.sess.info.ID, Text: text, Attachments: attachments(text, a.sess.attach)}
 	if req.SessionID == "" {
-		req.Agent, req.Model = a.sess.info.Agent, a.sess.info.Model
+		req.Agent, req.Model, req.Effort = a.sess.info.Agent, a.sess.info.Model, string(a.sess.info.Effort)
 	}
 	// A sent path is consumed: a later message repeating its "@<path>"
 	// token (by coincidence, or by re-typing it) must not re-attach it.

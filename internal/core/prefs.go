@@ -13,11 +13,12 @@ type AgentBrowserCache struct {
 // neither a session nor a project's config. See prefsfs for its on-disk
 // form.
 type Prefs struct {
-	Theme        string
-	Sidebar      *bool               // nil = automatic (by width)
-	Recent       []string            // action IDs, most recent first, ≤ 5
-	History      map[string][]string // project path → prompts, newest last, ≤ 100
-	AgentBrowser AgentBrowserCache
+	Theme         string
+	Sidebar       *bool               // nil = automatic (by width)
+	Recent        []string            // action IDs, most recent first, ≤ 5
+	History       map[string][]string // project path → prompts, newest last, ≤ 100
+	AgentBrowser  AgentBrowserCache
+	HideReasoning bool // thinking blocks show only their spinner line, not their streamed text
 }
 
 // PrefsService is the port UIs use to read and persist Prefs. Update

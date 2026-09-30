@@ -294,3 +294,25 @@ func TestMerge_Table(t *testing.T) {
 		}
 	})
 }
+
+func TestMerge_EffortFields(t *testing.T) {
+	lo := core.Config{
+		DefaultEffort: "high",
+		Providers:     map[string]core.ProviderConfig{"p": {Efforts: []string{"low"}}},
+		Agents:        map[string]core.AgentConfig{"a": {Effort: "low"}},
+	}
+	hi := core.Config{
+		Providers: map[string]core.ProviderConfig{"p": {Efforts: []string{"high"}}},
+		Agents:    map[string]core.AgentConfig{"a": {Effort: "max"}},
+	}
+	got := Merge(lo, hi)
+	if got.DefaultEffort != "high" {
+		t.Errorf("DefaultEffort = %q, want lo's high (hi leaves it unset)", got.DefaultEffort)
+	}
+	if !reflect.DeepEqual(got.Providers["p"].Efforts, []string{"high"}) {
+		t.Errorf("Providers[p].Efforts = %v, want [high]", got.Providers["p"].Efforts)
+	}
+	if got.Agents["a"].Effort != "max" {
+		t.Errorf("Agents[a].Effort = %q, want max", got.Agents["a"].Effort)
+	}
+}

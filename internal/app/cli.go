@@ -12,6 +12,7 @@ import (
 type runOpts struct {
 	agent        string
 	model        string
+	effort       string
 	yes          bool
 	trustProject bool
 	session      string
@@ -20,7 +21,7 @@ type runOpts struct {
 	prompt       string
 }
 
-const runUsage = `usage: jig run [--agent A] [--model M] [--yes] [--trust-project] [--session ID] [--cwd DIR] [--attach PATH]... <prompt...>`
+const runUsage = `usage: jig run [--agent A] [--model M] [--effort E] [--yes] [--trust-project] [--session ID] [--cwd DIR] [--attach PATH]... <prompt...>`
 
 // ErrUsage reports a malformed command line; the usage has already been
 // written.
@@ -35,6 +36,7 @@ func parseRun(args []string, errw io.Writer) (runOpts, error) {
 	fs.Usage = func() { fmt.Fprintln(errw, runUsage) }
 	fs.StringVar(&o.agent, "agent", "", "primary agent to run")
 	fs.StringVar(&o.model, "model", "", "model as provider/model")
+	fs.StringVar(&o.effort, "effort", "", "reasoning effort: none, minimal, low, medium, high, xhigh, or max")
 	fs.BoolVar(&o.yes, "yes", false, "allow every tool call that would ask for permission")
 	fs.BoolVar(&o.trustProject, "trust-project", false, "trust this project's config (and remember it until the config changes)")
 	fs.StringVar(&o.session, "session", "", "session ID to continue")

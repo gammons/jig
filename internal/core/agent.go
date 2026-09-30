@@ -79,6 +79,7 @@ type Agent struct {
 	Mode        AgentMode
 	Model       ModelRef
 	ModelAlias  string
+	Effort      Effort
 	MaxSteps    int
 	CanSpawn    bool
 	Hidden      bool

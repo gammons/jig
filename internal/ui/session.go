@@ -81,14 +81,15 @@ type blockTimes struct {
 }
 
 // catalog caches the read-only port lists the App consults per frame, the
-// configured default model (the fallback for an agent without one), and
-// the workdir's git branch (sanitized; refreshed at startup and after
-// each run).
+// configured default model and effort (the fallbacks for an agent
+// without one), and the workdir's git branch (sanitized; refreshed at
+// startup and after each run).
 type catalog struct {
-	agents       []core.Agent
-	providers    []core.ProviderStatus
-	defaultModel string
-	branch       string
+	agents        []core.Agent
+	providers     []core.ProviderStatus
+	defaultModel  string
+	defaultEffort core.Effort
+	branch        string
 }
 
 // idSet is an insertion-ordered set of block IDs. Blocks are created in
@@ -143,11 +144,11 @@ type sessionState struct {
 }
 
 // newSessionState starts with root id ("" for a session the first send
-// will create) and the configured default model.
-func newSessionState(id core.SessionID, clk clock.Clock, defaultModel string) *sessionState {
+// will create) and the configured defaults in cat.
+func newSessionState(id core.SessionID, clk clock.Clock, cat catalog) *sessionState {
 	s := &sessionState{
 		proj: transcript.New(id), info: core.Session{ID: id}, clk: clk,
-		versions: map[transcript.BlockID]int{}, cat: catalog{defaultModel: defaultModel},
+		versions: map[transcript.BlockID]int{}, cat: cat,
 	}
 	s.resetBlocks()
 	return s
@@ -279,7 +280,7 @@ func (t blockTimes) thinking(proj *transcript.Projection, ev event.Event, ids []
 // adopt makes info (a new session, from its SessionCreated or from the
 // Send result, whichever arrives first) the root, if a send is in flight
 // with no root yet, and reports whether it did. The live user blocks
-// move to a projection of the new root; the agent and model chosen before
+// move to a projection of the new root; the agent, model, and effort chosen before
 // the send are kept unless the session names its own.
 func (s *sessionState) adopt(info core.Session) bool {
 	if s.info.ID != "" || !s.run.inFlight || info.ID == "" {
@@ -302,6 +303,9 @@ func (s *sessionState) adopt(info core.Session) bool {
 	}
 	if s.info.Model == "" {
 		s.info.Model = prev.Model
+	}
+	if s.info.Effort == "" {
+		s.info.Effort = prev.Effort
 	}
 	s.resetBlocks()
 	return true

@@ -25,7 +25,7 @@ The UIs call services only through three ports in `internal/core/ports.go`:
 resolving any `SendRequest.Attachments` against its `WorkDir` first,
 `Compact` summarizes history behind the Runner's busy exclusion),
 `core.SessionService` (implemented by `service/session`, covering listing,
-`Rename`, and `Configure`), and `core.PermissionService` (implemented by
+`Rename`, `Configure`, and `SetEffort`), and `core.PermissionService` (implemented by
 `permission.BusAsker`). Persisted UI preferences go through
 `core.PrefsService` (`internal/core/prefs.go`, implemented by
 `prefsfs.Store`): `Get` and `Update(fn)`, never a whole-struct save —
@@ -59,6 +59,7 @@ internal/core/                          value types + ports (no services)
 internal/core/event/                    events + Bus
 internal/core/ext/                      extension points + Registry
 internal/core/llmtest/                  scripted fake core.LLM
+internal/core/logtest/                  slog test logger (Buffer, Find)
 internal/data/paths/                    XDG path resolution
 internal/data/fsroot/                   git root + ancestor walking
 internal/data/frontmatter/              YAML frontmatter parsing
@@ -209,6 +210,15 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   (`provider/model` or a `[model_aliases]` name) everywhere: `--model`,
   `default_model`, `small_model`, agent `model` fields, startup
   validation.
+- Reasoning effort: services put the *requested* level on
+  `ext.RunContext.Effort` (primary runs: session > agent `effort` >
+  `default_effort`, via `agents.Service.ResolveEffort`; subagents skip the
+  session). The Runner sets `LLMRequest.Effort` to
+  `core.EffectiveEffort(runModelInfo, rc.Effort)`: the catalog default when
+  unset, clamped to the model's levels, "" for a model without levels.
+  `client/llm` only maps that value onto provider options and never
+  validates it; "" sets no option. Small-model calls send
+  `core.LowestEffort`.
 - `chat.Send` resumes a session only from its own `Cwd`; only a missing
   session (`session.ErrNotFound`, via `Store.IsNotFound`) is a
   `ConfigError` on resume.
@@ -289,6 +299,26 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   forked concurrently; `agentbrowser` cancels through it too.
 - bash attaches a screenshot only from the workdir or `screenshot*` files
   in the OS temp dir, after resolving symlinks.
+- The debug log (`JIG_DEBUG`, any non-empty value → `jig-debug.log` in the
+  workdir, truncated each start) is opened only by `newRuntime`
+  (`internal/app/debuglog.go`: `openDebugLog`, `startDebugLog`), so only
+  the TUI and `jig run` have it. The `*slog.Logger` is always passed in
+  (`agent.Deps.Log`, `task.New`'s `log`, `llm.NewLoggingTransport`),
+  never stored in a package var, and nil means discard. Every line has
+  `cat=` (`app`, `run`, `step`, `retry`, `http`, `task`, `tool`); a run's
+  lines, HTTP ones included, also carry `root`/`session`/`depth`/`agent`
+  from `core.WithLogAttrs`. With `JIG_DEBUG` unset the provider HTTP
+  client is the default one (`debugHTTPClient` returns nil). Nothing logs
+  headers, prompts, tool input or output, or streamed text; the only
+  body logged is a non-2xx response, capped at 4 KB; the provider's
+  request-ID header value (`req_id`) is logged. `err=` carries the
+  provider's error message, which may include the request URL and error
+  body. Every string value (and error) passes `ansi.SanitizeLine`, has URL
+  userinfo redacted (`scheme://…@`), and is capped at 4 KB
+  (`debugMaxValue`) in `internal/app`'s handler (`replaceDebugAttr`), so
+  loggers elsewhere pass raw text. An existing non-regular `jig-debug.log`
+  (a symlink, say) is refused with a warning and never followed
+  (`O_NOFOLLOW`).
 
 - The extension registry's one live part is `ext.ToolSource`: the
   Manager's mutex owns it, `Tools()` does no I/O, and the agent Runner
@@ -317,9 +347,12 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Value types shared across layers (Message, Session, ModelRef, Agent, Config, Rule, ...) | `internal/core` |
 | Service ports the UIs call (`ChatService`, `SessionService`, `PermissionService`) | `internal/core` (`ports.go`) |
 | Fake LLM for service tests | `llmtest.New(llmtest.Text(...), ...)` |
+| Tag log lines with the run's session (`root`/`session`/`depth`/`agent`; a same-key attr replaces, so a child run overrides its parent's) | `core.WithLogAttrs(ctx, ...)` / `core.LogAttrs(ctx)`, `core.LogArgs(ctx)` (the same as `[]any` for `Logger.Debug`) in `internal/core/logctx.go` |
+| Assert on debug log lines in a test (`time` dropped, so lines are stable) | `logtest.New()` returns a `*slog.Logger` and `*Buffer`; `buf.Find(msg)` / `buf.Lines()` in `internal/core/logtest` |
 | Scripted model for e2e tests (tag `jigtest`) | `jigtest.Script` + `writeScript`/`jigtestConfig` in `e2e/harness_test.go` |
 | Drive the real TUI binary under a pseudo-terminal and wait for screen text | `pty.StartWithSize` + `newScreen`/`.read`/`.waitFor(ctx, t, from, text)`/`.mark` in `e2e/tui_test.go` |
-| One-shot, tool-less LLM call returning joined text | `agent.Complete(ctx, llm, system, user)` |
+| One-shot, tool-less LLM call returning joined text | `agent.Complete(ctx, llm, system, user, effort)` |
+| Parse, clamp, or default a reasoning effort | `core.ParseEffort(s)`, `core.EffectiveEffort(info, want)`, `core.LowestEffort(info)`, `Effort.Known()` in `internal/core/effort.go` |
 | Session title placeholder (first line, ≤50 runes) | `session.PlaceholderTitle(text)` |
 | Compare two paths for identity (symlinks, macOS `/var` → `/private/var`) | `pathid.Key(p)` (`EvalSymlinks`, falling back to `Abs`) |
 | Expand a leading `~`/`~/` in a config path | `paths.ExpandHome(p, home)` |
@@ -390,6 +423,7 @@ the budget. Run with `go test -run XXX -bench . -benchmem <pkg>`.
 | `BenchmarkApp_Keystroke2000` — one character typed into the prompt, then `View` | < 1.5 ms/op | 0.83 ms/op |
 | `BenchmarkApp_Wheel2000` — one wheel notch over the transcript, then `View` | < 1.5 ms/op | 1.16 ms/op |
 | `BenchmarkApp_StreamTick2000` — one streaming delta, its tick, and `View`, with the reply already ~16 KB | < 5 ms/op | 1.9 ms/op |
+| `BenchmarkApp_ReasoningTick2000` — one streaming reasoning delta, its tick, and `View`, with the thinking already ~16 KB and shown | < 5 ms/op | 0.79 ms/op (QEMU VM, 4 vCPU) |
 
 Every keystroke and wheel notch re-renders the whole frame, so
 `compose` (`internal/ui/layout.go`) measures each widget's output once:
@@ -413,6 +447,14 @@ the step ends the block renders once in full with `Render` (paragraphs
 rendered apart can differ in blank-line spacing until then). The
 blocklist then re-fits only the lines that differ from the block's
 previous render at that width.
+A reasoning block the model is still thinking in shows its text (plain,
+dim, indented; `internal/ui/reasoning.go`) unless `Prefs.HideReasoning`
+(the `view.reasoning` action's On/Off picker level, applied by
+`prefsCtl.setReasoning` in `internal/ui/prefs.go`) is set, and collapses to its one line once
+thinking ends. Its render caches the wrapped lines of every finished
+source line (up to the last `\n`) per block ID and width, so a tick
+wraps only the new lines and the unfinished tail; the entry is dropped
+when the block collapses.
 In the theme picker, a highlight change previews its palette 120 ms
 after the last one (`themeDebounce`, keyed by `themeState.gen`); `esc`
 (restore) and a choice apply at once.

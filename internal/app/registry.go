@@ -1,6 +1,8 @@
 package app
 
 import (
+	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	goruntime "runtime"
@@ -11,7 +13,6 @@ import (
 	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core/event"
 	"github.com/gammons/jig/internal/core/ext"
-	"github.com/gammons/jig/internal/data/blobfs"
 	"github.com/gammons/jig/internal/data/contextfs"
 	"github.com/gammons/jig/internal/data/fsroot"
 	"github.com/gammons/jig/internal/data/store"
@@ -41,10 +42,17 @@ type registryDeps struct {
 	asker    permission.Asker
 	ids      *ids.Gen
 	spillDir string
-	blobs    *blobfs.Store
 	media    *media.Pipeline
 	tracker  *tools.Tracker
 	mcp      ext.ToolSource
+	debugDeps
+}
+
+// debugDeps are the JIG_DEBUG collaborators, embedded in registryDeps to
+// keep its field count down.
+type debugDeps struct {
+	log        *slog.Logger
+	httpClient *http.Client // logs provider HTTP under JIG_DEBUG; nil otherwise
 }
 
 // buildRegistry registers every built-in tool, hook, transform, and
@@ -78,7 +86,7 @@ func addTools(r *ext.Registry, d registryDeps) error {
 		tools.NewGrep(srch),
 		tools.NewTodo(d.store, d.bus),
 		d.skills.Tool(),
-		task.New(d.sessions, d.agents, d.proxy, d.bus),
+		task.New(d.sessions, d.agents, d.proxy, d.bus, d.clk, d.log),
 	}
 	for _, t := range all {
 		if err := r.AddTool(t); err != nil {
@@ -106,6 +114,7 @@ func addTransforms(r *ext.Registry, d registryDeps) error {
 	}
 	all := []ext.ContextTransform{
 		prompt.AgentPrompt(),
+		prompt.ToolUse(),
 		prompt.Env(d.clk, goruntime.GOOS, isGit),
 		prompt.Instructions(promptFiles(instr)),
 		prompt.AgentsMD(promptFiles(contextfs.AgentsFiles(e.paths, e.gitRoot, e.workDir))),
@@ -141,8 +150,8 @@ func addKeybinds(r *ext.Registry, _ registryDeps) error {
 	return nil
 }
 
-func addProviders(r *ext.Registry, _ registryDeps) error {
-	for _, p := range providerFactories() {
+func addProviders(r *ext.Registry, d registryDeps) error {
+	for _, p := range providerFactories(d.httpClient) {
 		if err := r.AddProvider(p); err != nil {
 			return err
 		}
@@ -159,9 +168,14 @@ func addToolSources(r *ext.Registry, d registryDeps) error {
 	return nil
 }
 
-// providerFactories is every provider factory jig registers.
-func providerFactories() []ext.ProviderFactory {
-	return append(llm.Factories(), extraProviders()...)
+// providerFactories is every provider factory jig registers. A non-nil hc
+// is the HTTP client the built-in factories use.
+func providerFactories(hc *http.Client) []ext.ProviderFactory {
+	var opts []llm.Option
+	if hc != nil {
+		opts = append(opts, llm.WithHTTPClient(hc))
+	}
+	return append(llm.Factories(opts...), extraProviders()...)
 }
 
 func isGit(dir string) bool {

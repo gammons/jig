@@ -51,6 +51,8 @@ type Turn struct {
 	// ExpectPromptContains lists substrings of the converted prompt's
 	// concatenated text: text parts plus tool-result text and error text.
 	ExpectPromptContains []string
+	// ExpectEffort, if set, is the exact effort the request must carry.
+	ExpectEffort *string
 }
 
 // usage is the token usage every finished turn reports.
@@ -138,6 +140,10 @@ func (c *client) Stream(ctx context.Context, req core.LLMRequest) iter.Seq2[core
 		}
 		if err := checkPrompt(prompt, turn); err != nil {
 			yield(core.StreamEvent{}, fatal(err))
+			return
+		}
+		if turn.ExpectEffort != nil && string(req.Effort) != *turn.ExpectEffort {
+			yield(core.StreamEvent{}, fatal(fmt.Errorf("jigtest: effort %q, want %q", req.Effort, *turn.ExpectEffort)))
 			return
 		}
 		replay(ctx, turn, yield)

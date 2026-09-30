@@ -52,6 +52,21 @@ func (s *Service) ResolveModel(a core.Agent, parent, session core.ModelRef) (cor
 	return s.ResolveRef(s.cfg.DefaultModel)
 }
 
+// ResolveEffort returns the requested reasoning effort for a run of a:
+// the first level on the scale among session (the session's or
+// --effort's choice; pass "" for a subagent), a's own Effort, and
+// cfg.DefaultEffort, or "" (the model's catalog default) when none is.
+// A value off the scale, such as a hand-edited stored one, is skipped.
+func (s *Service) ResolveEffort(a core.Agent, session core.Effort) core.Effort {
+	def, _ := core.ParseEffort(s.cfg.DefaultEffort)
+	for _, e := range []core.Effort{session, a.Effort, def} {
+		if e.Known() {
+			return e
+		}
+	}
+	return ""
+}
+
 // SmallModel returns cfg.SmallModel (a ref or alias) resolved to a
 // ModelRef when set and resolvable, otherwise fallback.
 func (s *Service) SmallModel(fallback core.ModelRef) core.ModelRef {

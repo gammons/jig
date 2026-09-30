@@ -124,7 +124,7 @@ func (s *Service) Get(ctx context.Context, id core.SessionID) (core.Session, err
 	return sess, err
 }
 
-// Update stores sess's title, agent, model, and UpdatedAt as given.
+// Update stores sess's title, agent, model, effort, and UpdatedAt as given.
 func (s *Service) Update(ctx context.Context, sess core.Session) error {
 	return s.d.Store.UpdateSession(ctx, sess)
 }
@@ -229,6 +229,23 @@ func (s *Service) Configure(ctx context.Context, id core.SessionID, agentName, m
 	return nil
 }
 
+// SetEffort stores effort (a level on the scale, or "" to clear) as id's
+// reasoning effort and publishes event.SessionUpdated after the save.
+func (s *Service) SetEffort(ctx context.Context, id core.SessionID, effort core.Effort) error {
+	if effort != "" && !effort.Known() {
+		return fmt.Errorf("session: unknown effort %q", effort)
+	}
+	var saved core.Session
+	if err := s.modify(ctx, id, func(sess *core.Session) {
+		sess.Effort = effort
+		saved = *sess
+	}); err != nil {
+		return err
+	}
+	s.d.Bus.Publish(event.SessionUpdated{Base: event.Base{SessionID: id, RootID: id}, Info: saved})
+	return nil
+}
+
 // checkPrimaryAgent returns an error unless agentName names a known
 // agent whose mode is primary or all, and is not hidden.
 func (s *Service) checkPrimaryAgent(agentName string) error {
@@ -266,18 +283,18 @@ func (s *Service) smallModelFor(agentName string, sess core.Session) (core.Agent
 	return a, s.d.Agents.SmallModel(resolved), nil
 }
 
-// complete runs agentName's prompt over user on sess's small model,
-// returning the reply and the model used.
+// complete runs agentName's prompt over user on sess's small model at its
+// lowest effort level, returning the reply and the model used.
 func (s *Service) complete(ctx context.Context, agentName string, sess core.Session, user string) (string, core.ModelRef, error) {
 	a, model, err := s.smallModelFor(agentName, sess)
 	if err != nil {
 		return "", core.ModelRef{}, err
 	}
-	llm, _, err := s.d.LLMs.For(model)
+	llm, info, err := s.d.LLMs.For(model)
 	if err != nil {
 		return "", core.ModelRef{}, err
 	}
-	out, err := agent.Complete(ctx, llm, a.Prompt, user)
+	out, err := agent.Complete(ctx, llm, a.Prompt, user, core.LowestEffort(info))
 	if err != nil {
 		return "", core.ModelRef{}, err
 	}

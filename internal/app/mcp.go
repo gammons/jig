@@ -387,6 +387,14 @@ func maxStartupTimeout(servers []core.MCPServer) time.Duration {
 	return max
 }
 
+// startMCP starts mgr's background connections, when one was built. Call
+// it only after the registry is frozen.
+func startMCP(ctx context.Context, mgr *mcpsvc.Manager) {
+	if mgr != nil {
+		mgr.Start(ctx)
+	}
+}
+
 // mcpToolSource returns mgr as an ext.ToolSource, or nil if mgr is nil (a
 // nil *mcpsvc.Manager boxed in a non-nil interface would break the addTools
 // nil check, so this stays explicit).
@@ -396,6 +404,8 @@ func mcpToolSource(mgr *mcpsvc.Manager) ext.ToolSource {
 	}
 	return mgr
 }
+
+// resolvedMCPServers is the enabled MCP servers of e's merged config.
 func resolvedMCPServers(e env) []core.MCPServer {
 	return config.ResolvedMCP(e.cfg().MCP)
 }
