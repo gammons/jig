@@ -25,6 +25,7 @@ type State struct {
 	Queued       bool
 	Untrusted    bool
 	Hint         string // e.g. "⚠ permission pending · esc gp"
+	MCPIssues    int    // servers needing sign-in or failed; shown as "mcp N!" when > 0
 }
 
 // Option configures a Model built by New.

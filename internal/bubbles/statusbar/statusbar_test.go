@@ -208,3 +208,18 @@ func TestGolden_StatusRunning(t *testing.T) {
 	m.Set(s)
 	golden.Assert(t, "status_running", m.View())
 }
+
+func TestStatusbar_MCPIssues(t *testing.T) {
+	t.Parallel()
+	m := New(WithStyles(pinnedStyles()))
+	m.SetWidth(80)
+	m.Set(State{
+		Mode: "NORMAL", Branch: "main", Agent: "coder", Model: "sonnet",
+		CtxUsed: 12000, CtxLimit: 200000, CostUSD: 0.42, MCPIssues: 2,
+	})
+	got := xansi.Strip(m.View())
+	if !strings.Contains(got, "mcp 2!") {
+		t.Fatalf("View() = %q, want it to contain \"mcp 2!\"", got)
+	}
+	golden.Assert(t, "statusbar_mcp_badge", m.View())
+}
