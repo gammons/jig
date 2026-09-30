@@ -64,6 +64,9 @@ func loadEnv(cwd string, getenv func(string) string, decide trustDecider) (env, 
 	if err := validateModels(e.merged); err != nil {
 		return env{}, configError{err}
 	}
+	if err := validateEfforts(e.merged); err != nil {
+		return env{}, configError{err}
+	}
 	return e, nil
 }
 
@@ -161,6 +164,27 @@ func validateModels(cfg core.Config) error {
 		}
 		if _, err := agents.ParseRef(m.val, cfg.ModelAliases); err != nil {
 			return fmt.Errorf("config: %s: %w", m.key, err)
+		}
+	}
+	return nil
+}
+
+// validateEfforts checks default_effort and, in provider-ID order, every
+// level in a provider's efforts list against the effort scale.
+func validateEfforts(cfg core.Config) error {
+	if _, err := core.ParseEffort(cfg.DefaultEffort); err != nil {
+		return fmt.Errorf("config: default_effort: %w", err)
+	}
+	ids := make([]string, 0, len(cfg.Providers))
+	for id := range cfg.Providers {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		for _, s := range cfg.Providers[id].Efforts {
+			if e, err := core.ParseEffort(s); err != nil || e == "" {
+				return fmt.Errorf("config: providers.%s.efforts: unknown effort %q", id, s)
+			}
 		}
 	}
 	return nil

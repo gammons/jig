@@ -285,3 +285,15 @@ func TestAgentDiscover_MissingDirsSkipped(t *testing.T) {
 		t.Errorf("warnings = %v, want none", warnings)
 	}
 }
+
+func TestAgentDiscover_Effort(t *testing.T) {
+	dir := t.TempDir()
+	writeAgent(t, dir, "thinker", "---\ndescription: thinks\neffort: high\n---\nBody\n")
+	agents, warns := Discover([]string{dir})
+	if len(warns) != 0 {
+		t.Fatalf("warnings = %v", warns)
+	}
+	if got := agents["thinker"].Effort; got != "high" {
+		t.Errorf("Effort = %q, want high", got)
+	}
+}

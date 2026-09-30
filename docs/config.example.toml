@@ -26,6 +26,14 @@ default_model = "anthropic/claude-sonnet-4-6"
 # compaction summaries. Falls back to default_model when unset.
 small_model = "anthropic/claude-haiku-4-5-20251001"
 
+# The reasoning effort requested when neither the session, the agent,
+# nor --effort picks one: none, minimal, low, medium, high, xhigh, or
+# max. It is clamped to the nearest level the model supports; models
+# without effort levels ignore it. Unset, each model uses its catalog
+# default ("high" for most recent Claude models, but "medium" for
+# claude-opus-5-5), which may differ from the provider's own default.
+default_effort = "high"
+
 # Reserved for the TUI (Plan 2); headless jig ignores it today.
 theme = "dark"
 
@@ -52,6 +60,14 @@ models = [
 
 # [providers.<id>.options] is reserved for provider-specific client
 # options but is not used yet: jig ignores it and prints a warning.
+
+# A provider jig's catalog doesn't know (a local openai-compatible
+# server, say) can list the effort levels its models accept:
+#   [providers.local]
+#   type = "openai-compat"
+#   base_url = "http://localhost:8000/v1"
+#   models = ["qwen3-32b"]
+#   efforts = ["low", "medium", "high"]
 
 # Short names for models, usable anywhere a model ref is accepted
 # (--model, agents.<name>.model, default_model, small_model).
@@ -82,6 +98,8 @@ bash = "deny"
 [agents.plan]
 # Give the plan agent the most capable model.
 model = "opus"
+# ...and let it think harder than the default.
+effort = "max"
 
 # Global permission rules, above jig's built-in defaults but below any
 # agents.<name>.permissions. Each tool's rule is either a bare action

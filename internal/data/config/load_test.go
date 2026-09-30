@@ -527,3 +527,42 @@ func TestLoad_SyntaxErrorNamesFile(t *testing.T) {
 		t.Errorf("error = %q, want it to name a line", err.Error())
 	}
 }
+
+func TestLoad_EffortKeys(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	workDir := filepath.Join(root, "work")
+
+	writeConfigFile(t, filepath.Join(configDir, "config.toml"), `
+default_effort = "high"
+
+[providers.local]
+type = "openai-compat"
+models = ["m"]
+efforts = ["low", "high"]
+
+[agents.plan]
+effort = "max"
+`)
+	writeConfigFile(t, filepath.Join(workDir, ".jig", "config.toml"), `
+default_effort = "low"
+`)
+
+	p := paths.Paths{Home: root, ConfigDir: configDir}
+	loaded, err := Load(p, workDir, fakeGetenv(nil), Options{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Global.DefaultEffort != "high" {
+		t.Errorf("Global.DefaultEffort = %q, want high", loaded.Global.DefaultEffort)
+	}
+	if got := loaded.Global.Providers["local"].Efforts; !reflect.DeepEqual(got, []string{"low", "high"}) {
+		t.Errorf("Providers[local].Efforts = %v, want [low high]", got)
+	}
+	if got := loaded.Global.Agents["plan"].Effort; got != "max" {
+		t.Errorf("Agents[plan].Effort = %q, want max", got)
+	}
+	if got := Merge(loaded.Global, loaded.Project).DefaultEffort; got != "low" {
+		t.Errorf("merged DefaultEffort = %q, want the project's low", got)
+	}
+}

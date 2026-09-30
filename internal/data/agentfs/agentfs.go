@@ -21,6 +21,7 @@ type agentMeta struct {
 	Description string         `yaml:"description"`
 	Mode        string         `yaml:"mode"`
 	Model       string         `yaml:"model"`
+	Effort      string         `yaml:"effort"`
 	MaxSteps    int            `yaml:"max_steps"`
 	CanSpawn    *bool          `yaml:"can_spawn"`
 	Hidden      *bool          `yaml:"hidden"`
@@ -109,6 +110,7 @@ func readAgent(path string) (core.AgentConfig, *skillfs.Warning, bool) {
 		Description: meta.Description,
 		Mode:        meta.Mode,
 		Model:       meta.Model,
+		Effort:      meta.Effort,
 		Prompt:      body,
 		MaxSteps:    meta.MaxSteps,
 		CanSpawn:    meta.CanSpawn,
