@@ -33,6 +33,7 @@ type Agents interface {
 	Get(name string) (core.Agent, bool)
 	Subagents() []core.Agent
 	ResolveModel(a core.Agent, parent, session core.ModelRef) (core.ModelRef, error)
+	ResolveEffort(a core.Agent, session core.Effort) core.Effort
 }
 
 // Runner drives a session's turn to completion.
@@ -156,6 +157,7 @@ func (t *taskTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 		RootID:    rootID(rc),
 		Agent:     sub,
 		Model:     model,
+		Effort:    t.agents.ResolveEffort(sub, ""),
 		WorkDir:   rc.WorkDir,
 		Depth:     rc.Depth + 1,
 		Ancestors: append(slices.Clone(rc.Ancestors), rc.Agent.Permissions),
@@ -163,7 +165,7 @@ func (t *taskTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 	t.debug(ctx, "task spawn",
 		"parent", string(rc.SessionID), "child", string(childID),
 		"resumed", in.SessionID != "", "subagent", in.Agent,
-		"model", model.String(), "depth", childRC.Depth)
+		"model", model.String(), "effort", string(childRC.Effort), "depth", childRC.Depth)
 	start := t.clk.Now()
 	msg, err := t.runner.Run(ctx, childRC, in.Prompt)
 	dur := t.clk.Now().Sub(start)

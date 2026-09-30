@@ -47,11 +47,12 @@ type Sessions interface {
 	Compact(ctx context.Context, id core.SessionID) error
 }
 
-// Agents looks up agents and resolves their models.
+// Agents looks up agents and resolves their models and efforts.
 type Agents interface {
 	Get(name string) (core.Agent, bool)
 	Primary() []core.Agent
 	ResolveModel(a core.Agent, parent, session core.ModelRef) (core.ModelRef, error)
+	ResolveEffort(a core.Agent, session core.Effort) core.Effort
 	ResolveRef(s string) (core.ModelRef, error)
 }
 
@@ -99,17 +100,19 @@ func New(d Deps) *Service {
 	return &Service{d: d, base: base, cancel: cancel}
 }
 
-// plan is a validated Send: the session to run in, the agent and model,
-// and whether the session must be created first.
+// plan is a validated Send: the session to run in, the agent, model, and
+// requested effort, and whether the session must be created first.
 type plan struct {
-	sess     core.Session
-	isNew    bool
-	agent    core.Agent
-	model    core.ModelRef
-	flag     core.ModelRef
-	newTitle bool
-	atts     []core.Attachment
-	reads    []textRead
+	sess       core.Session
+	isNew      bool
+	agent      core.Agent
+	model      core.ModelRef
+	flag       core.ModelRef
+	effort     core.Effort // requested effort for the run
+	effortFlag core.Effort // req.Effort, parsed; stored on the session
+	newTitle   bool
+	atts       []core.Attachment
+	reads      []textRead
 }
 
 // Send runs req.Text in req.SessionID (or a new session). Validation
@@ -132,6 +135,7 @@ func (s *Service) Send(ctx context.Context, req core.SendRequest) (core.SendResu
 		RootID:    p.sess.ID,
 		Agent:     p.agent,
 		Model:     p.model,
+		Effort:    p.effort,
 		WorkDir:   s.d.WorkDir,
 	}, req.Text, p.atts...)
 	touchErr := s.d.Sessions.Touch(context.WithoutCancel(ctx), p.sess.ID)
@@ -143,7 +147,7 @@ func (s *Service) Send(ctx context.Context, req core.SendRequest) (core.SendResu
 
 // prepare validates req without writing anything: it loads a resumed
 // session, picks and checks the agent, parses the model flag, resolves the
-// model, and preflights its credentials.
+// model and the requested effort, and preflights its credentials.
 func (s *Service) prepare(ctx context.Context, req core.SendRequest) (plan, error) {
 	var p plan
 	if req.SessionID == "" {
@@ -175,6 +179,16 @@ func (s *Service) prepare(ctx context.Context, req core.SendRequest) (plan, erro
 	if _, _, err := s.d.LLMs.For(p.model); err != nil {
 		return plan{}, &ConfigError{Err: err}
 	}
+
+	sessEffort := p.sess.Effort
+	if req.Effort != "" {
+		e, err := core.ParseEffort(req.Effort)
+		if err != nil {
+			return plan{}, &ConfigError{Err: err}
+		}
+		p.effortFlag, sessEffort = e, e
+	}
+	p.effort = s.d.Agents.ResolveEffort(a, sessEffort)
 
 	atts, reads, err := s.resolveAttachments(req.Attachments)
 	if err != nil {
@@ -227,8 +241,8 @@ func (s *Service) agentFor(name string) (core.Agent, error) {
 	return core.Agent{}, configErr("unknown agent %q; primary agents: %s", name, list)
 }
 
-// commit creates the session if needed, stores the agent, model flag, and
-// placeholder title on it, and starts the background title.
+// commit creates the session if needed, stores the agent, model and effort
+// flags, and placeholder title on it, and starts the background title.
 func (s *Service) commit(ctx context.Context, p *plan, text string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -249,6 +263,9 @@ func (s *Service) commit(ctx context.Context, p *plan, text string) error {
 	}
 	if !p.flag.IsZero() && p.sess.Model != p.flag.String() {
 		p.sess.Model, dirty = p.flag.String(), true
+	}
+	if p.effortFlag != "" && p.sess.Effort != p.effortFlag {
+		p.sess.Effort, dirty = p.effortFlag, true
 	}
 	if p.sess.Title == "" {
 		p.sess.Title, dirty, p.newTitle = session.PlaceholderTitle(text), true, true

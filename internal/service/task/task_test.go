@@ -59,9 +59,19 @@ func (f *fakeSessions) Get(ctx context.Context, id core.SessionID) (core.Session
 
 // fakeAgents is a scripted Agents for task tests.
 type fakeAgents struct {
-	byName       map[string]core.Agent
-	subs         []core.Agent
-	resolveModel func(a core.Agent, parent, session core.ModelRef) (core.ModelRef, error)
+	byName        map[string]core.Agent
+	subs          []core.Agent
+	resolveModel  func(a core.Agent, parent, session core.ModelRef) (core.ModelRef, error)
+	defaultEffort core.Effort
+}
+
+func (f *fakeAgents) ResolveEffort(a core.Agent, session core.Effort) core.Effort {
+	for _, e := range []core.Effort{session, a.Effort, f.defaultEffort} {
+		if e != "" {
+			return e
+		}
+	}
+	return ""
 }
 
 func (f *fakeAgents) Get(name string) (core.Agent, bool) {
@@ -620,5 +630,36 @@ func TestTask_ChildCarriesAncestorPermissions(t *testing.T) {
 	// The child's slice must not alias the parent's spare capacity.
 	if len(rc.Ancestors) != 1 || &got[0] == &ancestors[0] {
 		t.Error("child Ancestors aliases the parent's slice")
+	}
+}
+
+func TestTask_ChildEffortIsItsAgentsNotTheParents(t *testing.T) {
+	opus := core.ModelRef{Provider: "anthropic", Model: "opus"}
+	tests := []struct {
+		name     string
+		sub      core.Effort
+		fallback core.Effort
+		want     core.Effort
+	}{
+		{"agent effort", core.EffortLow, core.EffortMedium, core.EffortLow},
+		{"default_effort", "", core.EffortMedium, core.EffortMedium},
+		{"catalog default", "", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sub := exploreAgent(core.ModelRef{})
+			sub.Effort = tt.sub
+			agentsSvc := &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}, defaultEffort: tt.fallback}
+			runner := &fakeRunner{}
+			tool := New(&fakeSessions{}, agentsSvc, runner, &recordingPublisher{}, testClock(), nil)
+			rc := ext.RunContext{SessionID: "parent1", Model: opus, Effort: core.EffortMax}
+			res, err := tool.Run(context.Background(), rc, mustTaskCall(t, map[string]any{"agent": "explore", "description": "d", "prompt": "p"}))
+			if err != nil || res.IsError {
+				t.Fatalf("Run = %+v, %v", res, err)
+			}
+			if runner.gotRC.Effort != tt.want {
+				t.Errorf("child rc.Effort = %q, want %q (never the parent's max)", runner.gotRC.Effort, tt.want)
+			}
+		})
 	}
 }

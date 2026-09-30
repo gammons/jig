@@ -38,6 +38,7 @@ type fakeLLMs struct {
 	mu      sync.Mutex
 	clients map[core.ModelRef]*llmtest.Client
 	errs    map[core.ModelRef]error
+	infos   map[core.ModelRef]core.ModelInfo
 }
 
 func (f *fakeLLMs) For(ref core.ModelRef) (core.LLM, core.ModelInfo, error) {
@@ -50,7 +51,9 @@ func (f *fakeLLMs) For(ref core.ModelRef) (core.LLM, core.ModelInfo, error) {
 	if !ok {
 		return nil, core.ModelInfo{}, fmt.Errorf("unknown model %q", ref.String())
 	}
-	return c, core.ModelInfo{Ref: ref}, nil
+	info := f.infos[ref]
+	info.Ref = ref
+	return c, info, nil
 }
 
 // touchCounter counts Touch calls on the real session service.
@@ -416,5 +419,80 @@ func TestConfigError_Unwrap(t *testing.T) {
 	err := error(&ConfigError{Err: inner})
 	if !errors.Is(err, inner) || err.Error() != "inner" {
 		t.Errorf("ConfigError = %v", err)
+	}
+}
+
+// withLevels gives the main model effort levels low/medium/high, default medium.
+func (f *fixture) withLevels() {
+	f.llms.mu.Lock()
+	defer f.llms.mu.Unlock()
+	f.llms.infos = map[core.ModelRef]core.ModelInfo{mainModel(): {
+		Efforts:       []core.Effort{core.EffortLow, core.EffortMedium, core.EffortHigh},
+		DefaultEffort: core.EffortMedium,
+	}}
+}
+
+func TestSend_EffortFlagStoredAndReused(t *testing.T) {
+	main := llmtest.New(llmtest.Text("one"), llmtest.Text("two"))
+	f := newFixture(t, main, llmtest.New(llmtest.Text("Title")))
+	f.withLevels()
+	ctx := context.Background()
+
+	res, err := f.svc.Send(ctx, core.SendRequest{Text: "hi", Effort: "Low"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.get(res.SessionID).Effort; got != core.EffortLow {
+		t.Errorf("session effort = %q, want low", got)
+	}
+	if _, err := f.svc.Send(ctx, core.SendRequest{SessionID: res.SessionID, Text: "again"}); err != nil {
+		t.Fatal(err)
+	}
+	reqs := main.Requests()
+	if len(reqs) != 2 || reqs[0].Effort != core.EffortLow || reqs[1].Effort != core.EffortLow {
+		t.Errorf("request efforts = %+v, want low twice", reqs)
+	}
+}
+
+func TestSend_NoEffortUsesCatalogDefault(t *testing.T) {
+	main := llmtest.New(llmtest.Text("one"))
+	f := newFixture(t, main, llmtest.New(llmtest.Text("Title")))
+	f.withLevels()
+	if _, err := f.svc.Send(context.Background(), core.SendRequest{Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if reqs := main.Requests(); len(reqs) != 1 || reqs[0].Effort != core.EffortMedium {
+		t.Errorf("requests = %+v, want effort medium", reqs)
+	}
+}
+
+func TestSend_BadEffortIsConfigError(t *testing.T) {
+	f := newFixture(t, llmtest.New(), llmtest.New())
+	_, err := f.svc.Send(context.Background(), core.SendRequest{Text: "hi", Effort: "turbo"})
+	wantConfigError(t, err)
+	if n := len(f.roots()); n != 0 {
+		t.Errorf("sessions = %d, want none created", n)
+	}
+}
+
+func TestSend_UnknownStoredEffortIgnored(t *testing.T) {
+	main := llmtest.New(llmtest.Text("one"), llmtest.Text("two"))
+	f := newFixture(t, main, llmtest.New(llmtest.Text("Title")))
+	f.withLevels()
+	ctx := context.Background()
+	res, err := f.svc.Send(ctx, core.SendRequest{Text: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := f.get(res.SessionID)
+	sess.Effort = "turbo"
+	if err := f.sessions.Update(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Send(ctx, core.SendRequest{SessionID: res.SessionID, Text: "again"}); err != nil {
+		t.Fatalf("Send on a session with an unknown stored effort: %v", err)
+	}
+	if reqs := main.Requests(); len(reqs) != 2 || reqs[1].Effort != core.EffortMedium {
+		t.Errorf("requests = %+v, want the second at the default medium", reqs)
 	}
 }
