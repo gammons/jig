@@ -232,7 +232,7 @@ func (a *App) View() tea.View {
 	side := ""
 	switch {
 	case a.lay.DetailsOpen:
-		side = paintSelection(a, paneDetails, a.w.details.View(), a.lay.Side)
+		side = paintSelection(a, regionDetails, a.w.details.View(), a.lay.Side)
 	case a.lay.SideVisible:
 		side = a.w.side.View()
 	}
@@ -240,7 +240,7 @@ func (a *App) View() tea.View {
 	if a.view.searching {
 		status = a.w.search.View()
 	}
-	list := paintSelection(a, paneTranscript, a.w.list.View(), a.lay.Transcript)
+	list := paintSelection(a, regionTranscript, a.w.list.View(), a.lay.Transcript)
 	v.Content = compose(a.lay, list, side, a.w.prompt.View(), status, borderCell(a.theme.set.Blocklist))
 	if a.w.picker.IsOpen() {
 		v.Content = overlay.Center(v.Content, a.width, a.height, a.w.picker.View(), overlayDim)

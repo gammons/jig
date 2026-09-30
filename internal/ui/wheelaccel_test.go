@@ -11,7 +11,7 @@ import (
 
 // notches feeds w one notch per gap (the first at t0) in dir over p and
 // returns the lines each scrolled.
-func notches(w *wheelAccel, t0 time.Time, dir int, p pane, gaps ...time.Duration) []int {
+func notches(w *wheelAccel, t0 time.Time, dir int, p mouseRegion, gaps ...time.Duration) []int {
 	now := t0
 	out := []int{w.lines(now, dir, p)}
 	for _, g := range gaps {
@@ -24,7 +24,7 @@ func notches(w *wheelAccel, t0 time.Time, dir int, p pane, gaps ...time.Duration
 func TestWheelAccel_SlowNotchesScrollWheelLines(t *testing.T) {
 	t.Parallel()
 	var w wheelAccel
-	got := notches(&w, testStart(), 1, paneTranscript, 200*time.Millisecond, 400*time.Millisecond, time.Second)
+	got := notches(&w, testStart(), 1, regionTranscript, 200*time.Millisecond, 400*time.Millisecond, time.Second)
 	for i, n := range got {
 		if n != wheelLines {
 			t.Errorf("notch %d scrolled %d lines, want %d (a slow notch never accelerates)", i, n, wheelLines)
@@ -39,7 +39,7 @@ func TestWheelAccel_FastStreakAcceleratesToTheCap(t *testing.T) {
 	for i := range gaps {
 		gaps[i] = 10 * time.Millisecond
 	}
-	got := notches(&w, testStart(), 1, paneTranscript, gaps...)
+	got := notches(&w, testStart(), 1, regionTranscript, gaps...)
 	if got[0] != wheelLines {
 		t.Errorf("first notch scrolled %d, want %d", got[0], wheelLines)
 	}
@@ -83,7 +83,7 @@ func TestWheelAccel_FractionsCarry(t *testing.T) {
 	for i := range gaps {
 		gaps[i] = 50 * time.Millisecond
 	}
-	got := notches(&w, testStart(), 1, paneTranscript, gaps...)
+	got := notches(&w, testStart(), 1, regionTranscript, gaps...)
 	sum := 0
 	for _, n := range got[4:] {
 		sum += n
@@ -99,7 +99,7 @@ func TestWheelAccel_StreakResets(t *testing.T) {
 	warm := func() (*wheelAccel, time.Time) {
 		var w wheelAccel
 		t0 := testStart()
-		notches(&w, t0, 1, paneTranscript, fast...)
+		notches(&w, t0, 1, regionTranscript, fast...)
 		return &w, t0.Add(30 * time.Millisecond)
 	}
 	for _, tt := range []struct {
@@ -107,13 +107,13 @@ func TestWheelAccel_StreakResets(t *testing.T) {
 		next func(w *wheelAccel, now time.Time) int
 	}{
 		{"a pause over 150 ms", func(w *wheelAccel, now time.Time) int {
-			return w.lines(now.Add(151*time.Millisecond), 1, paneTranscript)
+			return w.lines(now.Add(151*time.Millisecond), 1, regionTranscript)
 		}},
 		{"a reversed direction", func(w *wheelAccel, now time.Time) int {
-			return -w.lines(now.Add(10*time.Millisecond), -1, paneTranscript)
+			return -w.lines(now.Add(10*time.Millisecond), -1, regionTranscript)
 		}},
 		{"another pane", func(w *wheelAccel, now time.Time) int {
-			return w.lines(now.Add(10*time.Millisecond), 1, paneDetails)
+			return w.lines(now.Add(10*time.Millisecond), 1, regionDetails)
 		}},
 	} {
 		w, now := warm()
@@ -129,7 +129,7 @@ func TestWheelAccel_StreakResets(t *testing.T) {
 func TestWheelAccel_BurstNotchesDontAccelerate(t *testing.T) {
 	t.Parallel()
 	var w wheelAccel
-	got := notches(&w, testStart(), 1, paneTranscript, 0, time.Millisecond, 2*time.Millisecond)
+	got := notches(&w, testStart(), 1, regionTranscript, 0, time.Millisecond, 2*time.Millisecond)
 	for i, n := range got {
 		if n != wheelLines {
 			t.Errorf("burst notch %d scrolled %d, want %d", i, n, wheelLines)
@@ -152,7 +152,7 @@ func TestMouse_FastWheelAcceleratesTranscript(t *testing.T) {
 			ta.clk.Advance(10 * time.Millisecond)
 			now = now.Add(10 * time.Millisecond)
 		}
-		n := ref.lines(now, -1, paneTranscript)
+		n := ref.lines(now, -1, regionTranscript)
 		total += n
 		want.ScrollBy(n)
 		ta.mouse(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelUp})

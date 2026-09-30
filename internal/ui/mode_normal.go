@@ -158,7 +158,7 @@ func (h normalKeys) openDetailsFor(id transcript.BlockID) tea.Cmd {
 		content, cmd = buildDetails(a.ctx, b, lay.Side.W, lay.Side.H, a.w.render, a.ports, a.img)
 	}
 	a.w.details.SetContent(content)
-	if a.view.mouse.pane == paneDetails {
+	if a.view.mouse.pane == regionDetails {
 		a.view.mouse.sel = selection.Range{}
 	}
 	return cmd

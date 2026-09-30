@@ -34,12 +34,12 @@ type mouseCell = struct{ x, y int }
 type mouseScrollMsg struct{ gen int }
 
 // pane is which region of the layout a mouse cell falls in.
-type pane int
+type mouseRegion int
 
 const (
-	paneNone pane = iota
-	paneTranscript
-	paneDetails
+	regionNone mouseRegion = iota
+	regionTranscript
+	regionDetails
 )
 
 // dragPhase is the mouse's drag state machine (spec §3.2/§3.3).
@@ -64,7 +64,7 @@ const (
 // starts the next notch on a new streak.
 type mouseState struct {
 	phase   dragPhase
-	pane    pane
+	pane    mouseRegion
 	sel     selection.Range
 	last    mouseCell
 	autoGen int
@@ -97,15 +97,15 @@ func (m mouseCtl) handle(msg tea.Msg) tea.Cmd {
 
 // paneAt maps a screen cell to the pane it falls in: the transcript, or
 // the details split's body when it is open. Everything else — the gap,
-// the prompt, the status bar, and the sidebar — is paneNone.
-func paneAt(a *App, x, y int) pane {
+// the prompt, the status bar, and the sidebar — is regionNone.
+func paneAt(a *App, x, y int) mouseRegion {
 	if inRect(a.lay.Transcript, x, y) {
-		return paneTranscript
+		return regionTranscript
 	}
 	if a.lay.DetailsOpen && inRect(a.lay.Side, x, y) {
-		return paneDetails
+		return regionDetails
 	}
-	return paneNone
+	return regionNone
 }
 
 // inRect reports whether (x, y) falls inside r.
@@ -115,8 +115,8 @@ func inRect(r wintree.Rect, x, y int) bool {
 
 // paneRect is p's rect: the transcript's, or the (open) details split's
 // side slot.
-func paneRect(a *App, p pane) wintree.Rect {
-	if p == paneDetails {
+func paneRect(a *App, p mouseRegion) wintree.Rect {
+	if p == regionDetails {
 		return a.lay.Side
 	}
 	return a.lay.Transcript
@@ -125,11 +125,11 @@ func paneRect(a *App, p pane) wintree.Rect {
 // hitTest maps pane-local (x, y) to a selection.Point's fields: for the
 // transcript, blocklist.HitTest's item ID and line; for the details pane,
 // the fixed detailsSelID and details.HitTest's content line.
-func hitTest(a *App, p pane, x, y int) (id string, line, col int, ok bool) {
+func hitTest(a *App, p mouseRegion, x, y int) (id string, line, col int, ok bool) {
 	switch p {
-	case paneTranscript:
+	case regionTranscript:
 		return blocklist.HitTest(a.w.list, x, y)
-	case paneDetails:
+	case regionDetails:
 		line, col, ok = a.w.details.HitTest(x, y)
 		return detailsSelID, line, col, ok
 	}
@@ -140,8 +140,8 @@ func hitTest(a *App, p pane, x, y int) (id string, line, col int, ok bool) {
 // [1, w-2] (skipping the prefix and scrollbar columns) and y in [0, h-1];
 // for the details pane, x in [0, w-1] and y in [2, h-1] (skipping the
 // header and rule rows).
-func pinCell(p pane, r wintree.Rect, x, y int) (int, int) {
-	if p == paneDetails {
+func pinCell(p mouseRegion, r wintree.Rect, x, y int) (int, int) {
+	if p == regionDetails {
 		return max(0, min(x, r.W-1)), max(2, min(y, r.H-1))
 	}
 	return max(1, min(x, r.W-2)), max(0, min(y, r.H-1))
@@ -150,8 +150,8 @@ func pinCell(p pane, r wintree.Rect, x, y int) (int, int) {
 // edgeRow reports whether pane-local y is p's top or bottom row: 0 and
 // h-1 for the transcript, or 2 (the first body row) and h-1 for the
 // details split. A pane whose body height is at most 1 has no edges.
-func edgeRow(p pane, y, h int) bool {
-	if p == paneDetails {
+func edgeRow(p mouseRegion, y, h int) bool {
+	if p == regionDetails {
 		return h-2 > 1 && (y == 2 || y == h-1)
 	}
 	return h > 1 && (y == 0 || y == h-1)
@@ -159,12 +159,12 @@ func edgeRow(p pane, y, h int) bool {
 
 // scrollEdge scrolls p by one line toward the edge row y is on (up from
 // the top edge, down from the bottom).
-func scrollEdge(a *App, p pane, y int) {
+func scrollEdge(a *App, p mouseRegion, y int) {
 	n := 1
-	if (p == paneDetails && y == 2) || (p != paneDetails && y == 0) {
+	if (p == regionDetails && y == 2) || (p != regionDetails && y == 0) {
 		n = -1
 	}
-	if p == paneDetails {
+	if p == regionDetails {
 		a.w.details.ScrollBy(n)
 	} else {
 		a.w.list.ScrollBy(n)
@@ -188,9 +188,9 @@ func (m mouseCtl) wheel(msg tea.MouseWheelMsg) tea.Cmd {
 		dir = -1
 	}
 	switch p := paneAt(a, ms.X, ms.Y); p {
-	case paneTranscript:
+	case regionTranscript:
 		a.w.list.ScrollBy(a.view.mouse.wheel.lines(a.opts.Clock.Now(), dir, p))
-	case paneDetails:
+	case regionDetails:
 		a.w.details.ScrollBy(a.view.mouse.wheel.lines(a.opts.Clock.Now(), dir, p))
 	}
 	return nil
@@ -198,8 +198,8 @@ func (m mouseCtl) wheel(msg tea.MouseWheelMsg) tea.Cmd {
 
 // bodyHeight is p's draggable body height: the transcript's full height,
 // or the details pane's height minus its header and rule rows.
-func bodyHeight(p pane, r wintree.Rect) int {
-	if p == paneDetails {
+func bodyHeight(p mouseRegion, r wintree.Rect) int {
+	if p == regionDetails {
 		return r.H - 2
 	}
 	return r.H
@@ -220,7 +220,7 @@ func (m mouseCtl) press(msg tea.MouseClickMsg) tea.Cmd {
 		return nil
 	}
 	p := paneAt(a, ms.X, ms.Y)
-	if p == paneNone {
+	if p == regionNone {
 		return nil
 	}
 	r := paneRect(a, p)
@@ -264,7 +264,7 @@ func (m mouseCtl) motion(msg tea.MouseMotionMsg) tea.Cmd {
 // armAutoScroll records (x, y) as the drag's last pointer cell and, the
 // first time it lands on an edge row (the previous last cell was not also
 // on one), schedules the first auto-scroll tick.
-func (m mouseCtl) armAutoScroll(p pane, x, y, h int) tea.Cmd {
+func (m mouseCtl) armAutoScroll(p mouseRegion, x, y, h int) tea.Cmd {
 	a := m.a
 	wasEdge := edgeRow(p, a.view.mouse.last.y, h)
 	a.view.mouse.last = mouseCell{x: x, y: y}
@@ -326,7 +326,7 @@ func (m mouseCtl) copySelection() tea.Cmd {
 	a := m.a
 	sel := a.view.mouse.sel
 	var text string
-	if a.view.mouse.pane == paneDetails {
+	if a.view.mouse.pane == regionDetails {
 		order := func(string) int { return 0 }
 		text = selection.Text(sel, []string{detailsSelID}, order, func(string) []string { return a.w.details.Lines() })
 	} else {
@@ -353,7 +353,7 @@ func (m mouseCtl) copySelection() tea.Cmd {
 // selects nothing (there is no analogous block to select).
 func (m mouseCtl) click() tea.Cmd {
 	a := m.a
-	if a.view.mouse.pane != paneTranscript {
+	if a.view.mouse.pane != regionTranscript {
 		return nil
 	}
 	if id := a.view.mouse.sel.Start.ID; id != "" {
@@ -394,18 +394,18 @@ func indexOrder(ids []string) func(string) int {
 // here, at paint time, rather than from onEvent (spec §5). rendered is
 // returned unchanged when there is no active, non-empty selection for p,
 // or for any other pane.
-func paintSelection(a *App, p pane, rendered string, r wintree.Rect) string {
-	if a.view.mouse.pane == paneTranscript {
+func paintSelection(a *App, p mouseRegion, rendered string, r wintree.Rect) string {
+	if a.view.mouse.pane == regionTranscript {
 		clearGoneSelection(a)
 	}
 	sel := a.view.mouse.sel
-	if p != a.view.mouse.pane || !sel.Active || sel.Empty() || (p == paneTranscript && r.W < 3) {
+	if p != a.view.mouse.pane || !sel.Active || sel.Empty() || (p == regionTranscript && r.W < 3) {
 		return rendered
 	}
 	order := paneOrder(a, p)
 	on, off := a.theme.set.Selection.On, a.theme.set.Selection.Off
 	x := 1
-	if p == paneDetails {
+	if p == regionDetails {
 		x = 0
 	}
 	lines := strings.Split(rendered, "\n")
@@ -424,8 +424,8 @@ func paintSelection(a *App, p pane, rendered string, r wintree.Rect) string {
 
 // paneOrder is p's selection order function: document order for the
 // transcript, or a constant (there is only one ID) for the details pane.
-func paneOrder(a *App, p pane) func(string) int {
-	if p == paneDetails {
+func paneOrder(a *App, p mouseRegion) func(string) int {
+	if p == regionDetails {
 		return func(string) int { return 0 }
 	}
 	return indexOrder(transcriptIDs(a))
@@ -434,8 +434,8 @@ func paneOrder(a *App, p pane) func(string) int {
 // paintRow highlights row's selected cells. For the transcript it skips
 // the prefix column (x=0, the "▌" bar) and the scrollbar column (x=w-1);
 // for the details pane the whole row is eligible.
-func paintRow(row, id string, line int, sel selection.Range, order func(string) int, on, off string, p pane, w int) string {
-	if p != paneTranscript {
+func paintRow(row, id string, line int, sel selection.Range, order func(string) int, on, off string, p mouseRegion, w int) string {
+	if p != regionTranscript {
 		return selection.Highlight(row, id, line, sel, order, on, off)
 	}
 	width := ansi.Width(row)
