@@ -62,7 +62,7 @@ Port the behaviour, not the text: `main`'s structure wins wherever the two diffe
 
 Each task: TDD where it adds behaviour; `make check` green; one or more commits; a task review.
 
-### P0: Carry over the unchanged pieces
+### Task P0: Carry over the unchanged pieces
 
 - `git checkout subagent-view -- <paths>` for the parts `main` didn't touch:
   - `internal/ui/transcript/{projection.go,apply.go,subagent.go,child_test.go,projection_test.go}`, merging by hand if `main` changed them. Check `git diff 2f48f44 main -- internal/ui/transcript` first: `main` added `groups.go`, and `Projection`'s 20-method archtest budget matters.
@@ -72,18 +72,18 @@ Each task: TDD where it adds behaviour; `make check` green; one or more commits;
   - The spec and plan docs.
 - `make check`, then commit `feat: carry NewChild, breadcrumb, details.WithoutHeader onto main`.
 
-### P1: `pane` with `itemTrack` (a refactor with no behaviour change)
+### Task P1: `pane` with `itemTrack` (a refactor with no behaviour change)
 
 - Rename the mouse enum (D2).
 - Build the D1 `pane`: move `proj`, `track`, and `times` off `sessionState` into `sess.main`, and move `a.w.list` and `viewState`'s list size into the pane. Carry over `installMain` (from `e431884`) for the switch and new-session paths.
 - Every existing test and golden stays byte-identical. The benchmarks (`App_*`, `Fold*`) stay within their budgets. On this machine `BenchmarkApp_Resize2000` measured ~1.7 s on `main` before the port; it must not regress.
 
-### P2: kids
+### Task P2: kids
 
 - Port `edee4e5`: `kids.go`, `kids_test.go`, the `recSessions.Messages` fake fix, `Projection.AddNotice`, and clearing kids on every root rebuild.
 - `routeKids` also runs `track.regroup` for a kid pane (`regroupsOn`), so groups stay correct inside subagent panes. Panes not in the column still build no items.
 
-### P3: the column (details entries)
+### Task P3: the column (details entries)
 
 - Port `eb37d8d` + `04565dc`:
   - `column.go`;
@@ -99,7 +99,7 @@ Each task: TDD where it adds behaviour; `make check` green; one or more commits;
 - Port the mouse to the column's details body (D3, the details half).
 - Tests: `column_test.go` (the Task 6 set) and `layout_test.go`, plus `mouse_test.go` re-pointed.
 
-### P4: drill-in, focus, fold in subagent panes
+### Task P4: drill-in, focus, fold in subagent panes
 
 - Port `2cedd94`:
   - the live kid pane on `enter`;
@@ -110,11 +110,11 @@ Each task: TDD where it adds behaviour; `make check` green; one or more commits;
 - Port the mouse to a transcript pane in the column (D3, the second half), plus the new mouse test.
 - New test: `TestColumn_ChildGroupsFold`. Three consecutive child `read` calls in a subagent pane show as one `explored` header, and `o` expands it.
 
-### P5: narrow, resize, theme, permissions
+### Task P5: narrow, resize, theme, permissions
 
 - Port `e54a54b` (narrow takeover hint, per-pane resize debounce, theme restyle of column panes, the spinner-stop test, goldens) and `b0374db` (`cardKey.pane`, focused-pane `target`, card width per pane, details-focused card keys do nothing).
 
-### P6: benchmark, e2e, docs, sanitization
+### Task P6: benchmark, e2e, docs, sanitization
 
 - Port `95a8101`, `2ec0b30`, and `a0964c6`: `BenchmarkApp_SubagentStream` < 3 ms/op; `TestE2E_TUISubagentView`; `TestColumn_DetailsTitleSanitized`.
 - AGENTS.md: merge the old branch's additions into `main`'s text. `main` documents groups, mouse, and MCP; keep all of it, and describe the column where it mentions the details split.
