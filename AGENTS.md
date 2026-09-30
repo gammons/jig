@@ -550,7 +550,10 @@ in the layout, so a later call that absorbs one (e.g. streamed
 reasoning) is seen as a restructure; a permission hold starting or
 ending also counts as one. A rebuild re-renders only the headers whose
 members changed or whose shown open state flipped
-(`itemTrack.shownOpen`), not every header. A group shows expanded when
+(`itemTrack.shownOpen`), not every header; this relies on
+`transcript.Projection.Apply` returning the ID of every block whose
+state changed, since a header re-renders only when a member ID is
+reported (or its open state flips). A group shows expanded when
 the user opened it (NORMAL `o`, the remappable `transcript.fold`),
 while a search is applied, or while a member awaits permission, so a
 card is never hidden. An item's version goes up whenever its nesting

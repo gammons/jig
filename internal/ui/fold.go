@@ -100,8 +100,8 @@ func (f *foldState) expanded(gi int) bool {
 
 // toggle flips the user's state of the group id heads, or collapses the
 // group id is a member of, and returns that group's ID. It reports false
-// for any other block. A group held open (a search, a pending permission) keeps showing until
-// the hold ends; the flipped state applies then.
+// for any other block. A group held open (a search, a pending permission)
+// keeps showing until the hold ends; the flipped state applies then.
 func (f *foldState) toggle(id transcript.BlockID) (transcript.BlockID, bool) {
 	if f.open == nil {
 		f.open = map[transcript.BlockID]bool{}
