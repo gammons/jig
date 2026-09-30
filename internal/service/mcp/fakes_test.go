@@ -108,6 +108,10 @@ type fakeConn struct {
 	done      chan struct{}
 	err       error
 	onChanged func()
+
+	// callBlock, if set, makes CallTool block until it's closed or ctx is
+	// done, for timeout/cancel tests.
+	callBlock chan struct{}
 }
 
 func newFakeConn() *fakeConn {
@@ -125,11 +129,33 @@ func (c *fakeConn) ListTools(ctx context.Context) ([]RemoteTool, error) {
 
 func (c *fakeConn) CallTool(ctx context.Context, name string, args json.RawMessage) (RemoteResult, error) {
 	c.mu.Lock()
+	block := c.callBlock
+	c.mu.Unlock()
+	if block != nil {
+		select {
+		case <-block:
+		case <-ctx.Done():
+			return RemoteResult{}, ctx.Err()
+		}
+	}
+	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.callErr != nil {
 		return RemoteResult{}, c.callErr
 	}
 	return c.callRes, nil
+}
+
+// dropDoneOnly closes Done without marking closed or setting Err, so a
+// subsequent CallTool error is treated as a transport failure by tool.go's
+// Done-check, matching a real conn's behavior.
+func (c *fakeConn) dropDoneOnly() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.closed {
+		c.closed = true
+		close(c.done)
+	}
 }
 
 func (c *fakeConn) Close() error {

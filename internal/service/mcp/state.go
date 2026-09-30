@@ -17,6 +17,19 @@ func sortStrings(ss []string) {
 	sort.Strings(ss)
 }
 
+// joinWarnings joins buildTools's per-tool warnings with "; ", or "" when
+// there are none.
+func joinWarnings(warnings []string) string {
+	if len(warnings) == 0 {
+		return ""
+	}
+	out := warnings[0]
+	for _, w := range warnings[1:] {
+		out += "; " + w
+	}
+	return out
+}
+
 // sortedNames returns m's server names in ascending order.
 func sortedNames(servers map[string]*serverState) []string {
 	names := make([]string, 0, len(servers))
@@ -84,11 +97,12 @@ func finishReady(m *Manager, name string, gen int, conn Conn, remote []RemoteToo
 	if !ok || st.generation != gen {
 		return event.MCPServerChanged{}, false
 	}
+	tools, warnings := buildTools(m, name, remote)
 	st.conn = conn
 	st.remote = remote
-	st.tools = buildTools(m, name, remote)
+	st.tools = tools
 	st.status.State = core.MCPReady
-	st.status.Err = ""
+	st.status.Err = joinWarnings(warnings)
 	st.status.AuthURL = ""
 	st.status.Tools = len(st.tools)
 	st.status.ToolNames = toolNames(remote)
@@ -244,8 +258,10 @@ func buildOnChanged(m *Manager, name string) func() {
 			m.mu.Unlock()
 			return
 		}
+		tools, warnings := buildTools(m, name, remote)
 		st.remote = remote
-		st.tools = buildTools(m, name, remote)
+		st.tools = tools
+		st.status.Err = joinWarnings(warnings)
 		st.status.Tools = len(st.tools)
 		st.status.ToolNames = toolNames(remote)
 		notifyChangedLocked(m)
