@@ -69,11 +69,12 @@ func convertUsage(u fantasy.Usage) core.Usage {
 
 // adapter is the core.LLM built from a fantasy.LanguageModel. prepare, if
 // set, mutates the fantasy.Call built from each request before it is sent,
-// e.g. to apply Anthropic's prompt-caching provider options; it is keyed
-// on the owning factory's Type, not on any particular catalog provider ID.
+// given the request, e.g. to apply Anthropic's prompt caching or a
+// provider's effort options; it is keyed on the owning factory's Type, not
+// on any particular catalog provider ID.
 type adapter struct {
 	lm      fantasy.LanguageModel
-	prepare func(*fantasy.Call)
+	prepare func(*fantasy.Call, core.LLMRequest)
 }
 
 // Stream implements core.LLM. An error returned by the underlying model
@@ -82,7 +83,7 @@ type adapter struct {
 func (a *adapter) Stream(ctx context.Context, req core.LLMRequest) iter.Seq2[core.StreamEvent, error] {
 	call := ToFantasy(req)
 	if a.prepare != nil {
-		a.prepare(&call)
+		a.prepare(&call, req)
 	}
 	parts, err := a.lm.Stream(ctx, call)
 	if err != nil {

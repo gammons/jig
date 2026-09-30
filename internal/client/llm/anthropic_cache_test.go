@@ -5,6 +5,8 @@ import (
 
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
+
+	"github.com/gammons/jig/internal/core"
 )
 
 func TestApplyAnthropicCache_MarksLastSystemPartAndLastMessages(t *testing.T) {
@@ -53,16 +55,16 @@ func TestApplyAnthropicCache_LeadingNonSystemMessageGetsNoPartCache(t *testing.T
 	}
 }
 
-func TestApplyAnthropicCacheToCall_MutatesCallPrompt(t *testing.T) {
+func TestAnthropicPrepare_MutatesCallPrompt(t *testing.T) {
 	call := fantasy.Call{Prompt: []fantasy.Message{
 		fantasy.NewSystemMessage("s1"),
 		fantasy.NewUserMessage("hi"),
 	}}
 
-	applyAnthropicCacheToCall(&call)
+	anthropicPrepare(&call, core.LLMRequest{})
 
 	last := call.Prompt[len(call.Prompt)-1]
 	if anthropic.GetCacheControl(last.ProviderOptions) == nil {
-		t.Error("applyAnthropicCacheToCall must mark the call's trailing messages")
+		t.Error("anthropicPrepare must mark the call's trailing messages")
 	}
 }

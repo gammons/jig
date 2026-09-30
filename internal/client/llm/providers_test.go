@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/fantasy/providers/anthropic"
+
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/ext"
 )
@@ -199,23 +201,14 @@ func TestAnthropicFactory_WiresCacheControlHookRegardlessOfProviderID(t *testing
 	}
 }
 
-// TestOpenAIFactory_DoesNotWireCacheControlHook proves the converse: a
-// non-anthropic factory Type never gets Anthropic's cache-control hook.
-func TestOpenAIFactory_DoesNotWireCacheControlHook(t *testing.T) {
-	client, err := openaiFactory{}.New(
-		core.ProviderInfo{ID: "openai", Type: "openai"},
-		core.ProviderConfig{APIKey: "test-key"},
-		"gpt-4o-mini",
-	)
-	if err != nil {
-		t.Fatalf("New: unexpected error: %v", err)
-	}
-	a, ok := client.(*adapter)
-	if !ok {
-		t.Fatalf("got %T, want *adapter", client)
-	}
-	if a.prepare != nil {
-		t.Error("openaiFactory must not wire the cache-control prepare hook")
+// TestOpenAIFactory_NeverAppliesCacheControl proves a non-anthropic
+// factory Type never gets Anthropic's cache-control breakpoints.
+func TestOpenAIFactory_NeverAppliesCacheControl(t *testing.T) {
+	call := prepared(t, "openai", core.EffortHigh)
+	for i, m := range call.Prompt {
+		if anthropic.GetCacheControl(m.ProviderOptions) != nil {
+			t.Errorf("message %d carries cache_control", i)
+		}
 	}
 }
 

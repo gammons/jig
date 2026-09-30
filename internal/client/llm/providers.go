@@ -50,7 +50,7 @@ func Factories(opts ...Option) []ext.ProviderFactory {
 // newModel resolves model against p and wraps the result as a core.LLM.
 // prepare, if non-nil, is wired into the returned adapter as its
 // call-mutation hook (see adapter.prepare).
-func newModel(p fantasy.Provider, model string, prepare func(*fantasy.Call)) (core.LLM, error) {
+func newModel(p fantasy.Provider, model string, prepare func(*fantasy.Call, core.LLMRequest)) (core.LLM, error) {
 	lm, err := p.LanguageModel(context.Background(), model)
 	if err != nil {
 		return nil, fmt.Errorf("llm: resolving model %q: %w", model, err)
@@ -80,10 +80,10 @@ func (f anthropicFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, m
 	if err != nil {
 		return nil, fmt.Errorf("llm: anthropic: %w", err)
 	}
-	// Anthropic prompt caching is wired here, keyed on this factory's Type
-	// ("anthropic"), not on info.ID: a custom-ID provider that is still
-	// type "anthropic" (e.g. a proxy) gets it too.
-	return newModel(p, model, applyAnthropicCacheToCall)
+	// Anthropic prompt caching and effort are wired here, keyed on this
+	// factory's Type ("anthropic"), not on info.ID: a custom-ID provider
+	// that is still type "anthropic" (e.g. a proxy) gets them too.
+	return newModel(p, model, anthropicPrepare)
 }
 
 type openaiFactory struct{ hc *http.Client }
@@ -102,7 +102,7 @@ func (f openaiFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, mode
 	if err != nil {
 		return nil, fmt.Errorf("llm: openai: %w", err)
 	}
-	return newModel(p, model, nil)
+	return newModel(p, model, openaiPrepare)
 }
 
 type openaiCompatFactory struct{ hc *http.Client }
@@ -121,7 +121,7 @@ func (f openaiCompatFactory) New(info core.ProviderInfo, cfg core.ProviderConfig
 	if err != nil {
 		return nil, fmt.Errorf("llm: openai-compat: %w", err)
 	}
-	return newModel(p, model, nil)
+	return newModel(p, model, openaiCompatPrepare)
 }
 
 // openrouterFactory has no base-URL override: fantasy's openrouter package
@@ -139,7 +139,7 @@ func (f openrouterFactory) New(_ core.ProviderInfo, cfg core.ProviderConfig, mod
 	if err != nil {
 		return nil, fmt.Errorf("llm: openrouter: %w", err)
 	}
-	return newModel(p, model, nil)
+	return newModel(p, model, openrouterPrepare)
 }
 
 type googleFactory struct{ hc *http.Client }
@@ -158,5 +158,5 @@ func (f googleFactory) New(info core.ProviderInfo, cfg core.ProviderConfig, mode
 	if err != nil {
 		return nil, fmt.Errorf("llm: google: %w", err)
 	}
-	return newModel(p, model, nil)
+	return newModel(p, model, googlePrepare)
 }
