@@ -6,10 +6,11 @@ import (
 	"testing"
 )
 
-// tightItems is a, then b and c each Tight (no gap before them), then d.
-func tightItems() []Item {
+// compactItems is a, b (two lines), and c, each Compact, then d, which is
+// not: a, b, and c stack with no gaps; d keeps its gap.
+func compactItems() []Item {
 	items := testItems("a", "b\nb1", "c", "d")
-	items[1].Tight, items[2].Tight = true, true
+	items[0].Compact, items[1].Compact, items[2].Compact = true, true, true
 	return items
 }
 
@@ -24,9 +25,9 @@ func trimmed(m Model) []string {
 	return rows
 }
 
-func TestTight_NoGapBeforeATightItem(t *testing.T) {
+func TestCompact_NoGapBetweenTwoCompactItems(t *testing.T) {
 	t.Parallel()
-	m := newList(20, 8, tightItems())
+	m := newList(20, 8, compactItems())
 	m.Top()
 	want := []string{"a", "b", "b1", "c", "", "d", "", ""}
 	if got := trimmed(m); !reflect.DeepEqual(got, want) {
@@ -40,22 +41,22 @@ func TestTight_NoGapBeforeATightItem(t *testing.T) {
 	}
 }
 
-func TestTight_TightFirstItemHasNothingToJoin(t *testing.T) {
+func TestCompact_ALoneCompactItemKeepsItsGaps(t *testing.T) {
 	t.Parallel()
-	items := testItems("a", "b")
-	items[0].Tight = true
-	m := newList(20, 4, items)
+	items := testItems("a", "b", "c")
+	items[1].Compact = true
+	m := newList(20, 6, items)
 	m.Top()
-	if got, want := trimmed(m), []string{"a", "", "b", ""}; !reflect.DeepEqual(got, want) {
+	if got, want := trimmed(m), []string{"a", "", "b", "", "c", ""}; !reflect.DeepEqual(got, want) {
 		t.Errorf("rows = %q, want %q", got, want)
 	}
 }
 
-func TestTight_EnsureVisibleUsesTheItemsOwnHeight(t *testing.T) {
+func TestCompact_EnsureVisibleUsesTheItemsOwnHeight(t *testing.T) {
 	t.Parallel()
-	// h=3: selecting b (2 lines, tight under a) must show both its lines
+	// h=3: selecting b (2 lines, stacked under a) must show both its lines
 	// and must not scroll further for a gap that is not there.
-	m := newList(20, 3, tightItems())
+	m := newList(20, 3, compactItems())
 	m.Top()
 	m = press(m, "j")
 	if got := selectedID(t, m); got != "i1" {
@@ -70,9 +71,9 @@ func TestTight_EnsureVisibleUsesTheItemsOwnHeight(t *testing.T) {
 	}
 }
 
-func TestTight_HitTest(t *testing.T) {
+func TestCompact_HitTest(t *testing.T) {
 	t.Parallel()
-	m := newList(20, 8, tightItems())
+	m := newList(20, 8, compactItems())
 	m.Top()
 	tests := []struct {
 		y    int
@@ -91,12 +92,34 @@ func TestTight_HitTest(t *testing.T) {
 	}
 }
 
-func TestTight_UpsertAppendsTight(t *testing.T) {
+func TestCompact_UpsertAppendsStacked(t *testing.T) {
 	t.Parallel()
-	m := newList(20, 6, testItems("a"))
+	items := testItems("a")
+	items[0].Compact = true
+	m := newList(20, 6, items)
 	m.Top()
-	m.Upsert(Item{ID: "i1", Version: 1, Data: "b", Tight: true})
+	m.Upsert(Item{ID: "i1", Version: 1, Data: "b", Compact: true})
 	if got, want := trimmed(m), []string{"a", "b", "", "", "", ""}; !reflect.DeepEqual(got, want) {
 		t.Errorf("rows = %q, want %q", got, want)
+	}
+}
+
+// TestCompact_UpsertChangesBothNeighborsGaps: an upsert that turns an
+// item Compact (or not) changes the gap on both its sides, without the
+// neighbors being upserted.
+func TestCompact_UpsertChangesBothNeighborsGaps(t *testing.T) {
+	t.Parallel()
+	items := compactItems()
+	items[1].Compact = false
+	m := newList(20, 8, items)
+	m.Top()
+	if got, want := trimmed(m), []string{"a", "", "b", "b1", "", "c", "", "d"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("before: rows = %q, want %q", got, want)
+	}
+	b := items[1]
+	b.Compact = true
+	m.Upsert(b)
+	if got, want := trimmed(m), []string{"a", "b", "b1", "c", "", "d", "", ""}; !reflect.DeepEqual(got, want) {
+		t.Errorf("after b turns Compact: rows = %q, want %q", got, want)
 	}
 }

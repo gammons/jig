@@ -21,7 +21,7 @@ func TestNewChild_OwnEventsBuildBlocks(t *testing.T) {
 	run(t, p, []step{
 		{event.TextDelta{Base: sessBase(kid), MessageID: "k1", Text: "hello"}, []BlockID{"m/k1/0"}},
 		{event.ReasoningDelta{Base: sessBase(kid), MessageID: "k1", Text: "hm"}, []BlockID{"m/k1/1"}},
-		{event.ToolCallStarted{Base: sessBase(kid), MessageID: "k1", Call: *mkCall("c1", "bash", `{}`)}, []BlockID{"t/c1"}},
+		{event.ToolCallStarted{Base: sessBase(kid), MessageID: "k1", Call: *mkCall("c1", "bash", `{}`)}, []BlockID{"m/k1/1", "t/c1"}},
 		{event.ToolCallFinished{Base: sessBase(kid), MessageID: "k1", Result: *mkResult("c1", "bash", "ok", false)}, []BlockID{"t/c1"}},
 	})
 	blocks := p.Blocks()

@@ -616,11 +616,13 @@ while a search is applied, or while a member awaits permission, so a
 card is never hidden. An item's version goes up whenever its nesting
 changes, so a cached render never keeps a stale indent. Headers get
 their own details (the member list) and yank (the members' paths,
-patterns, and commands). A tool line (a tool or subagent call, a group
-header, or a group member) right under another is laid out with no gap
-(`blocklist.Item.Tight`); `foldState.tight` records it per entry when
-the entry joins the layout (`layout`, or `itemTrack.appendOrder` on the
-upsert path), so it never forces a rebuild.
+patterns, and commands). A one-line row (a tool or subagent call, a
+group header or member, or a reasoning block done thinking;
+`isOneLine` in `internal/ui/items.go`) is `blocklist.Item.Compact`, and
+the blocklist drops the gap between two neighboring `Compact` items, so
+an item's flag depends only on its own block. `Projection.Apply` reports
+a reasoning block whose thinking a new block ended, so its flag (and
+collapsed render) update in the same pass.
 
 **Actions.** Every command is an `actions.ID` run by `App.runAction`,
 reached through the picker or a key; see "Adding a picker action" below.

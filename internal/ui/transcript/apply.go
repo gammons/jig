@@ -8,10 +8,24 @@ import (
 )
 
 // Apply folds one live event into the projection and returns the IDs of
-// the blocks it changed, in block order, or nil if none. Events from other
-// roots are ignored; events from descendant sessions go to applyDescendant.
+// the blocks it changed, in block order, or nil if none: a reasoning block
+// whose thinking a new block ended comes first. Events from other roots
+// are ignored; events from descendant sessions go to applyDescendant.
 // Spawns and permission events are handled the same from any session.
 func (p *Projection) Apply(ev event.Event) []BlockID {
+	p.list.ended = nil
+	ids := applyEvent(p, ev)
+	if len(p.list.ended) == 0 {
+		return ids
+	}
+	ended := p.list.ended
+	p.list.ended = nil
+	return append(ended, ids...)
+}
+
+// applyEvent is Apply without the ended-thinking report. A free function,
+// not a method, to stay under the package's per-type method budget.
+func applyEvent(p *Projection, ev event.Event) []BlockID {
 	if ev.Root() != p.root {
 		return nil
 	}

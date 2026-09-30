@@ -37,13 +37,29 @@ func reasonDelta(msg, s string) event.ReasoningDelta {
 	return event.ReasoningDelta{Base: rootBase(), MessageID: core.MessageID(msg), Text: s}
 }
 
+// TestApply_ReportsTheThinkingABlockEnds: a block that ends its message's
+// thinking reports that reasoning block too, first (block order), once.
+func TestApply_ReportsTheThinkingABlockEnds(t *testing.T) {
+	p := New(root)
+	run(t, p, []step{
+		{reasonDelta("m1", "hmm"), []BlockID{"m/m1/0"}},
+		{event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: *mkCall("c1", "read", `{}`)},
+			[]BlockID{"m/m1/0", "t/c1"}},
+		{event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: *mkCall("c2", "read", `{}`)},
+			[]BlockID{"t/c2"}},
+	})
+	if b, _ := p.Block("m/m1/0"); b.Thinking {
+		t.Error("m/m1/0 is still thinking")
+	}
+}
+
 func TestApply_StreamingAppendsAndSplitsOnKindChange(t *testing.T) {
 	p := New(root)
 	run(t, p, []step{
 		{started("m1"), nil},
 		{reasonDelta("m1", "a"), []BlockID{"m/m1/0"}},
 		{reasonDelta("m1", "b"), []BlockID{"m/m1/0"}},
-		{textDelta("m1", "c"), []BlockID{"m/m1/1"}},
+		{textDelta("m1", "c"), []BlockID{"m/m1/0", "m/m1/1"}}, // it ended m/m1/0's thinking
 		{reasonDelta("m1", "d"), []BlockID{"m/m1/2"}},
 		{started("m2"), nil},
 		{textDelta("m2", "x"), []BlockID{"m/m2/0"}},
@@ -82,7 +98,7 @@ func TestApply_StreamingFlagClearsOnStepEnd(t *testing.T) {
 			run(t, p, []step{
 				{started("m1"), nil},
 				{reasonDelta("m1", "r"), []BlockID{"m/m1/0"}},
-				{textDelta("m1", "t"), []BlockID{"m/m1/1"}},
+				{textDelta("m1", "t"), []BlockID{"m/m1/0", "m/m1/1"}}, // it ended m/m1/0's thinking
 				{event.StepFinished{Base: rootBase(), MessageID: "other"}, nil},
 			})
 			for _, id := range []BlockID{"m/m1/0", "m/m1/1"} {

@@ -21,14 +21,14 @@ import (
 // Item is one block. The widget renders it through RenderFunc and treats
 // Data as opaque; bump Version whenever anything that affects the render
 // changes, since (ID, Version, width, stylesVersion) is the cache key.
-// Tight drops the Gap before the item, so it sits flush under the one
-// above (no effect on the first item); it is layout, not part of the
+// Two neighboring Compact items stack with no Gap between them; a Compact
+// item next to any other keeps the Gap. Compact is layout, not part of the
 // render, so changing it needs no Version bump.
 type Item struct {
 	ID      string
 	Version int
 	Data    any
-	Tight   bool
+	Compact bool
 }
 
 // RenderFunc renders an item into lines at most width cells wide (wider

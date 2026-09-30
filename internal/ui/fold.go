@@ -29,10 +29,8 @@ type foldEntry struct {
 // spec §6.1): the groups, which group each member is in (owner) and each
 // group's index (byID), the groups the user expanded (open), whether a
 // search forces every group open, the groups holding a member awaiting
-// permission (awaiting), the layout last computed (order), so regroup can
-// tell an append from a restructure, and which entries of it are tight:
-// a tool line (a tool or subagent call, a group header, or a group
-// member) right under another, laid out with no gap between them.
+// permission (awaiting), and the layout last computed (order), so
+// regroup can tell an append from a restructure.
 type foldState struct {
 	groups   []transcript.Group
 	owner    map[transcript.BlockID]int
@@ -41,26 +39,6 @@ type foldState struct {
 	search   bool
 	awaiting map[transcript.BlockID]bool
 	order    []foldEntry
-	tight    map[transcript.BlockID]bool
-}
-
-// isToolLine reports whether e shows as a tool line: a group header or
-// member, or a tool or subagent call. b is e's block (unused for a
-// header).
-func isToolLine(e foldEntry, b transcript.Block) bool {
-	return e.kind != entryPlain || b.Kind == transcript.KindTool || b.Kind == transcript.KindSubagent
-}
-
-// appendEntry appends e (showing block b) to order, recording it tight
-// when it and the entry above it are both tool lines. prevLine is whether
-// order's last entry is a tool line.
-func (f *foldState) appendEntry(order []foldEntry, prevLine bool, e foldEntry, b transcript.Block) ([]foldEntry, bool) {
-	if f.tight == nil {
-		f.tight = map[transcript.BlockID]bool{}
-	}
-	line := isToolLine(e, b)
-	f.tight[e.id] = len(order) > 0 && prevLine && line
-	return append(order, e), line
 }
 
 // regroup recomputes the groups and the layout of blocks, keeps the
@@ -92,24 +70,21 @@ func (f *foldState) regroup(blocks []transcript.Block) ([]foldEntry, bool) {
 }
 
 // layout lays blocks out: a member's group shows as its header (at its
-// first call) and, while expanded, the members nested under it. It
-// records each entry's tightness afresh.
+// first call) and, while expanded, the members nested under it.
 func (f *foldState) layout(blocks []transcript.Block) []foldEntry {
-	f.tight = make(map[transcript.BlockID]bool, len(blocks))
 	out := make([]foldEntry, 0, len(blocks))
-	line := false
 	for _, b := range blocks {
 		gi, member := f.owner[b.ID]
 		if !member {
-			out, line = f.appendEntry(out, line, foldEntry{kind: entryPlain, id: b.ID, group: -1}, b)
+			out = append(out, foldEntry{kind: entryPlain, id: b.ID, group: -1})
 			continue
 		}
 		g := f.groups[gi]
 		if b.ID == g.Members[0] {
-			out, line = f.appendEntry(out, line, foldEntry{kind: entryHeader, id: g.ID, group: gi}, b)
+			out = append(out, foldEntry{kind: entryHeader, id: g.ID, group: gi})
 		}
 		if f.expanded(gi) {
-			out, line = f.appendEntry(out, line, foldEntry{kind: entryNested, id: b.ID, group: gi}, b)
+			out = append(out, foldEntry{kind: entryNested, id: b.ID, group: gi})
 		}
 	}
 	return out

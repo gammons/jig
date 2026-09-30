@@ -4,16 +4,17 @@ import "sort"
 
 // The list is one flattened line space: item i occupies lines
 // [offsets[i], offsets[i]+height(i)), followed by gapAfter(i) blank lines:
-// Gap, or none when the next item is Tight. The last item is followed by
-// Gap too, so offsets[n] = total + Gap. yOffset is the first visible line.
+// Gap, or none when it and the next item are both Compact. The last item
+// is followed by Gap too, so offsets[n] = total + Gap. yOffset is the
+// first visible line.
 
 // gapOf is the effective blank-line count between items.
 func gapOf(st Styles) int { return max(0, st.Gap) }
 
-// gapAfter is the blank-line count after item i: none when the item
-// below it is Tight.
+// gapAfter is the blank-line count after item i: none when it and the
+// item below it are both Compact.
 func gapAfter(m *Model, i int) int {
-	if i+1 < len(m.items) && m.items[i+1].Tight {
+	if i+1 < len(m.items) && m.items[i].Compact && m.items[i+1].Compact {
 		return 0
 	}
 	return gapOf(m.styles)

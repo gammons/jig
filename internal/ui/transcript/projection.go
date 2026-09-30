@@ -149,21 +149,24 @@ func (p *Projection) addNotice(msg core.MessageID, title, text string, level Lev
 	return p.list.add(&Block{ID: id, Kind: KindNotice, MessageID: msg, Title: title, Text: text, Level: level})
 }
 
-// blockList is the ordered block store with an ID index.
+// blockList is the ordered block store with an ID index, and the blocks
+// whose thinking an add ended since Apply last collected them (ended).
 type blockList struct {
 	blocks []*Block
 	index  map[BlockID]int
+	ended  []BlockID
 }
 
-// add appends b at Version 1 and returns it.
-// add appends b, first clearing Thinking on its message's previous
-// newest block: whatever follows a reasoning block ends that thinking.
+// add appends b at Version 1 and returns it, first clearing Thinking on
+// its message's previous newest block (recorded in ended): whatever
+// follows a reasoning block ends that thinking.
 func (l *blockList) add(b *Block) *Block {
 	for i := len(l.blocks) - 1; i >= 0; i-- {
 		if prev := l.blocks[i]; prev.MessageID == b.MessageID && b.MessageID != "" {
 			if prev.Thinking {
 				prev.Thinking = false
 				prev.Version++
+				l.ended = append(l.ended, prev.ID)
 			}
 			break
 		}
