@@ -1183,3 +1183,55 @@ func TestApp_GoldenStreaming(t *testing.T) {
 	ta.fire()
 	golden.Assert(t, "app_streaming", ta.view())
 }
+
+// effortCatalog has a configured anthropic with sonnet (low…max, default
+// high) and haiku (no effort levels).
+func effortCatalog() fakeCatalog {
+	return fakeCatalog{
+		{Configured: true, Info: core.ProviderInfo{ID: "anthropic", Name: "Anthropic", Models: []core.ModelInfo{
+			{
+				Ref: core.ModelRef{Provider: "anthropic", Model: "claude-sonnet-5"}, Name: "Claude Sonnet 5", ContextWindow: 200000,
+				Efforts:       []core.Effort{core.EffortLow, core.EffortMedium, core.EffortHigh, core.EffortMax},
+				DefaultEffort: core.EffortHigh,
+			},
+			{Ref: core.ModelRef{Provider: "anthropic", Model: "claude-haiku-4-5"}, Name: "Claude Haiku 4.5", ContextWindow: 200000},
+		}}},
+	}
+}
+
+func TestApp_StatusShowsEffectiveEffort(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withCatalog(effortCatalog()), withResume(resumed(), nil, nil))
+	if v := xansi.Strip(ta.view()); !strings.Contains(v, "claude-sonnet-5 · high") {
+		t.Errorf("want the catalog default high after the model:\n%s", v)
+	}
+
+	withDefault := newTestApp(t, withCatalog(effortCatalog()), withResume(resumed(), nil, nil),
+		func(c *testConfig) { c.opts.DefaultEffort = core.EffortXHigh })
+	if v := xansi.Strip(withDefault.view()); !strings.Contains(v, "claude-sonnet-5 · high") {
+		t.Errorf("default_effort xhigh must clamp to the tie's lower level, high:\n%s", v)
+	}
+
+	haiku := resumed()
+	haiku.Model = "anthropic/claude-haiku-4-5"
+	haiku.Effort = core.EffortMax
+	noLevels := newTestApp(t, withCatalog(effortCatalog()), withResume(haiku, nil, nil))
+	if v := xansi.Strip(noLevels.view()); strings.Contains(v, "claude-haiku-4-5 ·") {
+		t.Errorf("a model without levels shows no effort:\n%s", v)
+	}
+}
+
+func TestEffortControllable(t *testing.T) {
+	t.Parallel()
+	s := newSessionState("", clock.NewFake(testStart()), catalog{providers: effortCatalog()})
+	for ref, want := range map[string]bool{
+		"anthropic/claude-sonnet-5":  true,
+		"anthropic/claude-haiku-4-5": false,
+		"anthropic/unknown":          false,
+	} {
+		s.info.Model = ref
+		if got := effortControllable(s); got != want {
+			t.Errorf("effortControllable(%s) = %v, want %v", ref, got, want)
+		}
+	}
+}

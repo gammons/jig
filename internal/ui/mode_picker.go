@@ -257,12 +257,11 @@ func (p pickerCtl) resume(id core.SessionID) tea.Cmd {
 }
 
 // freshSession is a new session state for id, keeping old's cached
-// catalog, agent, and model. Recorded attachments don't carry over: a
+// catalog, agent, model, and effort. Recorded attachments don't carry over: a
 // path picked for the old session must not attach to the new one.
 func freshSession(old *sessionState, id core.SessionID) *sessionState {
-	s := newSessionState(id, old.clk, old.cat.defaultModel)
-	s.cat = old.cat
-	s.info.Agent, s.info.Model = old.info.Agent, old.info.Model
+	s := newSessionState(id, old.clk, old.cat)
+	s.info.Agent, s.info.Model, s.info.Effort = old.info.Agent, old.info.Model, old.info.Effort
 	return s
 }
 

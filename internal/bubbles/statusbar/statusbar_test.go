@@ -208,3 +208,20 @@ func TestGolden_StatusRunning(t *testing.T) {
 	m.Set(s)
 	golden.Assert(t, "status_running", m.View())
 }
+
+func TestStatus_EffortFollowsModel(t *testing.T) {
+	t.Parallel()
+	m := New()
+	m.SetWidth(140)
+	st := runningState()
+	st.Effort = "high"
+	m.Set(st)
+	if got := xansi.Strip(m.View()); !strings.Contains(got, "coder · sonnet · high") {
+		t.Errorf("view = %q, want coder · sonnet · high", got)
+	}
+	st.Effort = ""
+	m.Set(st)
+	if got := xansi.Strip(m.View()); strings.Contains(got, "sonnet ·") {
+		t.Errorf("view = %q, want no effort after the model", got)
+	}
+}
