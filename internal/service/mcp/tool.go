@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/ext"
@@ -70,21 +69,7 @@ func (t *mcpTool) Run(ctx context.Context, _ ext.RunContext, call core.ToolCall)
 		t.m.markFailed(t.server, gen, err)
 		return core.ToolError(call, err.Error()), nil
 	}
-	if res.IsError {
-		return core.ToolError(call, joinText(res.Content)), nil
-	}
-	return core.ToolOK(call, joinText(res.Content)), nil
-}
-
-// joinText concatenates every text content item with "\n".
-func joinText(content []RemoteContent) string {
-	var parts []string
-	for _, c := range content {
-		if c.Kind == "text" {
-			parts = append(parts, c.Text)
-		}
-	}
-	return strings.Join(parts, "\n")
+	return mapResult(call, t.server, t.remote.Name, res, t.m.images), nil
 }
 
 // buildTools wraps every remote tool into an ext.Tool, dropping any whose
