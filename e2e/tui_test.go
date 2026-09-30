@@ -233,6 +233,7 @@ func TestE2E_TUISubagentView(t *testing.T) {
 		t.Fatalf("jig exited %d\nscreen:\n%s", code, scr.snapshot())
 	}
 }
+
 // wheel-up scrolls the transcript back into text that scrolled off the
 // bottom, and a press-drag-release over the reply selects text and
 // copies it to the clipboard via an OSC 52 sequence (spec §3.1/§3.2).
