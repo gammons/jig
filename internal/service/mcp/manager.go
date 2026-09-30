@@ -282,15 +282,19 @@ func (m *Manager) Servers() []core.MCPServerStatus {
 	return out
 }
 
-// liveConn returns the current Conn for name, only while it is ready.
-func (m *Manager) liveConn(name string) (Conn, bool) {
+// liveConn returns the current Conn for name and its generation, only
+// while it is ready. Callers pass the generation back to markFailed, so a
+// failure reported against a stale (conn, gen) pair can never clobber a
+// newer connection that Reconnect, Logout, or Authenticate has since
+// installed.
+func (m *Manager) liveConn(name string) (Conn, int, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	st, ok := m.servers[name]
 	if !ok || st.status.State != core.MCPReady || st.conn == nil {
-		return nil, false
+		return nil, 0, false
 	}
-	return st.conn, true
+	return st.conn, st.generation, true
 }
 
 // Close cancels every in-flight dial or auth operation, closes every live

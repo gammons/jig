@@ -57,7 +57,7 @@ func (t *mcpTool) Concurrent() bool       { return false }
 // Run looks up the server's live connection and calls the remote tool with
 // the call's input unchanged.
 func (t *mcpTool) Run(ctx context.Context, _ ext.RunContext, call core.ToolCall) (core.ToolResult, error) {
-	conn, ok := t.m.liveConn(t.server)
+	conn, gen, ok := t.m.liveConn(t.server)
 	if !ok {
 		return core.ToolError(call, fmt.Sprintf("mcp server %q is not ready", t.server)), nil
 	}
@@ -67,7 +67,7 @@ func (t *mcpTool) Run(ctx context.Context, _ ext.RunContext, call core.ToolCall)
 		if ctx.Err() != nil {
 			return core.ToolResult{}, ctx.Err()
 		}
-		t.m.markFailed(t.server, err)
+		t.m.markFailed(t.server, gen, err)
 		return core.ToolError(call, err.Error()), nil
 	}
 	if res.IsError {

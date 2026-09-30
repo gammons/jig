@@ -71,6 +71,31 @@ func (m *Manager) connectServer(name string) {
 	connectAndWatch(m, name, gen, ctx, cancel, AuthClosed)
 }
 
+// finishReady installs conn and remote as name's live, ready connection,
+// but only while gen is still current. It returns the ready event to
+// publish and whether it applied; on false the caller must close conn
+// itself (a newer attempt already owns the server's conn slot). Shared by
+// connectAndWatch and Authenticate so both "install a fresh ready
+// connection" paths behave identically.
+func finishReady(m *Manager, name string, gen int, conn Conn, remote []RemoteTool) (event.MCPServerChanged, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.servers[name]
+	if !ok || st.generation != gen {
+		return event.MCPServerChanged{}, false
+	}
+	st.conn = conn
+	st.remote = remote
+	st.tools = buildTools(m, name, remote)
+	st.status.State = core.MCPReady
+	st.status.Err = ""
+	st.status.AuthURL = ""
+	st.status.Tools = len(st.tools)
+	st.status.ToolNames = toolNames(remote)
+	notifyChangedLocked(m)
+	return event.MCPServerChanged{Name: name, State: core.MCPReady, Tools: len(remote)}, true
+}
+
 // connectAndWatch dials name under ctx (already fenced by gen), lists its
 // tools on success, and then watches its Done channel until the Manager
 // itself supersedes the connection (a higher generation). Every state
@@ -112,23 +137,12 @@ func connectAndWatch(m *Manager, name string, gen int, ctx context.Context, canc
 		return
 	}
 
-	m.mu.Lock()
-	if m.servers[name].generation != gen {
-		m.mu.Unlock()
+	e, applied := finishReady(m, name, gen, conn, remote)
+	if !applied {
 		conn.Close()
 		return
 	}
-	st := m.servers[name]
-	st.conn = conn
-	st.remote = remote
-	st.tools = buildTools(m, name, remote)
-	st.status.State = core.MCPReady
-	st.status.Err = ""
-	st.status.Tools = len(st.tools)
-	st.status.ToolNames = toolNames(remote)
-	notifyChangedLocked(m)
-	m.mu.Unlock()
-	publish(m, event.MCPServerChanged{Name: name, State: core.MCPReady, Tools: len(remote)})
+	publish(m, e)
 
 	watchDone(m, name, conn, gen)
 }
@@ -267,25 +281,18 @@ func watchDone(m *Manager, name string, conn Conn, gen int) {
 }
 
 // markFailed moves name to failed with err's message and publishes the
-// change unconditionally (used by the tool wrapper for a transport error
-// hit mid-call; it doesn't need generation fencing since it always applies
-// to the caller's own live conn).
-func (m *Manager) markFailed(name string, err error) {
+// change, but only while gen is still current (finding 4): a CallTool
+// failure captured against a stale (conn, gen) pair must never clobber a
+// newer connection that a concurrent Reconnect, Logout, or Authenticate
+// has since installed.
+func (m *Manager) markFailed(name string, gen int, err error) {
 	msg := ""
 	if err != nil {
 		msg = err.Error()
 	}
-	m.mu.Lock()
-	st, ok := m.servers[name]
-	if !ok {
-		m.mu.Unlock()
-		return
+	if e := setStateIfCurrent(m, name, gen, core.MCPFailed, msg); e.Name != "" {
+		publish(m, e)
 	}
-	st.status.State = core.MCPFailed
-	st.status.Err = msg
-	notifyChangedLocked(m)
-	m.mu.Unlock()
-	publish(m, event.MCPServerChanged{Name: name, State: core.MCPFailed, Err: msg})
 }
 
 // toolNames builds core.MCPServerStatus.ToolNames: "<name> — <description>",
@@ -338,32 +345,15 @@ func (m *Manager) Settle(ctx context.Context, d time.Duration) {
 }
 
 // Reconnect closes name's current connection (if any) and dials again.
-// Allowed in any state except authenticating.
+// Allowed in any state except authenticating: the check and the
+// generation bump happen in one critical section, so a Reconnect can never
+// slip into the window before Authenticate's MCPAuthenticating becomes
+// visible (finding 2).
 func (m *Manager) Reconnect(ctx context.Context, name string) error {
-	m.mu.Lock()
-	st, ok := m.servers[name]
-	if !ok {
-		m.mu.Unlock()
-		return ErrUnknownServer
+	oldConn, gen, dctx, cancel, err := beginReconnect(m, name)
+	if err != nil {
+		return err
 	}
-	if st.status.State == core.MCPAuthenticating {
-		m.mu.Unlock()
-		return ErrAuthenticating
-	}
-	oldConn := st.conn
-	m.mu.Unlock()
-
-	gen, dctx, cancel := beginGeneration(m, name)
-
-	m.mu.Lock()
-	st = m.servers[name]
-	st.conn = nil
-	st.tools = nil
-	st.status.State = core.MCPConnecting
-	st.status.Err = ""
-	notifyChangedLocked(m)
-	m.mu.Unlock()
-	publish(m, event.MCPServerChanged{Name: name, State: core.MCPConnecting})
 
 	if oldConn != nil {
 		oldConn.Close()
@@ -375,6 +365,39 @@ func (m *Manager) Reconnect(ctx context.Context, name string) error {
 		connectAndWatch(m, name, gen, dctx, cancel, AuthClosed)
 	}()
 	return nil
+}
+
+// beginReconnect validates name and, in one critical section, rejects an
+// authenticating server, then bumps the generation (cancelling any prior
+// in-flight op) and sets MCPConnecting.
+func beginReconnect(m *Manager, name string) (oldConn Conn, gen int, ctx context.Context, cancel context.CancelFunc, err error) {
+	m.mu.Lock()
+	st, ok := m.servers[name]
+	if !ok {
+		m.mu.Unlock()
+		return nil, 0, nil, nil, ErrUnknownServer
+	}
+	if st.status.State == core.MCPAuthenticating {
+		m.mu.Unlock()
+		return nil, 0, nil, nil, ErrAuthenticating
+	}
+	oldConn = st.conn
+	if st.cancel != nil {
+		st.cancel()
+	}
+	st.generation++
+	gen = st.generation
+	ctx, cancel = context.WithCancel(m.baseCtx)
+	st.cancel = cancel
+	st.conn = nil
+	st.tools = nil
+	st.status.State = core.MCPConnecting
+	st.status.Err = ""
+	notifyChangedLocked(m)
+	m.mu.Unlock()
+
+	publish(m, event.MCPServerChanged{Name: name, State: core.MCPConnecting})
+	return oldConn, gen, ctx, cancel, nil
 }
 
 // Logout deletes name's stored token, then closes and reconnects it with
