@@ -27,6 +27,10 @@ const runTimeout = 30 * time.Second
 // before any test runs, and only read afterwards.
 var jigBin string
 
+// mcpfakeBin is the path of the scripted MCP stdio server TestMain
+// builds, for e2e tests exercising real MCP tool calls.
+var mcpfakeBin string
+
 func TestMain(m *testing.M) {
 	os.Exit(buildAndRun(m))
 }
@@ -49,6 +53,13 @@ func buildAndRun(m *testing.M) int {
 	build.Dir = root
 	if out, err := build.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "e2e: building jig: %v\n%s", err, out)
+		return 1
+	}
+	mcpfakeBin = filepath.Join(dir, "mcpfake")
+	buildFake := exec.Command("go", "build", "-o", mcpfakeBin, "./e2e/testdata/mcpfake")
+	buildFake.Dir = root
+	if out, err := buildFake.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "e2e: building mcpfake: %v\n%s", err, out)
 		return 1
 	}
 	return m.Run()
