@@ -17,6 +17,8 @@ func (a *App) relayout() tea.Cmd {
 		for _, p := range a.view.col {
 			if p.kind == paneDetails {
 				p.body.SetSize(bw, bh)
+			} else {
+				p.list.SetSize(bw, bh)
 			}
 		}
 	}

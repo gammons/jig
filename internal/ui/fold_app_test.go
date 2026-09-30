@@ -203,7 +203,7 @@ func TestFold_ReasoningAbsorbedIntoAnOpenGroupIsNested(t *testing.T) {
 	f := &ta.app.sess.main.track.fold
 	f.toggle("g/c1")
 	f.regroup(ta.app.sess.main.proj.Blocks())
-	foldCtl{ta.app}.relist(nil)
+	foldCtl{ta.app, ta.app.sess.main}.relist(nil)
 	ta.reasonInStepTwo()
 	ta.startTool("m2", "c3", "grep", `{"pattern":"TODO"}`)
 	want := []string{"g/c1", "t/c1", "t/c2", "m/m2/0", "t/c3"}

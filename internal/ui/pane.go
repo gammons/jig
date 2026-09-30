@@ -116,3 +116,35 @@ func (p *pane) data(b transcript.Block, frame int) blockData {
 		Thinking: b.Thinking,
 	}
 }
+
+// allItems regroups p's blocks and builds every item of the layout, in
+// display order, each at a new version.
+func (p *pane) allItems(frame int) []blocklist.Item {
+	entries, _ := p.track.fold.regroup(p.proj.Blocks())
+	return p.track.layoutItems(p, entries, bumpAll, frame)
+}
+
+// items builds, each at a new version, the items that show the blocks
+// ids (a member of a collapsed group shows as its header), tracks which
+// of them are live, and records the new ones in the fold layout.
+func (p *pane) items(ids []transcript.BlockID, frame int) []blocklist.Item {
+	return p.track.upsert(p, ids, frame)
+}
+
+// tick advances the pane's live blocks to re-render: every dirty one,
+// then every live one (App.onTick's per-pane sibling to
+// sessionState.tick).
+func (p *pane) tick() []transcript.BlockID {
+	ids := p.track.dirty.take()
+	live := make([]transcript.BlockID, 0, len(p.track.live))
+	for id := range p.track.live {
+		live = append(live, id)
+	}
+	slices.Sort(live)
+	for _, id := range live {
+		if !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}

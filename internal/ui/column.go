@@ -35,17 +35,23 @@ const columnHeaderRows = 2
 func columnOpen(a *App) bool { return len(a.view.col) > 0 }
 
 // setFocus makes f the App's focus, applying SetHighlight(mode == NORMAL
-// && focused) to main's list.
+// && focused) to main's list and, when the column is open, to the top
+// transcript pane's list, so only the focused pane highlights its
+// selection (spec §5.2).
 func setFocus(a *App, f focus) {
 	a.view.focus = f
 	syncHighlight(a)
 }
 
-// syncHighlight re-applies SetHighlight to main's list from the current
-// mode and focus; setMode must keep this consistent too.
+// syncHighlight re-applies SetHighlight to main's list and the column's
+// top transcript pane's list from the current mode and focus; setMode
+// must keep this consistent too.
 func syncHighlight(a *App) {
 	normal := a.mode == modeNormal
 	a.sess.main.list.SetHighlight(normal && a.view.focus == focusMain)
+	if top := columnTop(a); top != nil && top.kind == paneTranscript {
+		top.list.SetHighlight(normal && a.view.focus == focusColumn)
+	}
 }
 
 // columnTop returns the column's top entry, or nil when it is closed.
@@ -81,12 +87,17 @@ func columnBodySize(a *App) (int, int) {
 }
 
 // columnEntryFor returns the column entry for block id (owned by
-// owner): a group header's member list, or a block's own details, built
-// at the column's current size, its content from buildDetails/
-// groupDetails. (A subagent block's live child pane joins in a later
-// task; here every block, subagent or not, gets a details pane.) nil
-// when id no longer names a block or group.
+// owner): for a subagent block with Sub.Child set, its live child
+// transcript pane (kids[child], created and loaded if missing); for a
+// group header's member list, or any other block (including a subagent
+// with no child yet), a details pane built at the column's current
+// size, its content from buildDetails/groupDetails. nil when id no
+// longer names a block or group.
 func columnEntryFor(a *App, owner *pane, id transcript.BlockID) (*pane, tea.Cmd) {
+	if b, ok := owner.proj.Block(id); ok && b.Kind == transcript.KindSubagent && b.Sub != nil && b.Sub.Child != "" {
+		p, cmd := kidsCtl{a}.kid(b.Sub.Child, b.Sub.Agent, b.Sub.Description)
+		return p, cmd
+	}
 	w, h := columnBodySize(a)
 	p := &pane{
 		kind: paneDetails, owner: owner, forBlock: id,
@@ -96,19 +107,17 @@ func columnEntryFor(a *App, owner *pane, id transcript.BlockID) (*pane, tea.Cmd)
 	p.buildGen++
 	gen := p.buildGen
 
-	if owner == a.sess.main {
-		if members, durs, ok := (foldCtl{a}).group(id); ok {
-			content := groupDetails(members, durs)
-			p.body.SetContent(content)
-			p.title = ansi.SanitizeLine(content.Header)
-			return p, nil
-		}
+	if members, durs, ok := (foldCtl{a, owner}).group(id); ok {
+		content := groupDetails(members, durs)
+		p.body.SetContent(content)
+		p.title = ansi.SanitizeLine(content.Header)
+		return p, nil
 	}
-	b, ok := owner.proj.Block(id)
+	b2, ok := owner.proj.Block(id)
 	if !ok {
 		return nil, nil
 	}
-	content, cmd := buildDetails(a.ctx, b, w, h, a.w.render, a.ports, a.img)
+	content, cmd := buildDetails(a.ctx, b2, w, h, a.w.render, a.ports, a.img)
 	p.body.SetContent(content)
 	p.title = ansi.SanitizeLine(content.Header)
 	if cmd == nil {
@@ -125,9 +134,13 @@ func columnEntryFor(a *App, owner *pane, id transcript.BlockID) (*pane, tea.Cmd)
 	return p, wrapped
 }
 
-// columnPush appends p to the column.
+// columnPush appends p to the column: a freshly built transcript pane
+// gets its initial SetItems and the current theme's styles+version, and
+// the column takes focus (spec §5.2: pushing a subagent pane focuses the
+// column; pushing a details pane leaves the pusher's focus as it was).
 func columnPush(a *App, p *pane) tea.Cmd {
 	a.view.col = append(a.view.col, p)
+	initPushed(a, p)
 	return nil
 }
 
@@ -155,6 +168,21 @@ func columnClose(a *App) {
 func columnReplace(a *App, p *pane) tea.Cmd {
 	a.view.col = nil
 	return columnPush(a, p)
+}
+
+// initPushed prepares a just-pushed pane for display: a transcript pane
+// (a subagent's live child, or a grandchild drilled into from one) gets
+// its full item set and current styles, and takes the column's focus; a
+// details pane leaves focus untouched (only its highlight, which never
+// applies to a details pane, is resynced).
+func initPushed(a *App, p *pane) {
+	if p.kind != paneTranscript {
+		syncHighlight(a)
+		return
+	}
+	a.w.setItems(p, p.allItems(a.sess.run.frame))
+	p.list.SetStyles(a.theme.set.Blocklist, a.theme.version)
+	setFocus(a, focusColumn)
 }
 
 // columnDropStale pops the column's top entry while its block no longer

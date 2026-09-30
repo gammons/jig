@@ -259,7 +259,7 @@ func (a *App) onEvent(ev event.Event) tea.Cmd {
 	if res.reload {
 		a.w.setItems(a.sess.main, a.sess.allItems())
 	}
-	cmds := []tea.Cmd{waitEvent(a.sub), foldCtl{a}.apply(res)}
+	cmds := []tea.Cmd{waitEvent(a.sub), foldCtl{a, a.sess.main}.apply(res)}
 	cmds = append(cmds, kidsCtl{a}.onEvent(ev))
 	if res.settled {
 		cmds = append(cmds, a.sender().afterRun())
@@ -274,12 +274,19 @@ func (a *App) onEvent(ev event.Event) tea.Cmd {
 }
 
 // onTick renders the dirty streaming blocks and advances the spinners in
-// one Upsert, and reschedules itself while the run lasts, after a delay
-// stretched by how long that render pass took (nextInterval).
+// one Upsert per pane (main, and every transcript pane in the column,
+// sharing the root run's frame), and reschedules itself while the run
+// lasts, after a delay stretched by how long that render pass took
+// (nextInterval).
 func (a *App) onTick() tea.Cmd {
 	ids := a.sess.tick()
 	start := a.opts.Clock.Now()
 	a.flush(ids)
+	for _, p := range a.view.col {
+		if p.kind == paneTranscript {
+			a.w.upsert(p, p.items(p.tick(), a.sess.run.frame))
+		}
+	}
 	took := a.opts.Clock.Now().Sub(start)
 	if a.sess.run.running {
 		return a.after(nextInterval(took), streamTickMsg{})
@@ -381,11 +388,12 @@ func (a *App) onPortResult(msg tea.Msg) tea.Cmd {
 }
 
 // setMode switches the input mode; only INSERT focuses the prompt, and
-// only NORMAL highlights the selected block (the picker keeps the prior).
+// only NORMAL highlights the focused pane's selection (the picker keeps
+// the prior).
 func (a *App) setMode(m mode) tea.Cmd {
 	a.mode = m
 	if m != modePicker {
-		a.sess.main.list.SetHighlight(m == modeNormal)
+		syncHighlight(a)
 	}
 	if m == modeInsert {
 		return a.w.prompt.Focus()
@@ -437,7 +445,10 @@ func dispatchAction(a *App, id actions.ID) tea.Cmd {
 	case actions.TranscriptDetails:
 		return normalKeys{a}.enter()
 	case actions.TranscriptFold:
-		return foldCtl{a}.toggle()
+		if columnFocused(a).kind == paneDetails {
+			return nil
+		}
+		return foldCtl{a, columnFocused(a)}.toggle()
 	case actions.PickerOpen:
 		return pickerCtl{a}.open(rootLevel(), false)
 	case actions.AppQuit:

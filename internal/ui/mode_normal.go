@@ -29,6 +29,9 @@ func (h normalKeys) handle(k tea.KeyPressMsg) tea.Cmd {
 		case "g":
 			return h.gotoTop()
 		case "p":
+			if columnFocused(a).kind == paneDetails {
+				return nil
+			}
 			return permCtl{a}.next()
 		}
 		return nil // any unknown g-command: swallowed.
@@ -180,8 +183,8 @@ func (h normalKeys) syncDetails(before blocklist.Item) tea.Cmd {
 //   - main focused: same block as the column's base entry closes it,
 //     otherwise the whole stack is replaced with a new entry for it.
 //   - column focused on a transcript pane: pushes an entry for the
-//     selected block (subagent drill-in; a later task fills entryFor's
-//     kid case, so today this always pushes a details pane).
+//     selected block (a subagent's live child pane, or a details pane
+//     for any other block).
 //   - column focused on a details pane: nothing.
 func (h normalKeys) enter() tea.Cmd {
 	a := h.a
@@ -244,29 +247,34 @@ func (h normalKeys) closeOrClear() tea.Cmd {
 		return nil
 	}
 	a.sess.main.list.SetSearch("")
-	return foldCtl{a}.setSearch(false)
+	return foldCtl{a, a.sess.main}.setSearch(false)
 }
 
 // openSearch focuses the one-line search input, shown in place of the
-// status bar, ready to type a new query.
+// status bar, ready to type a new query; nothing while the focused pane
+// is a details pane (spec §5.2: only j/k act on one).
 func (h normalKeys) openSearch() tea.Cmd {
 	a := h.a
+	if columnFocused(a).kind == paneDetails {
+		return nil
+	}
 	a.view.searching = true
 	a.w.search.Reset()
 	return a.w.search.Focus()
 }
 
 // handleSearch routes a key while the search input is open: enter applies
-// the query to the transcript list, esc cancels it, everything else types
-// into it.
+// the query to the focused pane's list, esc cancels it, everything else
+// types into it.
 func (h normalKeys) handleSearch(k tea.KeyPressMsg) tea.Cmd {
 	a := h.a
 	switch k.String() {
 	case "enter":
 		a.view.searching = false
 		query := a.w.search.Value()
-		cmd := foldCtl{a}.setSearch(query != "")
-		a.sess.main.list.SetSearch(query)
+		p := columnFocused(a)
+		cmd := foldCtl{a, p}.setSearch(query != "")
+		p.list.SetSearch(query)
 		a.w.search.Blur()
 		return cmd
 	case "esc":
@@ -280,20 +288,24 @@ func (h normalKeys) handleSearch(k tea.KeyPressMsg) tea.Cmd {
 	return cmd
 }
 
-// yank copies the selected block's text (a group header's member subjects,
-// groupYank) to the clipboard (spec §6.3, via yankText) and shows a
-// "yanked" hint.
+// yank copies the focused pane's selected block's text (a group header's
+// member subjects, groupYank) to the clipboard (spec §6.3, via
+// yankText) and shows a "yanked" hint; nothing on a details pane.
 func (h normalKeys) yank() tea.Cmd {
 	a := h.a
-	item, ok := a.sess.main.list.Selected()
+	p := columnFocused(a)
+	if p.kind == paneDetails {
+		return nil
+	}
+	item, ok := p.list.Selected()
 	if !ok {
 		return nil
 	}
-	if members, _, ok := (foldCtl{a}).group(transcript.BlockID(item.ID)); ok {
+	if members, _, ok := (foldCtl{a, p}).group(transcript.BlockID(item.ID)); ok {
 		a.view.hint = "yanked"
 		return tea.SetClipboard(groupYank(members))
 	}
-	b, ok := a.sess.main.proj.Block(transcript.BlockID(item.ID))
+	b, ok := p.proj.Block(transcript.BlockID(item.ID))
 	if !ok {
 		return nil
 	}

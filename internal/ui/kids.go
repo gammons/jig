@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"slices"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/jig/internal/bubbles/ansi"
@@ -34,9 +36,21 @@ type kidChange struct {
 
 // onEvent routes ev to every kid pane and, on a spawn, creates the new
 // child's pane (after routeKids, so the spawn updates the parent's own
-// subagent block first).
+// subagent block first). A pane's non-delta changes are upserted at once
+// when it is currently shown in the column (relist rebuilds its list
+// from the fold layout instead); a delta only marks it dirty
+// (routeKids), rendered on the next streamTick.
 func (k kidsCtl) onEvent(ev event.Event) tea.Cmd {
-	k.routeKids(ev)
+	for _, c := range k.routeKids(ev) {
+		if !slices.Contains(k.a.view.col, c.p) {
+			continue
+		}
+		if c.relist {
+			k.a.w.setItems(c.p, c.p.allItems(k.a.sess.run.frame))
+			continue
+		}
+		k.a.w.upsert(c.p, c.p.items(c.ids, k.a.sess.run.frame))
+	}
 	e, ok := ev.(event.SubagentSpawned)
 	if !ok {
 		return nil
@@ -128,6 +142,9 @@ func (k kidsCtl) childLoaded(msg childLoadedMsg) tea.Cmd {
 	}
 	p.load.buffered = nil
 	p.load.loading = false
+	if slices.Contains(k.a.view.col, p) {
+		k.a.w.setItems(p, p.allItems(k.a.sess.run.frame))
+	}
 	return nil
 }
 
