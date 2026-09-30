@@ -48,7 +48,6 @@ func TestMCPSection_Sanitizes(t *testing.T) {
 		}
 	}
 }
-
 func TestMCPSection_HiddenWhenNone(t *testing.T) {
 	t.Parallel()
 	sec := mcpSection(nil)
@@ -192,13 +191,34 @@ func TestApp_MCPPickerNilPort(t *testing.T) {
 
 func TestApp_MCPPickerSanitizes(t *testing.T) {
 	t.Parallel()
-	list := []core.MCPServerStatus{{Name: "gh\x1b]0;x\a", State: core.MCPReady}}
+	evil := "gh\x1b]0;x\a\x1b[31mred"
+	list := []core.MCPServerStatus{{Name: evil, State: core.MCPReady}}
 	ta := newTestApp(t, withMCP(list))
 	items := loadItems(ta, picker.Level{ID: "mcp"})
 	for _, it := range items {
 		if strings.ContainsRune(it.Title, '\x1b') {
 			t.Fatalf("item title = %q, want no ESC", it.Title)
 		}
+	}
+
+	// Drill mcp -> <escaped name> -> Tools…, and assert the picker's
+	// rendered breadcrumb titles never leak the injected escapes (the
+	// theme's own styling escapes are fine, so we assert on the
+	// specific injected sequences, not on "\x1b" in general).
+	ta.key("ctrl+p")
+	ta.typeText("MCP servers")
+	ta.key("enter")
+	ta.typeText("gh")
+	ta.key("enter")
+	view := ta.view()
+	if strings.Contains(view, "\x1b]0;x\a") || strings.Contains(view, "\x1b[31m") {
+		t.Fatalf("mcp.server breadcrumb leaked the injected escape:\n%q", view)
+	}
+	ta.typeText("Tools")
+	ta.key("enter")
+	view = ta.view()
+	if strings.Contains(view, "\x1b]0;x\a") || strings.Contains(view, "\x1b[31m") {
+		t.Fatalf("mcp.tools breadcrumb leaked the injected escape:\n%q", view)
 	}
 }
 

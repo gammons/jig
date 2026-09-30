@@ -325,7 +325,7 @@ func mcpServerActionItems(list []core.MCPServerStatus, arg string) []picker.Item
 	if !found {
 		return nil
 	}
-	toolsLvl := picker.Level{ID: levelMCPTools, Title: s.Name + " tools", Arg: s.Name}
+	toolsLvl := picker.Level{ID: levelMCPTools, Title: ansi.SanitizeLine(s.Name) + " tools", Arg: s.Name}
 	tools := picker.Item{ID: "tools", Title: "Tools…", Drill: &toolsLvl}
 	var out []picker.Item
 	switch s.State {
