@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/gammons/jig/internal/client/llm/jigtest"
@@ -43,4 +44,23 @@ func TestE2E_BadEffortExitsConfigError(t *testing.T) {
 	writeConfig(t, env, effortConfig(script))
 	stdout, stderr, code := runPrompt(t, env, "--effort", "turbo", "hi")
 	wantCode(t, code, 2, stdout, stderr)
+}
+
+func TestE2E_ModelWithoutLevelsSendsNoEffort(t *testing.T) {
+	for _, args := range [][]string{{"hi"}, {"--effort", "high", "hi"}} {
+		t.Run(fmt.Sprint(args), func(t *testing.T) {
+			env := newEnv(t)
+			none := ""
+			script := writeScript(t, env, "script.json", jigtest.Script{Models: map[string][]jigtest.Turn{
+				"m1": {{Text: "ok", ExpectEffort: &none}},
+			}})
+			writeConfig(t, env, jigtestConfig(script, ""))
+			stdout, stderr, code := runPrompt(t, env, args...)
+			wantCode(t, code, 0, stdout, stderr)
+			warned := strings.Contains(stderr, "warning: jigtest/m1 has no reasoning effort levels; --effort is ignored")
+			if flagged := len(args) > 1; warned != flagged {
+				t.Errorf("stderr = %q; want the ignored-effort warning: %v", stderr, flagged)
+			}
+		})
+	}
 }

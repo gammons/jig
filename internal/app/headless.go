@@ -59,6 +59,7 @@ func (rt *runtime) headless(ctx context.Context, opts runOpts, std Stdio) int {
 
 	rt.closeChat(ctx)
 	reported := r.finish()
+	warnIgnoredEffort(std.Err, rt.svc.catalog.Providers(), res.Message.Model, opts.effort)
 
 	if err == nil {
 		return exitOK
@@ -67,6 +68,23 @@ func (rt *runtime) headless(ctx context.Context, opts runOpts, std Stdio) int {
 		printLine(std.Err, "error: "+err.Error())
 	}
 	return exitCode(err)
+}
+
+// warnIgnoredEffort warns on w when effort was asked for but model (a
+// "provider/model" string, "" when the run made no message) is in the
+// catalog with no effort levels, so nothing was sent.
+func warnIgnoredEffort(w io.Writer, providers []core.ProviderStatus, model, effort string) {
+	if effort == "" || model == "" {
+		return
+	}
+	for _, p := range providers {
+		for _, m := range p.Info.Models {
+			if m.Ref.String() == model && len(m.Efforts) == 0 {
+				printLine(w, "warning: "+model+" has no reasoning effort levels; --effort is ignored")
+				return
+			}
+		}
+	}
 }
 
 // rendering is a plain renderer fed from a bus subscription.
