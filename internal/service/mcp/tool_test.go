@@ -109,6 +109,41 @@ func TestTool_BuildToolsWarnings(t *testing.T) {
 	}
 }
 
+func TestBuildTools_SanitizedNameCollision(t *testing.T) {
+	m := newTestManagerForTool(t)
+	remote := []RemoteTool{
+		{Name: "a.b"},
+		{Name: "a_b"},
+	}
+	gen := m.servers["gh"].generation
+	e, applied := finishReady(m, "gh", gen, newFakeConn(), remote)
+	if !applied {
+		t.Fatal("finishReady did not apply")
+	}
+	_ = e
+
+	tools := m.Tools()
+	if len(tools) != 1 {
+		t.Fatalf("len(tools) = %d, want 1", len(tools))
+	}
+	if tools[0].Name() != "mcp__gh__a_b" {
+		t.Errorf("tools[0].Name() = %q, want mcp__gh__a_b", tools[0].Name())
+	}
+
+	servers := m.Servers()
+	if len(servers) != 1 {
+		t.Fatalf("len(servers) = %d, want 1", len(servers))
+	}
+	s := servers[0]
+	if s.State != core.MCPReady {
+		t.Errorf("State = %v, want ready", s.State)
+	}
+	want := "tool a_b: name collides with a.b as mcp__gh__a_b"
+	if s.Err != want {
+		t.Errorf("Err = %q, want %q", s.Err, want)
+	}
+}
+
 func TestTool_ConcurrentReadOnly(t *testing.T) {
 	m := newTestManagerForTool(t)
 	tool, err := newTool(m, "gh", RemoteTool{Name: "t1", ReadOnly: true})

@@ -222,13 +222,15 @@ func (t *mcpTool) Run(ctx context.Context, _ ext.RunContext, call core.ToolCall)
 }
 
 // buildTools wraps every remote tool into an ext.Tool, dropping any whose
-// schema is invalid JSON and returning a warning for each ("tool <name>:
-// invalid schema"), per §7.1.
+// schema is invalid JSON (warning "tool <name>: invalid schema") or whose
+// wrapped name collides with an earlier tool's, in sorted order (warning
+// "tool <name>: name collides with <earlier> as <wrapped>"), per §7.1.
 func buildTools(m *Manager, server string, remote []RemoteTool) ([]ext.Tool, []string) {
 	sorted := append([]RemoteTool(nil), remote...)
 	sortRemoteTools(sorted)
 
 	tools := make([]ext.Tool, 0, len(sorted))
+	seen := make(map[string]string, len(sorted)) // wrapped name -> remote name
 	var warnings []string
 	for _, rt := range sorted {
 		tool, err := newTool(m, server, rt)
@@ -236,6 +238,12 @@ func buildTools(m *Manager, server string, remote []RemoteTool) ([]ext.Tool, []s
 			warnings = append(warnings, fmt.Sprintf("tool %s: invalid schema", rt.Name))
 			continue
 		}
+		wrapped := tool.Name()
+		if earlier, dup := seen[wrapped]; dup {
+			warnings = append(warnings, fmt.Sprintf("tool %s: name collides with %s as %s", rt.Name, earlier, wrapped))
+			continue
+		}
+		seen[wrapped] = rt.Name
 		tools = append(tools, tool)
 	}
 	return tools, warnings
