@@ -461,8 +461,6 @@ func dispatchAction(a *App, id actions.ID) tea.Cmd {
 	switch id {
 	case actions.ViewSidebar:
 		return prefsCtl{a}.toggleSidebar()
-	case actions.ViewReasoning:
-		return prefsCtl{a}.toggleReasoning()
 	case actions.PromptEditor:
 		return editorCmd(a.ports, a.w.prompt.Value())
 	case actions.RunCancel:

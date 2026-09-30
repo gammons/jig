@@ -62,7 +62,7 @@ func builtinActions() []Action {
 		{ID: RunCancel, Title: "Cancel run", Group: "Transcript"},
 		{ID: ViewSidebar, Title: "Toggle sidebar", Group: "View"},
 		{ID: ViewTheme, Title: "Switch theme…", Group: "View", Drill: true},
-		{ID: ViewReasoning, Title: "Toggle streamed reasoning", Group: "View"},
+		{ID: ViewReasoning, Title: "Streamed reasoning…", Group: "View", Drill: true},
 		{ID: HelpKeys, Title: "Keybindings", Group: "App", Drill: true},
 		{ID: AppQuit, Title: "Quit", Group: "App"},
 		{ID: PickerOpen, Title: "Open picker", Group: "App"},

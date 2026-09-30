@@ -149,6 +149,8 @@ func (p pickerCtl) chosen(msg picker.ChosenMsg) tea.Cmd {
 		cmds = append(cmds, p.setEffort(first))
 	case levelAgents:
 		cmds = append(cmds, p.setAgent(first))
+	case levelReasoning:
+		cmds = append(cmds, prefsCtl{a}.setReasoning(first == reasoningOff))
 	case levelFiles:
 		for _, it := range msg.Items {
 			a.w.prompt.Insert("@" + it.ID + " ")

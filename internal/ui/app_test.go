@@ -1129,31 +1129,25 @@ func TestApp_ReasoningStreamsThenCollapses(t *testing.T) {
 	}
 }
 
-// TestApp_ReasoningToggleSavesPref: view.reasoning hides the thinking
-// text at once (no tick needed), leaving the spinner line, and saves
-// Prefs.HideReasoning; running it again shows the text and clears it.
-func TestApp_ReasoningToggleSavesPref(t *testing.T) {
+// TestApp_ReasoningChoiceAppliesMidThought: choosing Off from the
+// reasoning picker while the model is thinking hides its text at once
+// (no tick needed), leaving the spinner line; choosing On shows it again.
+func TestApp_ReasoningChoiceAppliesMidThought(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
 	ta.sendAndAdopt("Explain the build")
 	ta.event(event.ReasoningDelta{Base: rootBase(), MessageID: "m1", Text: "Checking the Makefile targets."})
 	ta.fire()
 
-	ta.run(ta.app.runAction(actions.ViewReasoning))
+	pickReasoning(ta, "off")
 	v := xansi.Strip(ta.view())
 	if strings.Contains(v, "Checking the Makefile") || !strings.Contains(v, " thinking") {
-		t.Errorf("after hiding, want only the spinner line:\n%s", v)
-	}
-	if !ta.prefs.Get().HideReasoning {
-		t.Error("prefs.HideReasoning = false after hiding, want true")
+		t.Errorf("after choosing Off, want only the spinner line:\n%s", v)
 	}
 
-	ta.run(ta.app.runAction(actions.ViewReasoning))
+	pickReasoning(ta, "on")
 	if v := xansi.Strip(ta.view()); !strings.Contains(v, "Checking the Makefile targets.") {
-		t.Errorf("after showing again, thinking text missing:\n%s", v)
-	}
-	if ta.prefs.Get().HideReasoning {
-		t.Error("prefs.HideReasoning = true after showing again, want false")
+		t.Errorf("after choosing On, thinking text missing:\n%s", v)
 	}
 }
 

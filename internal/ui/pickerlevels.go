@@ -17,15 +17,16 @@ import (
 
 // The picker's level IDs.
 const (
-	levelRoot     = "root"
-	levelSessions = "sessions"
-	levelModels   = "models"
-	levelEfforts  = "efforts"
-	levelAgents   = "agents"
-	levelThemes   = "themes"
-	levelRename   = "rename"
-	levelFiles    = "files"
-	levelKeys     = "keys"
+	levelRoot      = "root"
+	levelSessions  = "sessions"
+	levelModels    = "models"
+	levelEfforts   = "efforts"
+	levelAgents    = "agents"
+	levelThemes    = "themes"
+	levelRename    = "rename"
+	levelFiles     = "files"
+	levelKeys      = "keys"
+	levelReasoning = "reasoning"
 )
 
 // maxSessions is how many of the workdir's sessions the sessions level
@@ -35,6 +36,12 @@ const maxSessions = 30
 // effortDefaultID is the efforts level's "Default" item: choosing
 // it clears the session's effort.
 const effortDefaultID = "default"
+
+// The reasoning level's item IDs.
+const (
+	reasoningOn  = "on"
+	reasoningOff = "off"
+)
 
 // levelAction is the action a drill-down level belongs to, recorded as
 // recent when one of its items is chosen.
@@ -54,6 +61,8 @@ func levelAction(level string) actions.ID {
 		return actions.SessionRename
 	case levelFiles:
 		return actions.PromptAttach
+	case levelReasoning:
+		return actions.ViewReasoning
 	}
 	return ""
 }
@@ -80,6 +89,8 @@ func drillLevel(id actions.ID, title string) (picker.Level, bool) {
 		return picker.Level{ID: levelAgents, Title: "Agents"}, true
 	case actions.ViewTheme:
 		return picker.Level{ID: levelThemes, Title: "Themes"}, true
+	case actions.ViewReasoning:
+		return picker.Level{ID: levelReasoning, Title: "Streamed reasoning"}, true
 	case actions.PromptAttach:
 		return filesLevel(), true
 	case actions.HelpKeys:
@@ -97,8 +108,9 @@ func (l levels) load(level picker.Level) tea.Cmd {
 	a := l.a
 	switch level.ID {
 	case levelRoot:
-		items := rootItems(a.opts.Actions, a.opts.Keymap, keymapMode(a.view.pick.prev), a.sess.info, effortControllable(a.sess))
-		return itemsCmd(level.ID, withReasoningTitle(items, a.w.render.hideReasoning))
+		return itemsCmd(level.ID, rootItems(a.opts.Actions, a.opts.Keymap, keymapMode(a.view.pick.prev), a.sess.info, effortControllable(a.sess)))
+	case levelReasoning:
+		return itemsCmd(level.ID, reasoningItems(a.w.render.hideReasoning))
 	case levelKeys:
 		return itemsCmd(level.ID, keyItems(a.opts.Actions, a.opts.Keymap))
 	case levelThemes:
@@ -157,21 +169,6 @@ func rootItems(c *actions.Catalogue, km actions.Keymap, mode string, info core.S
 		out = append(out, it)
 	}
 	return out
-}
-
-// withReasoningTitle renames the view.reasoning item after what choosing
-// it does, so the picker shows whether streamed reasoning is on.
-func withReasoningTitle(items []picker.Item, hidden bool) []picker.Item {
-	title := "Hide streamed reasoning"
-	if hidden {
-		title = "Show streamed reasoning"
-	}
-	for i := range items {
-		if items[i].ID == string(actions.ViewReasoning) {
-			items[i].Title = title
-		}
-	}
-	return items
 }
 
 // keysDetail joins keys (bound key strings, which name a config-supplied
@@ -270,6 +267,15 @@ func effortItems(m core.ModelInfo, chosen, fallback core.Effort) []picker.Item {
 		out = append(out, picker.Item{ID: string(e), Title: string(e), Current: e == chosen})
 	}
 	return out
+}
+
+// reasoningItems lists On and Off for streamed reasoning, the one in
+// effect (hidden: off) marked current.
+func reasoningItems(hidden bool) []picker.Item {
+	return []picker.Item{
+		{ID: reasoningOn, Title: "On", Current: !hidden},
+		{ID: reasoningOff, Title: "Off", Current: hidden},
+	}
 }
 
 // fmtTokens is n as "200k" or "1M".

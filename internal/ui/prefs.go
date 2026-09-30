@@ -31,9 +31,9 @@ func (p prefsCtl) toggleSidebar() tea.Cmd {
 	return prefsUpdateCmd(p.a.ports, func(pr *core.Prefs) { pr.Sidebar = &show })
 }
 
-// toggleReasoning turns streamed reasoning off or on and saves the choice.
-func (p prefsCtl) toggleReasoning() tea.Cmd {
-	hide := !p.a.w.render.hideReasoning
+// setReasoning turns streamed reasoning off (hide) or on, the choice from
+// the reasoning picker level, and saves it.
+func (p prefsCtl) setReasoning(hide bool) tea.Cmd {
 	p.setHideReasoning(hide)
 	return prefsUpdateCmd(p.a.ports, func(pr *core.Prefs) { pr.HideReasoning = hide })
 }

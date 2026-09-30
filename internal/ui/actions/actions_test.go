@@ -56,7 +56,7 @@ func TestCatalogue_BuiltinsAndExt(t *testing.T) {
 		{RunCancel, "Cancel run", "Transcript", false},
 		{ViewSidebar, "Toggle sidebar", "View", false},
 		{ViewTheme, "Switch theme…", "View", true},
-		{ViewReasoning, "Toggle streamed reasoning", "View", false},
+		{ViewReasoning, "Streamed reasoning…", "View", true},
 		{HelpKeys, "Keybindings", "App", true},
 		{AppQuit, "Quit", "App", false},
 		{PickerOpen, "Open picker", "App", false},

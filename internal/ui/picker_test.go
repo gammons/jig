@@ -60,34 +60,85 @@ func resumed() core.Session {
 	return core.Session{ID: "ses_r", Title: "Old title", Agent: "build", Model: "anthropic/claude-sonnet-5", Cwd: testWorkDir}
 }
 
-// TestPicker_ReasoningItemNamesWhatItWillDo: the view.reasoning item's
-// title says what choosing it does, so it shows the current state: "Hide
-// streamed reasoning" while it's on (the default), "Show streamed
-// reasoning" once it's off, whether turned off here or by a saved pref.
-// The keybindings list keeps the neutral catalogue title.
-func TestPicker_ReasoningItemNamesWhatItWillDo(t *testing.T) {
-	t.Parallel()
-	title := func(ta *testApp) string {
-		t.Helper()
-		return itemByID(t, loadItems(ta, rootLevel()), string(actions.ViewReasoning)).Title
-	}
+// pickReasoning opens "Streamed reasoning…" and chooses the item matching
+// query ("on" or "off").
+func pickReasoning(ta *testApp, query string) {
+	ta.t.Helper()
+	ta.key("ctrl+p")
+	ta.typeText("streamed reasoning")
+	ta.key("enter")
+	ta.typeText(query)
+	ta.key("enter")
+}
 
+// currentReasoning is the ID of the reasoning level's item marked current.
+func currentReasoning(t *testing.T, ta *testApp) string {
+	t.Helper()
+	var cur []string
+	for _, it := range loadItems(ta, picker.Level{ID: levelReasoning}) {
+		if it.Current {
+			cur = append(cur, it.ID)
+		}
+	}
+	if len(cur) != 1 {
+		t.Fatalf("reasoning level marks %v current, want exactly one", cur)
+	}
+	return cur[0]
+}
+
+// TestPicker_ReasoningLevelMarksCurrent: "Streamed reasoning…" drills into
+// a level of On and Off, with the state in effect marked current: On by
+// default, Off with HideReasoning saved.
+func TestPicker_ReasoningLevelMarksCurrent(t *testing.T) {
+	t.Parallel()
 	ta := newTestApp(t)
-	if got := title(ta); got != "Hide streamed reasoning" {
-		t.Errorf("with reasoning shown, title = %q, want %q", got, "Hide streamed reasoning")
+	root := itemByID(t, loadItems(ta, rootLevel()), string(actions.ViewReasoning))
+	if root.Title != "Streamed reasoning…" || root.Drill == nil || root.Drill.ID != levelReasoning {
+		t.Errorf("view.reasoning item = %+v, want \"Streamed reasoning…\" drilling into the reasoning level", root)
 	}
-	ta.run(ta.app.runAction(actions.ViewReasoning))
-	if got := title(ta); got != "Show streamed reasoning" {
-		t.Errorf("after hiding, title = %q, want %q", got, "Show streamed reasoning")
+	var got []string
+	for _, it := range loadItems(ta, picker.Level{ID: levelReasoning}) {
+		got = append(got, it.ID+"="+it.Title)
 	}
-	keys := itemByID(t, loadItems(ta, picker.Level{ID: levelKeys}), string(actions.ViewReasoning))
-	if keys.Title != "Toggle streamed reasoning" {
-		t.Errorf("keybindings title = %q, want the neutral %q", keys.Title, "Toggle streamed reasoning")
+	if want := []string{"on=On", "off=Off"}; !slices.Equal(got, want) {
+		t.Errorf("reasoning items = %v, want %v", got, want)
+	}
+	if cur := currentReasoning(t, ta); cur != "on" {
+		t.Errorf("by default %q is current, want on", cur)
 	}
 
 	saved := newTestApp(t, withPrefs(core.Prefs{HideReasoning: true}))
-	if got := title(saved); got != "Show streamed reasoning" {
-		t.Errorf("with HideReasoning saved, title = %q, want %q", got, "Show streamed reasoning")
+	if cur := currentReasoning(t, saved); cur != "off" {
+		t.Errorf("with HideReasoning saved %q is current, want off", cur)
+	}
+}
+
+// TestPicker_ReasoningChoiceSavesPref: choosing Off saves HideReasoning,
+// closes the picker, and records the action as recent; the level then
+// marks Off current. Choosing On clears it again.
+func TestPicker_ReasoningChoiceSavesPref(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	pickReasoning(ta, "off")
+	if ta.app.w.picker.IsOpen() || ta.app.mode != modeInsert {
+		t.Errorf("after choosing: picker open=%v mode=%v, want closed and back in INSERT", ta.app.w.picker.IsOpen(), ta.app.mode)
+	}
+	if !ta.prefs.Get().HideReasoning {
+		t.Error("prefs.HideReasoning = false after choosing Off, want true")
+	}
+	if cur := currentReasoning(t, ta); cur != "off" {
+		t.Errorf("after choosing Off, %q is current", cur)
+	}
+	if r := ta.prefs.Get().Recent; len(r) == 0 || r[0] != string(actions.ViewReasoning) {
+		t.Errorf("recent = %v, want view.reasoning first", r)
+	}
+
+	pickReasoning(ta, "on")
+	if ta.prefs.Get().HideReasoning {
+		t.Error("prefs.HideReasoning = true after choosing On, want false")
+	}
+	if cur := currentReasoning(t, ta); cur != "on" {
+		t.Errorf("after choosing On, %q is current", cur)
 	}
 }
 

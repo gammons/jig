@@ -422,8 +422,8 @@ blocklist then re-fits only the lines that differ from the block's
 previous render at that width.
 A reasoning block the model is still thinking in shows its text (plain,
 dim, indented; `internal/ui/reasoning.go`) unless `Prefs.HideReasoning`
-(the `view.reasoning` action, `prefsCtl.toggleReasoning` in
-`internal/ui/prefs.go`) is set, and collapses to its one line once
+(the `view.reasoning` action's On/Off picker level, applied by
+`prefsCtl.setReasoning` in `internal/ui/prefs.go`) is set, and collapses to its one line once
 thinking ends. Its render caches the wrapped lines of every finished
 source line (up to the last `\n`) per block ID and width, so a tick
 wraps only the new lines and the unfinished tail; the entry is dropped
