@@ -34,11 +34,13 @@ func newItemTrack() itemTrack {
 	}
 }
 
-// reset clears what a new projection invalidates; versions survive.
+// reset clears what a new projection invalidates; versions survive, and so
+// does the search hold (the blocklist keeps its applied query across a
+// new item set).
 func (t *itemTrack) reset() {
 	t.dirty = idSet{}
 	t.live = map[transcript.BlockID]bool{}
-	t.fold = foldState{}
+	t.fold = foldState{search: t.fold.search}
 }
 
 // bumpAll and bumpNone are build's bump rules: re-render every item, or

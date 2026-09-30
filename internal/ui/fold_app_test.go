@@ -433,6 +433,38 @@ func TestFold_ClearingSearchKeepsAUserExpandedGroupOpen(t *testing.T) {
 	}
 }
 
+func TestFold_SearchHoldSurvivesASessionSwitch(t *testing.T) {
+	t.Parallel()
+	other := core.Session{ID: "ses_2", Agent: "build"}
+	ta := newTestApp(t, resumeGroups(),
+		withSessions([]core.Session{other}, map[core.SessionID][]core.Message{"ses_2": groupMessages()}))
+	ta.key("esc")
+	ta.key("/")
+	ta.typeText("TODO")
+	ta.key("enter")
+	if !ta.app.sess.track.fold.search {
+		t.Fatal("no search hold after applying a search")
+	}
+	ta.send(resumeMsg{info: other, msgs: groupMessages()})
+	if ta.app.sess.info.ID != "ses_2" {
+		t.Fatalf("session = %q, want ses_2", ta.app.sess.info.ID)
+	}
+	if !ta.app.sess.track.fold.search {
+		t.Error("the search is still applied but the groups are no longer held open")
+	}
+	found := false
+	for range 3 {
+		ta.key("n")
+		if ta.selectedID() == "t/c2" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("n never selected the member match t/c2; list = %v, selected = %q", ta.listIDs(), ta.selectedID())
+	}
+}
+
 func TestFold_PermissionForcesGroupOpen(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
