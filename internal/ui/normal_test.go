@@ -82,21 +82,21 @@ func TestNormal_DetailsToggleAndFollowsSelection(t *testing.T) {
 	ta.key("esc")
 
 	ta.key("enter")
-	if !ta.app.view.detailsOpen {
+	if !columnOpen(ta.app) {
 		t.Fatal("enter did not open the details split")
 	}
-	if got := xansi.Strip(ta.app.w.details.View()); !strings.Contains(got, "second message") {
+	if got := xansi.Strip(columnTop(ta.app).body.View()); !strings.Contains(got, "second message") {
 		t.Errorf("details = %q, want the selected (last) block's text", got)
 	}
 
 	ta.key("k")
-	got := xansi.Strip(ta.app.w.details.View())
+	got := xansi.Strip(columnTop(ta.app).body.View())
 	if !strings.Contains(got, "first message") || strings.Contains(got, "second message") {
 		t.Errorf("details after k = %q, want the new selection's text only", got)
 	}
 
 	ta.key("enter")
-	if ta.app.view.detailsOpen {
+	if columnOpen(ta.app) {
 		t.Error("enter on an open split did not close it")
 	}
 }
@@ -123,13 +123,13 @@ func TestNormal_StaleDetailsMsgIgnored(t *testing.T) {
 	}
 
 	ta.key("k") // move to the user block; details rebuild for it synchronously
-	before := ta.app.w.details.View()
+	before := columnTop(ta.app).body.View()
 	if !strings.Contains(xansi.Strip(before), "go") {
 		t.Fatalf("details after k = %q, want the user block's text", before)
 	}
 
 	ta.send(cmd()) // deliver the stale detailsMsg for the (no longer selected) tool block
-	if got := ta.app.w.details.View(); got != before {
+	if got := columnTop(ta.app).body.View(); got != before {
 		t.Errorf("a stale detailsMsg changed the details pane: %q", got)
 	}
 }
@@ -160,7 +160,7 @@ func TestNormal_SearchInputAndClear(t *testing.T) {
 
 	ta.key("k") // back to the first block
 	ta.key("esc")
-	if ta.app.view.detailsOpen {
+	if columnOpen(ta.app) {
 		t.Fatal("esc should not have anything to close here")
 	}
 	ta.key("n")
@@ -179,12 +179,12 @@ func TestNormal_EscClosesDetailsFirst(t *testing.T) {
 
 	ta.key("k") // first block, does not match "second"
 	ta.key("enter")
-	if !ta.app.view.detailsOpen {
+	if !columnOpen(ta.app) {
 		t.Fatal("want the details split open")
 	}
 
 	ta.key("esc")
-	if ta.app.view.detailsOpen {
+	if columnOpen(ta.app) {
 		t.Fatal("esc did not close the details split first")
 	}
 	// The search is still applied: n still finds the second block.

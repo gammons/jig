@@ -94,6 +94,8 @@ func TestResolve_FixedKeysWarnAndSkip(t *testing.T) {
 		"normal.ctrl+z": "app.quit",
 		"insert.ctrl+e": "view.sidebar", // remappable in INSERT
 		"normal.x":      "view.sidebar",
+		"normal.h":      "app.quit",
+		"normal.l":      "app.quit",
 	}
 	km, warnings := Resolve(DefaultBindings(), config, c)
 	want := []string{
@@ -102,12 +104,14 @@ func TestResolve_FixedKeysWarnAndSkip(t *testing.T) {
 		`warning: keybinds."normal.a": a is fixed in normal mode and cannot be remapped`,
 		`warning: keybinds."normal.ctrl+z": ctrl+z is fixed in normal mode and cannot be remapped`,
 		`warning: keybinds."normal.gp": gp is fixed in normal mode and cannot be remapped`,
+		`warning: keybinds."normal.h": h is fixed in normal mode and cannot be remapped`,
 		`warning: keybinds."normal.j": j is fixed in normal mode and cannot be remapped`,
+		`warning: keybinds."normal.l": l is fixed in normal mode and cannot be remapped`,
 	}
 	if !reflect.DeepEqual(warnings, want) {
 		t.Errorf("warnings =\n%v\nwant\n%v", strings.Join(warnings, "\n"), strings.Join(want, "\n"))
 	}
-	for _, k := range [][2]string{{"insert", "enter"}, {"insert", "ctrl+c"}, {"normal", "j"}, {"normal", "gp"}, {"normal", "a"}} {
+	for _, k := range [][2]string{{"insert", "enter"}, {"insert", "ctrl+c"}, {"normal", "j"}, {"normal", "gp"}, {"normal", "a"}, {"normal", "h"}, {"normal", "l"}} {
 		if id, ok := km.Lookup(k[0], k[1]); ok {
 			t.Errorf("Lookup(%s, %s) = %q, want the config entry skipped", k[0], k[1], id)
 		}

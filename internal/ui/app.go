@@ -74,29 +74,29 @@ type (
 	resizeMsg     struct{ gen int }
 )
 
-// viewState is the App's presentation state: the sidebar preference, whether the details split is open, the
+// viewState is the App's presentation state: the sidebar preference, the
 // status hint, the project's prompt history, and the streamTick's state
 // (stream). keyPrefix holds
 // a pending NORMAL g-prefix ("g", awaiting its second key); searching is
-// whether the one-line search input owns the status bar's slot;
-// detailsFor is the block ID the open details split shows, so an async
-// detailsMsg for a block the selection has since left can be ignored.
-// pick is the picker's state (pickerView). resumeHeld is a session whose
-// resume result arrived mid-send; it is re-read once idle. mouse is the
-// current mouse drag state (mouseCtl).
+// whether the one-line search input owns the status bar's slot.
+// pick is the picker's state (pickerView). resumeHeld
+// is a session whose resume result arrived mid-send; it is re-read once
+// idle. mouse is the current mouse drag state (mouseCtl). col is the
+// column stack (only its last entry is drawn); focus says whether
+// NORMAL's navigation keys go to main or the column.
 type viewState struct {
 	pick        pickerView
 	sidebarPref *bool
-	detailsOpen bool
 	hint        string
 	history     []string
 	stream      streamState
 	keyPrefix   string
 	searching   bool
-	detailsFor  transcript.BlockID
 	resumeHeld  core.SessionID
 	mouse       mouseState
 	mcp         mcpViewState
+	col         []*pane
+	focus       focus
 }
 
 // mcpViewState is the App's view of the configured MCP servers: the last
@@ -222,8 +222,8 @@ func (a *App) View() tea.View {
 	}
 	side := ""
 	switch {
-	case a.lay.DetailsOpen:
-		side = paintSelection(a, regionDetails, a.w.details.View(), a.lay.Side)
+	case a.lay.ColumnOpen:
+		side = paintSelection(a, regionDetails, columnView(a), a.lay.Side)
 	case a.lay.SideVisible:
 		side = a.w.side.View()
 	}
@@ -231,8 +231,19 @@ func (a *App) View() tea.View {
 	if a.view.searching {
 		status = a.w.search.View()
 	}
-	list := paintSelection(a, regionTranscript, a.sess.main.list.View(), a.lay.Transcript)
-	v.Content = compose(a.lay, list, side, a.w.prompt.View(), status, borderCell(a.theme.set.Blocklist))
+	trans := paintSelection(a, regionTranscript, a.sess.main.list.View(), a.lay.Transcript)
+	if a.lay.MainCrumb {
+		a.w.mainCrumb.SetSegments([]string{"main"})
+		a.w.mainCrumb.SetFocused(a.view.focus == focusMain)
+		if top := columnTop(a); top != nil {
+			a.w.mainCrumb.SetHint("tab → " + top.title)
+		} else {
+			a.w.mainCrumb.SetHint("")
+		}
+		a.w.mainCrumb.SetWidth(a.lay.Transcript.W)
+		trans = a.w.mainCrumb.View() + "\n" + a.w.mainCrumb.RuleView() + "\n" + trans
+	}
+	v.Content = compose(a.lay, trans, side, a.w.prompt.View(), status, borderCell(a.theme.set.Blocklist))
 	if a.w.picker.IsOpen() {
 		v.Content = overlay.Center(v.Content, a.width, a.height, a.w.picker.View(), overlayDim)
 	}
@@ -259,9 +270,6 @@ func (a *App) onEvent(ev event.Event) tea.Cmd {
 	if e, ok := ev.(event.PermissionRequested); ok {
 		cmds = append(cmds, permCtl{a}.sync(), permCtl{a}.requested(e))
 	}
-	if ev.Session() != a.sess.info.ID {
-		detailsCtl{a}.childEvent()
-	}
 	return tea.Batch(cmds...)
 }
 
@@ -273,12 +281,11 @@ func (a *App) onTick() tea.Cmd {
 	start := a.opts.Clock.Now()
 	a.flush(ids)
 	took := a.opts.Clock.Now().Sub(start)
-	refresh := detailsCtl{a}.refresh()
 	if a.sess.run.running {
-		return tea.Batch(refresh, a.after(nextInterval(took), streamTickMsg{}))
+		return a.after(nextInterval(took), streamTickMsg{})
 	}
 	a.view.stream.ticking = false
-	return refresh
+	return nil
 }
 
 // flush re-renders the blocks ids in the transcript list.
@@ -311,7 +318,7 @@ func (a *App) onResult(msg tea.Msg) tea.Cmd {
 	case sendDoneMsg:
 		return a.sender().done(msg)
 	case detailsMsg:
-		return detailsCtl{a}.result(msg)
+		return detailsResult(a, msg)
 	case childLoadedMsg:
 		return kidsCtl{a}.childLoaded(msg)
 	case cardArmMsg:
@@ -355,8 +362,8 @@ func (a *App) onPortResult(msg tea.Msg) tea.Cmd {
 		if msg.info.ID != a.sess.info.ID {
 			// A session opened from the picker replaces this one.
 			installMain(a, freshSession(a.sess, msg.info.ID, a.w.render, &a.theme.set))
-			a.view.detailsOpen = false
 		}
+		columnClose(a)
 		kidsCtl{a}.clearKids()
 		a.sess.load(msg.info, msg.msgs, msg.todos)
 		a.w.setItems(a.sess.main, a.sess.allItems())
@@ -371,42 +378,6 @@ func (a *App) onPortResult(msg tea.Msg) tea.Cmd {
 		}
 	}
 	return nil
-}
-
-// relayout recomputes the layout for the current size and prompt height
-// and sizes every widget to it. The transcript list's height applies at
-// once; a width change is debounced (it re-renders every block).
-func (a *App) relayout() tea.Cmd {
-	a.lay = layoutFor(a)
-	a.w.status.SetWidth(a.lay.Status.W)
-	a.w.search.SetWidth(max(a.lay.Status.W-2, 0))
-	a.w.side.SetSize(a.lay.Side.W, a.lay.Side.H)
-	a.w.details.SetSize(a.lay.Side.W, a.lay.Side.H)
-	a.w.picker.SetSize(a.width, a.height)
-	a.w.confirm.SetSize(a.width, a.height)
-
-	tw, th := a.lay.Transcript.W, a.lay.Transcript.H
-	if a.sess.main.sz.listW == 0 || tw == a.sess.main.sz.listW {
-		a.sess.main.sz.pendingW = tw
-		a.sess.main.list.SetSize(tw, th)
-		a.sess.main.sz.listW, a.sess.main.sz.listH = tw, th
-		return nil
-	}
-	a.sess.main.list.SetSize(a.sess.main.sz.listW, th)
-	a.sess.main.sz.listH = th
-	if tw == a.sess.main.sz.pendingW {
-		return nil
-	}
-	a.sess.main.sz.resizeGen++
-	a.sess.main.sz.pendingW = tw
-	return a.after(resizeDebounce, resizeMsg{gen: a.sess.main.sz.resizeGen})
-}
-
-// applyListWidth gives the transcript list the layout's current size.
-func (a *App) applyListWidth() {
-	a.sess.main.list.SetSize(a.lay.Transcript.W, a.lay.Transcript.H)
-	a.sess.main.sz.listW, a.sess.main.sz.listH = a.lay.Transcript.W, a.lay.Transcript.H
-	a.sess.main.sz.pendingW = a.sess.main.sz.listW
 }
 
 // setMode switches the input mode; only INSERT focuses the prompt, and
@@ -464,7 +435,7 @@ func dispatchAction(a *App, id actions.ID) tea.Cmd {
 	case actions.TranscriptYank:
 		return normalKeys{a}.yank()
 	case actions.TranscriptDetails:
-		return normalKeys{a}.toggleDetails()
+		return normalKeys{a}.enter()
 	case actions.TranscriptFold:
 		return foldCtl{a}.toggle()
 	case actions.PickerOpen:

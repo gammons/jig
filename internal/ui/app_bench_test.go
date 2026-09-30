@@ -205,8 +205,8 @@ func BenchmarkApp_DetailsToggle2000(b *testing.B) {
 	ta.key("enter")
 	ta.fire()
 	_ = ta.view()
-	if !ta.app.view.detailsOpen || ta.app.sess.main.sz.listW == closedW {
-		b.Fatalf("enter did not open the split at a new list width (open %v, width %d)", ta.app.view.detailsOpen, closedW)
+	if !columnOpen(ta.app) || ta.app.sess.main.sz.listW == closedW {
+		b.Fatalf("enter did not open the split at a new list width (open %v, width %d)", columnOpen(ta.app), closedW)
 	}
 	ta.key("q")
 	ta.fire()

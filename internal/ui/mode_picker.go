@@ -257,7 +257,6 @@ func (p pickerCtl) newSession() tea.Cmd {
 		return nil
 	}
 	installMain(a, freshSession(a.sess, "", a.w.render, &a.theme.set))
-	a.view.detailsOpen = false
 	a.w.setItems(a.sess.main, nil)
 	return nil
 }
@@ -298,6 +297,7 @@ func freshSession(old *sessionState, id core.SessionID, r *renderer, set *theme.
 func installMain(a *App, s *sessionState) {
 	a.sess = s
 	kidsCtl{a}.clearKids()
+	columnClose(a)
 	a.sess.main.list.SetHighlight(a.mode == modeNormal)
 	a.sess.main.list.SetStyles(a.theme.set.Blocklist, a.theme.version)
 	if s.main.track.fold.search {

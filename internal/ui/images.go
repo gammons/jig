@@ -147,16 +147,21 @@ func (s *imageState) show(k imgKey) tea.Cmd {
 }
 
 // placeSixel returns the tea.Raw Cmd drawing the shown sixel over the
-// details body, whose first cell is at the details rect origin plus the
-// pane's BodyOrigin; nil when no sixel is shown, the split is closed, or
-// the pane has no body row.
+// column's top entry body, whose first cell is at the side rect origin
+// plus the breadcrumb+rule rows plus the pane's body origin; nil when no
+// sixel is shown, the column is closed, the top entry isn't a details
+// pane, or the pane has no body row.
 func placeSixel(a *App) tea.Cmd {
-	if a.img.shown == nil || !a.view.detailsOpen || !a.lay.DetailsOpen {
+	if a.img.shown == nil || !a.lay.ColumnOpen {
 		return nil
 	}
-	bx, by, ok := a.w.details.BodyOrigin()
+	top := columnTop(a)
+	if top == nil || top.kind != paneDetails {
+		return nil
+	}
+	bx, by, ok := top.body.BodyOrigin()
 	if !ok {
 		return nil
 	}
-	return tea.Raw(imgrender.Place(*a.img.shown, a.lay.Side.X+bx, a.lay.Side.Y+by))
+	return tea.Raw(imgrender.Place(*a.img.shown, a.lay.Side.X+bx, a.lay.Side.Y+columnHeaderRows+by))
 }

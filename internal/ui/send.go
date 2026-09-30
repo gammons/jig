@@ -214,6 +214,7 @@ func (s sender) done(msg sendDoneMsg) tea.Cmd {
 func (s sender) undo(id transcript.BlockID, text string, err error) {
 	a := s.a
 	a.w.setItems(a.sess.main, a.sess.dropUser(id))
+	columnDropStale(a)
 	if cur := a.w.prompt.Value(); cur != "" {
 		text += "\n" + cur
 	}

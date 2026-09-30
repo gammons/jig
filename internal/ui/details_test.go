@@ -57,33 +57,6 @@ func (f fakeBlobs) Open(ref string) ([]byte, string, error) {
 	return data, "image/png", nil
 }
 
-// fakeSessions implements core.SessionService; only Messages is exercised
-// by details.go, so the rest return zero values.
-type fakeSessions struct {
-	msgs map[core.SessionID][]core.Message
-	err  error
-}
-
-func (f fakeSessions) List(context.Context, int) ([]core.Session, error) { return nil, nil }
-func (f fakeSessions) ListForCwd(context.Context, string, int) ([]core.Session, error) {
-	return nil, nil
-}
-func (f fakeSessions) Get(context.Context, core.SessionID) (core.Session, error) {
-	return core.Session{}, nil
-}
-func (f fakeSessions) Messages(_ context.Context, id core.SessionID) ([]core.Message, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return f.msgs[id], nil
-}
-func (f fakeSessions) Todos(context.Context, core.SessionID) ([]core.Todo, error) { return nil, nil }
-func (f fakeSessions) Rename(context.Context, core.SessionID, string) error       { return nil }
-func (f fakeSessions) Configure(context.Context, core.SessionID, string, string) error {
-	return nil
-}
-func (f fakeSessions) SetEffort(context.Context, core.SessionID, core.Effort) error { return nil }
-
 // testRenderer returns a renderer styled from the default theme, for
 // details tests that need coderender/mdrender styling.
 func testRenderer() *renderer {
@@ -248,44 +221,6 @@ func TestDetails_BashSpillPath(t *testing.T) {
 	}
 	if !strings.Contains(joined, "$ echo hi") {
 		t.Errorf("Lines = %q, want a %q line", joined, "$ echo hi")
-	}
-}
-
-func TestDetails_SubagentSummary(t *testing.T) {
-	t.Parallel()
-
-	callInput, _ := json.Marshal(map[string]string{"path": "src/main.go"})
-	child := core.SessionID("s2")
-	msgs := []core.Message{
-		{
-			ID: "m1", SessionID: child, Role: core.RoleAssistant, Status: core.StatusComplete,
-			Parts: []core.Part{
-				{Kind: core.PartToolCall, Call: &core.ToolCall{ID: "rc1", Name: "read", Input: callInput}},
-				{Kind: core.PartToolResult, Result: &core.ToolResult{CallID: "rc1", Name: "read", Output: "1: package main"}},
-				{Kind: core.PartText, Text: "done looking around"},
-			},
-		},
-	}
-	b := transcript.Block{
-		ID: "t/c1", Kind: transcript.KindSubagent,
-		Sub: &transcript.Subagent{Child: child, Agent: "explore", Description: "find the bug"},
-	}
-	p := Ports{Sessions: fakeSessions{msgs: map[core.SessionID][]core.Message{child: msgs}}}
-
-	_, cmd := buildDetails(context.Background(), b, 80, 24, testRenderer(), p, nil)
-	if cmd == nil {
-		t.Fatal("buildDetails: cmd = nil, want a Cmd to load the child's messages")
-	}
-	msg, ok := cmd().(detailsMsg)
-	if !ok {
-		t.Fatalf("cmd() = %T, want detailsMsg", cmd())
-	}
-	joined := strings.Join(msg.Content.Lines, "\n")
-	if !strings.Contains(joined, "read") || !strings.Contains(joined, "src/main.go") {
-		t.Errorf("Lines = %q, want the child's read one-liner", joined)
-	}
-	if !strings.Contains(joined, "done looking around") {
-		t.Errorf("Lines = %q, want the child's final text", joined)
 	}
 }
 

@@ -364,11 +364,14 @@ func TestFold_EnterOnAHeaderShowsItsMembers(t *testing.T) {
 	ta.key("esc")
 	ta.app.sess.main.list.Select("g/c1")
 	ta.key("enter")
-	if ta.app.view.detailsFor != "g/c1" {
-		t.Fatalf("detailsFor = %q, want g/c1", ta.app.view.detailsFor)
+	if columnTop(ta.app).forBlock != "g/c1" {
+		t.Fatalf("detailsFor = %q, want g/c1", columnTop(ta.app).forBlock)
 	}
-	body := xansi.Strip(ta.app.w.details.View())
-	for _, s := range []string{"group · 1 read, 1 grep", "▸ read  a.go · 1 lines", "∴ thinking", `▸ grep  "TODO" · 1 matches`} {
+	if got := columnTop(ta.app).title; got != "group · 1 read, 1 grep" {
+		t.Errorf("title = %q, want %q", got, "group · 1 read, 1 grep")
+	}
+	body := xansi.Strip(columnTop(ta.app).body.View())
+	for _, s := range []string{"▸ read  a.go · 1 lines", "∴ thinking", `▸ grep  "TODO" · 1 matches`} {
 		if !strings.Contains(body, s) {
 			t.Errorf("details have no %q:\n%s", s, body)
 		}
@@ -400,18 +403,18 @@ func TestFold_DetailsFollowCollapse(t *testing.T) {
 	ta.key("o")
 	ta.app.sess.main.list.Select("t/c1")
 	ta.key("enter")
-	if ta.app.view.detailsFor != "t/c1" {
-		t.Fatalf("detailsFor = %q, want t/c1", ta.app.view.detailsFor)
+	if columnTop(ta.app).forBlock != "t/c1" {
+		t.Fatalf("detailsFor = %q, want t/c1", columnTop(ta.app).forBlock)
 	}
 	ta.key("o")
 	if got := ta.selectedID(); got != "g/c1" {
 		t.Errorf("selected = %q, want g/c1", got)
 	}
-	if ta.app.view.detailsFor != "g/c1" {
-		t.Errorf("detailsFor = %q, want the details to follow to g/c1", ta.app.view.detailsFor)
+	if columnTop(ta.app).forBlock != "g/c1" {
+		t.Errorf("detailsFor = %q, want the details to follow to g/c1", columnTop(ta.app).forBlock)
 	}
-	if body := xansi.Strip(ta.app.w.details.View()); !strings.Contains(body, "group · 1 read, 1 grep") {
-		t.Errorf("details still show the hidden member:\n%s", body)
+	if got := columnTop(ta.app).title; got != "group · 1 read, 1 grep" {
+		t.Errorf("title = %q, want the details to follow to the group's header", got)
 	}
 }
 

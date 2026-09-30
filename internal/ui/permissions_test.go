@@ -2,7 +2,6 @@ package ui
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -386,45 +385,6 @@ func TestApp_GoldenPermissionCard(t *testing.T) {
 	golden.Assert(t, "app_permission_card", ta.view())
 }
 
-func TestApp_SubagentDetailsRefreshPerTick(t *testing.T) {
-	t.Parallel()
-	ta := newTestApp(t, withSessions(nil, map[core.SessionID][]core.Message{"ses_c": {
-		{ID: "k1", SessionID: "ses_c", Role: core.RoleAssistant, Parts: []core.Part{{Kind: core.PartText, Text: "child says hi"}}},
-	}}))
-	ta.sendAndAdopt("find it")
-	ta.startSubagent()
-	ta.key("esc")
-	if ta.selectedID() != "t/c9" {
-		t.Fatalf("test setup: selected %q, want t/c9", ta.selectedID())
-	}
-	ta.key("enter")
-	calls := func() int {
-		ta.sessions.mu.Lock()
-		defer ta.sessions.mu.Unlock()
-		return ta.sessions.msgCalls["ses_c"]
-	}
-	if n := calls(); n != 2 { // +1: the child pane loads once on spawn (kids.go); P3 replaces this test.
-		t.Fatalf("Messages(ses_c) calls after opening = %d, want 2", n)
-	}
-	for range 3 {
-		ta.event(event.TextDelta{Base: childBase(), MessageID: "k2", Text: "more "})
-	}
-	if n := calls(); n != 2 {
-		t.Fatalf("child events re-read at once (%d calls); want it deferred to the tick", n)
-	}
-	ta.fire()
-	if n := calls(); n != 3 {
-		t.Fatalf("Messages(ses_c) calls after one tick = %d, want 3", n)
-	}
-	ta.fire()
-	if n := calls(); n != 3 {
-		t.Fatalf("a tick with no child events re-read (%d calls)", n)
-	}
-	if !strings.Contains(xansi.Strip(ta.view()), "child says hi") {
-		t.Error("the details pane does not show the child's messages")
-	}
-}
-
 func TestApp_PermissionHintStaysWhileTyping(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
@@ -447,33 +407,5 @@ func TestApp_PermissionHintStaysWhileTyping(t *testing.T) {
 	ta.key("k")
 	if got := ta.app.statusState().Hint; got == pendingHint {
 		t.Error("the hint outlived the last pending request")
-	}
-}
-
-func TestApp_SubagentDetailsRefreshKeepsScroll(t *testing.T) {
-	t.Parallel()
-	var long []string
-	for i := range 60 {
-		long = append(long, fmt.Sprintf("row%02d", i))
-	}
-	child := []core.Message{{ID: "k1", SessionID: "ses_c", Role: core.RoleAssistant, Parts: []core.Part{{Kind: core.PartText, Text: strings.Join(long, "\n")}}}}
-	ta := newTestApp(t, withSessions(nil, map[core.SessionID][]core.Message{"ses_c": child}))
-	ta.sendAndAdopt("find it")
-	ta.startSubagent()
-	ta.key("esc")
-	ta.key("enter")
-	for range 5 {
-		ta.key("ctrl+e")
-	}
-	firstRow := func() string {
-		return strings.TrimSpace(xansi.Strip(strings.Split(ta.app.w.details.View(), "\n")[2]))
-	}
-	if got := firstRow(); got != "row04" {
-		t.Fatalf("after 5× ctrl+e the first body row = %q, want row04 (a blank line precedes the text)", got)
-	}
-	ta.event(event.TextDelta{Base: childBase(), MessageID: "k2", Text: "more"})
-	ta.fire()
-	if got := firstRow(); got != "row04" {
-		t.Fatalf("after a refresh the first body row = %q, want the scroll kept (row04)", got)
 	}
 }

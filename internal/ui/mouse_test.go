@@ -110,17 +110,17 @@ func TestMouse_WheelScrollsDetails(t *testing.T) {
 	}})
 	ta.key("esc")
 	ta.key("enter")
-	if !ta.app.view.detailsOpen {
+	if !columnOpen(ta.app) {
 		t.Fatal("enter did not open the details split")
 	}
 
-	before := ta.app.w.details
+	before := columnTop(ta.app).body
 	before.ScrollBy(wheelLines)
 	wantRow := strings.Split(before.View(), "\n")[2]
 
 	ta.mouse(tea.MouseWheelMsg{X: ta.app.lay.Side.X + 2, Y: ta.app.lay.Side.Y + 2, Button: tea.MouseWheelDown})
 
-	gotRow := strings.Split(ta.app.w.details.View(), "\n")[2]
+	gotRow := strings.Split(columnTop(ta.app).body.View(), "\n")[2]
 	if gotRow != wantRow {
 		t.Errorf("details body row after wheel down = %q, want %q", gotRow, wantRow)
 	}
@@ -424,15 +424,15 @@ func TestMouse_DetailsSelection(t *testing.T) {
 	ta := newTestApp(t, withResume(core.Session{ID: "ses_1", Agent: "build"}, twoTextMessages(), nil))
 	ta.key("esc")
 	ta.key("enter") // opens details for the selected (last) block: "second message"
-	if !ta.app.view.detailsOpen {
+	if !columnOpen(ta.app) {
 		t.Fatal("enter did not open the details split")
 	}
-	got := xansi.Strip(ta.app.w.details.View())
+	got := xansi.Strip(columnTop(ta.app).body.View())
 	if !strings.Contains(got, "second message") {
 		t.Fatalf("details = %q, want the selected block's text", got)
 	}
-	if line, _, ok := ta.app.w.details.HitTest(0, 2); !ok || line != 0 {
-		t.Fatalf("test setup: HitTest(0,2) = line %d ok %v, want line 0", line, ok)
+	if line, _, ok := columnTop(ta.app).body.HitTest(0, 0); !ok || line != 0 {
+		t.Fatalf("test setup: HitTest(0,0) = line %d ok %v, want line 0", line, ok)
 	}
 
 	r := ta.app.lay.Side
@@ -447,8 +447,9 @@ func TestMouse_DetailsSelection(t *testing.T) {
 		t.Fatal("test setup: selection not left active after release")
 	}
 
-	// Moving the selection to another block rebuilds the details
-	// (SetContent), clearing the selection.
+	// Moving main's selection (after refocusing it) to another block
+	// rebuilds the details (SetContent), clearing the selection.
+	ta.key("h") // refocus main (the drag left the column focused)
 	ta.key("k")
 	if ta.app.view.mouse.sel.Active {
 		t.Error("opening another block's details did not clear the selection")

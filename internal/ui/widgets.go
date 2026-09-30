@@ -4,8 +4,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 
 	"github.com/gammons/jig/internal/bubbles/blocklist"
+	"github.com/gammons/jig/internal/bubbles/breadcrumb"
 	"github.com/gammons/jig/internal/bubbles/confirm"
-	"github.com/gammons/jig/internal/bubbles/details"
 	"github.com/gammons/jig/internal/bubbles/permcard"
 	"github.com/gammons/jig/internal/bubbles/picker"
 	"github.com/gammons/jig/internal/bubbles/prompt"
@@ -19,20 +19,23 @@ import (
 // lives on the current pane. upserts counts list Upsert calls (streaming
 // coalescing is asserted on it). cardAt is the block the permission card
 // renders under and the card version and width its item was last built
-// with; arm is the card's arming state (permCtl.guard).
+// with; arm is the card's arming state (permCtl.guard). crumb is the
+// column's breadcrumb; mainCrumb is main's own breadcrumb, shown only
+// when narrow with the column open and main focused (MainCrumb).
 type widgets struct {
-	prompt  prompt.Model
-	picker  picker.Model
-	details details.Model
-	card    permcard.Model
-	status  statusbar.Model
-	side    sidebar.Model
-	confirm confirm.Model
-	search  textinput.Model
-	render  *renderer
-	upserts int
-	cardAt  cardKey
-	arm     cardArm
+	prompt    prompt.Model
+	picker    picker.Model
+	crumb     breadcrumb.Model
+	mainCrumb breadcrumb.Model
+	card      permcard.Model
+	status    statusbar.Model
+	side      sidebar.Model
+	confirm   confirm.Model
+	search    textinput.Model
+	render    *renderer
+	upserts   int
+	cardAt    cardKey
+	arm       cardArm
 	// gen counts list upserts and resets: every projection change that
 	// reaches the screen goes through one, so sideProj keys on it.
 	gen      int
@@ -94,14 +97,15 @@ func newWidgets(set *theme.Set, edit prompt.EditFunc, load picker.LoadFunc, repl
 	sst.Cursor.Blink = false
 	search.SetStyles(sst)
 	return widgets{
-		prompt:  prompt.New(edit, prompt.WithStyles(set.Prompt)),
-		picker:  picker.New(load, picker.WithStyles(set.Picker), picker.WithPreview(previewTheme)),
-		details: details.New(details.WithStyles(set.Details)),
-		card:    permcard.New(reply, permcard.WithStyles(set.Card)),
-		status:  statusbar.New(statusbar.WithStyles(set.Status)),
-		side:    sidebar.New(sidebar.WithStyles(set.Sidebar)),
-		confirm: confirm.New(confirm.WithStyles(set.Confirm)),
-		search:  search,
-		render:  r,
+		prompt:    prompt.New(edit, prompt.WithStyles(set.Prompt)),
+		picker:    picker.New(load, picker.WithStyles(set.Picker), picker.WithPreview(previewTheme)),
+		crumb:     breadcrumb.New(breadcrumb.WithStyles(set.Breadcrumb)),
+		mainCrumb: breadcrumb.New(breadcrumb.WithStyles(set.Breadcrumb)),
+		card:      permcard.New(reply, permcard.WithStyles(set.Card)),
+		status:    statusbar.New(statusbar.WithStyles(set.Status)),
+		side:      sidebar.New(sidebar.WithStyles(set.Sidebar)),
+		confirm:   confirm.New(confirm.WithStyles(set.Confirm)),
+		search:    search,
+		render:    r,
 	}
 }

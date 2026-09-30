@@ -5,18 +5,20 @@ import (
 	"time"
 
 	"github.com/gammons/jig/internal/bubbles/blocklist"
+	"github.com/gammons/jig/internal/bubbles/details"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
 	"github.com/gammons/jig/internal/ui/theme"
 	"github.com/gammons/jig/internal/ui/transcript"
 )
 
-// paneKind is what a pane shows. Only paneTranscript exists for now;
-// later tasks add more.
+// paneKind is what a pane shows: a transcript view, or a details pane in
+// the column.
 type paneKind int
 
 const (
 	paneTranscript paneKind = iota
+	paneDetails
 )
 
 // listSize is the transcript list's applied size and the debounce state
@@ -26,20 +28,25 @@ type listSize struct {
 }
 
 // pane is one transcript view's projection, blocklist, and render
-// bookkeeping: the transcript projection, the blocklist widget, the
+// bookkeeping — or, for kind paneDetails, a details body shown in the
+// column: the transcript projection, the blocklist widget, the
 // tool-call-group layout (track), tool/reasoning durations (times), and
 // the applied/pending list size (sz). Only the fields the current tasks
 // use are declared; later tasks (kids/column panes) add more.
 type pane struct {
-	kind    paneKind
-	session core.SessionID
-	proj    *transcript.Projection
-	list    blocklist.Model
-	track   itemTrack
-	times   blockTimes
-	sz      listSize
-	title   string // a kid pane's breadcrumb text
-	load    kidLoad
+	kind     paneKind
+	session  core.SessionID
+	proj     *transcript.Projection
+	list     blocklist.Model
+	track    itemTrack
+	times    blockTimes
+	sz       listSize
+	title    string // a kid pane's breadcrumb text, or a details pane's header
+	load     kidLoad
+	body     details.Model      // paneDetails
+	owner    *pane              // paneDetails: the pane whose block it shows
+	forBlock transcript.BlockID // paneDetails: that block
+	buildGen int                // paneDetails: async build generation (detailsMsg staleness)
 }
 
 // kidLoad is a kid pane's on-demand history load (spec §4.2): while

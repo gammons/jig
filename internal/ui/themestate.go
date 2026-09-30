@@ -53,7 +53,8 @@ func pushTheme(a *App) {
 	a.w.render.md.SetStyles(set.Markdown)
 	a.w.prompt.SetStyles(set.Prompt)
 	a.w.picker.SetStyles(set.Picker)
-	a.w.details.SetStyles(set.Details)
+	a.w.crumb.SetStyles(set.Breadcrumb)
+	a.w.mainCrumb.SetStyles(set.Breadcrumb)
 	a.w.card.SetStyles(set.Card)
 	a.w.status.SetStyles(set.Status)
 	a.w.side.SetStyles(set.Sidebar)
@@ -62,6 +63,11 @@ func pushTheme(a *App) {
 		a.sess.main.track.versions[id]++
 	}
 	a.sess.main.list.SetStyles(set.Blocklist, a.theme.version)
+	for _, p := range a.view.col {
+		if p.kind == paneDetails {
+			p.body.SetStyles(set.Details)
+		}
+	}
 }
 
 // preview applies the palette named name, remembering the palette to
