@@ -68,12 +68,12 @@ func (p permCtl) target() *transcript.PendingPermission {
 			return pp
 		}
 	}
-	if it, ok := a.w.list.Selected(); ok {
+	if it, ok := a.sess.main.list.Selected(); ok {
 		if pp := p.shownOn(transcript.BlockID(it.ID)); pp != nil {
 			return pp
 		}
 	}
-	for _, pp := range a.sess.proj.Pending() {
+	for _, pp := range a.sess.main.proj.Pending() {
 		if shown := p.shownOn(pp.Block); shown != nil {
 			return shown
 		}
@@ -86,7 +86,7 @@ func (p permCtl) shownOn(id transcript.BlockID) *transcript.PendingPermission {
 	if id == "" {
 		return nil
 	}
-	b, ok := p.a.sess.proj.Block(id)
+	b, ok := p.a.sess.main.proj.Block(id)
 	if !ok {
 		return nil
 	}
@@ -113,10 +113,10 @@ func (p permCtl) sync() tea.Cmd {
 	}
 	a.w.card.Set(req)
 	cmd := p.guard(req, blk)
-	if a.view.list.w != a.w.cardAt.width {
-		a.w.card.SetWidth(a.view.list.w)
+	if a.sess.main.sz.listW != a.w.cardAt.width {
+		a.w.card.SetWidth(a.sess.main.sz.listW)
 	}
-	next := cardKey{block: blk, ver: a.w.card.Version(), width: a.view.list.w}
+	next := cardKey{block: blk, ver: a.w.card.Version(), width: a.sess.main.sz.listW}
 	if next == a.w.cardAt {
 		return cmd
 	}
@@ -139,7 +139,7 @@ func (p permCtl) sync() tea.Cmd {
 func (p permCtl) guard(req *permcard.Request, blk transcript.BlockID) tea.Cmd {
 	a := p.a
 	var sel transcript.BlockID
-	if it, ok := a.w.list.Selected(); ok {
+	if it, ok := a.sess.main.list.Selected(); ok {
 		sel = transcript.BlockID(it.ID)
 	}
 	id := ""
@@ -181,7 +181,7 @@ func (p permCtl) armed(msg cardArmMsg) {
 // not answer it.
 func (p permCtl) requested(e event.PermissionRequested) tea.Cmd {
 	a := p.a
-	if !slices.ContainsFunc(a.sess.proj.Pending(), func(pp transcript.PendingPermission) bool { return pp.RequestID == e.RequestID }) {
+	if !slices.ContainsFunc(a.sess.main.proj.Pending(), func(pp transcript.PendingPermission) bool { return pp.RequestID == e.RequestID }) {
 		return nil
 	}
 	if a.mode == modePicker || a.w.prompt.Value() != "" {
@@ -193,7 +193,7 @@ func (p permCtl) requested(e event.PermissionRequested) tea.Cmd {
 	if switched {
 		cmd = tea.Batch(cmd, p.disarm())
 	}
-	if it, ok := a.w.list.Selected(); ok && p.shownOn(transcript.BlockID(it.ID)) != nil {
+	if it, ok := a.sess.main.list.Selected(); ok && p.shownOn(transcript.BlockID(it.ID)) != nil {
 		return cmd
 	}
 	blocks := p.pendingBlocks()
@@ -207,7 +207,7 @@ func (p permCtl) requested(e event.PermissionRequested) tea.Cmd {
 // order, each once.
 func (p permCtl) pendingBlocks() []transcript.BlockID {
 	var out []transcript.BlockID
-	for _, pp := range p.a.sess.proj.Pending() {
+	for _, pp := range p.a.sess.main.proj.Pending() {
 		if pp.Block != "" && !slices.Contains(out, pp.Block) && p.shownOn(pp.Block) != nil {
 			out = append(out, pp.Block)
 		}
@@ -223,7 +223,7 @@ func (p permCtl) next() tea.Cmd {
 		return nil
 	}
 	i := -1
-	if it, ok := p.a.w.list.Selected(); ok {
+	if it, ok := p.a.sess.main.list.Selected(); ok {
 		i = slices.Index(blocks, transcript.BlockID(it.ID))
 	}
 	return p.selectBlock(blocks[(i+1)%len(blocks)])
@@ -233,15 +233,15 @@ func (p permCtl) next() tea.Cmd {
 // details split when open.
 func (p permCtl) selectBlock(id transcript.BlockID) tea.Cmd {
 	a := p.a
-	before, _ := a.w.list.Selected()
-	a.w.list.Select(string(id))
+	before, _ := a.sess.main.list.Selected()
+	a.sess.main.list.Select(string(id))
 	return normalKeys{a}.syncDetails(before)
 }
 
 // onCard reports whether the selected block carries the card.
 func (p permCtl) onCard() bool {
 	a := p.a
-	it, ok := a.w.list.Selected()
+	it, ok := a.sess.main.list.Selected()
 	return ok && a.w.card.Request() != nil && transcript.BlockID(it.ID) == a.w.cardAt.block
 }
 

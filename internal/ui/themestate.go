@@ -58,10 +58,10 @@ func pushTheme(a *App) {
 	a.w.status.SetStyles(set.Status)
 	a.w.side.SetStyles(set.Sidebar)
 	a.w.confirm.SetStyles(set.Confirm)
-	for id := range a.sess.track.versions {
-		a.sess.track.versions[id]++
+	for id := range a.sess.main.track.versions {
+		a.sess.main.track.versions[id]++
 	}
-	a.w.list.SetStyles(set.Blocklist, a.theme.version)
+	a.sess.main.list.SetStyles(set.Blocklist, a.theme.version)
 }
 
 // preview applies the palette named name, remembering the palette to

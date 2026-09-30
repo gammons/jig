@@ -36,7 +36,7 @@ func (ta *testApp) request(req, id, subject string) {
 
 // selectedID is the transcript list's selected block ID ("" for none).
 func (ta *testApp) selectedID() string {
-	it, ok := ta.app.w.list.Selected()
+	it, ok := ta.app.sess.main.list.Selected()
 	if !ok {
 		return ""
 	}

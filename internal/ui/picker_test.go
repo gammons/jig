@@ -336,7 +336,7 @@ func TestPicker_SessionsOpenResumes(t *testing.T) {
 	if ta.app.sess.info.Agent != "plan" || ta.app.sess.info.Model != "anthropic/claude-opus-5-5" {
 		t.Errorf("agent/model = %q/%q, want the session's", ta.app.sess.info.Agent, ta.app.sess.info.Model)
 	}
-	if got := len(ta.app.sess.proj.Blocks()); got != 3 {
+	if got := len(ta.app.sess.main.proj.Blocks()); got != 3 {
 		t.Errorf("%d blocks loaded, want 3", got)
 	}
 	if cur := itemByID(t, loadItems(ta, picker.Level{ID: levelSessions}), "ses_b"); !cur.Current {
@@ -354,14 +354,14 @@ func TestPicker_SessionNewClears(t *testing.T) {
 	ta := newTestApp(t, withResume(resumed(), []core.Message{
 		{ID: "u1", SessionID: "ses_r", Role: core.RoleUser, Parts: []core.Part{{Kind: core.PartText, Text: "q"}}},
 	}, nil))
-	if len(ta.app.sess.proj.Blocks()) != 1 {
+	if len(ta.app.sess.main.proj.Blocks()) != 1 {
 		t.Fatal("resume did not load")
 	}
 	ta.key("ctrl+p")
 	ta.typeText("new session")
 	ta.key("enter")
-	if ta.app.sess.info.ID != "" || len(ta.app.sess.proj.Blocks()) != 0 {
-		t.Errorf("session = %q blocks = %d; want a cleared new session", ta.app.sess.info.ID, len(ta.app.sess.proj.Blocks()))
+	if ta.app.sess.info.ID != "" || len(ta.app.sess.main.proj.Blocks()) != 0 {
+		t.Errorf("session = %q blocks = %d; want a cleared new session", ta.app.sess.info.ID, len(ta.app.sess.main.proj.Blocks()))
 	}
 	ta.typeText("fresh")
 	ta.key("enter")
@@ -672,7 +672,7 @@ func TestPicker_CompactReloadsOnSuccess(t *testing.T) {
 	ta.key("ctrl+p")
 	ta.typeText("compact")
 	ta.key("enter")
-	if got := len(ta.app.sess.proj.Blocks()); got != 1 {
+	if got := len(ta.app.sess.main.proj.Blocks()); got != 1 {
 		t.Errorf("%d blocks after compaction, want the summary notice", got)
 	}
 }

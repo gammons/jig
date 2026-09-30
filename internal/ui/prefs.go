@@ -48,7 +48,7 @@ func (p prefsCtl) setHideReasoning(hide bool) {
 	}
 	a.w.render.hideReasoning = hide
 	var ids []transcript.BlockID
-	for _, b := range a.sess.proj.Blocks() {
+	for _, b := range a.sess.main.proj.Blocks() {
 		if b.Thinking {
 			ids = append(ids, b.ID)
 		}

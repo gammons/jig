@@ -143,7 +143,7 @@ func TestWheelAccel_BurstNotchesDontAccelerate(t *testing.T) {
 func TestMouse_FastWheelAcceleratesTranscript(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, withSize(120, 30), withResume(core.Session{ID: "ses_1", Agent: "build"}, benchHistory(200), nil))
-	want := ta.app.w.list
+	want := ta.app.sess.main.list
 	var ref wheelAccel
 	now := ta.clk.Now()
 	total := 0
@@ -160,7 +160,7 @@ func TestMouse_FastWheelAcceleratesTranscript(t *testing.T) {
 	if -total <= 8*wheelLines {
 		t.Fatalf("test setup: the streak scrolled %d lines, no more than unaccelerated", -total)
 	}
-	if got, w := ta.app.w.list.View(), want.View(); got != w {
+	if got, w := ta.app.sess.main.list.View(), want.View(); got != w {
 		t.Errorf("transcript after a fast streak differs from ScrollBy of the accelerated total (%d lines)", -total)
 	}
 }

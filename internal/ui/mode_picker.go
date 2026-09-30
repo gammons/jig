@@ -12,6 +12,8 @@ import (
 	"github.com/gammons/jig/internal/bubbles/picker"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/ui/actions"
+	"github.com/gammons/jig/internal/ui/theme"
+	"github.com/gammons/jig/internal/ui/transcript"
 )
 
 // maxRecent is how many recent actions are kept (spec §6.4).
@@ -254,9 +256,9 @@ func (p pickerCtl) newSession() tea.Cmd {
 		a.view.hint = "session is busy"
 		return nil
 	}
-	a.sess = freshSession(a.sess, "")
+	installMain(a, freshSession(a.sess, "", a.w.render, &a.theme.set))
 	a.view.detailsOpen = false
-	a.w.setItems(nil)
+	a.w.setItems(a.sess.main, nil)
 	return nil
 }
 
@@ -274,12 +276,32 @@ func (p pickerCtl) resume(id core.SessionID) tea.Cmd {
 // freshSession is a new session state for id, keeping old's cached
 // catalog, agent, model, and effort, and the search hold (the list keeps
 // its applied query). Recorded attachments don't carry over: a path picked
-// for the old session must not attach to the new one.
-func freshSession(old *sessionState, id core.SessionID) *sessionState {
-	s := newSessionState(id, old.clk, old.cat)
+// for the old session must not attach to the new one. r and set style the
+// new root pane's blocklist.
+func freshSession(old *sessionState, id core.SessionID, r *renderer, set *theme.Set) *sessionState {
+	main := newTranscriptPane(transcript.New(id), r, set)
+	s := newSessionState(id, old.clk, old.cat, main)
 	s.info.Agent, s.info.Model, s.info.Effort = old.info.Agent, old.info.Model, old.info.Effort
-	s.track.fold.search = old.track.fold.search
+	s.main.track.fold.search = old.main.track.fold.search
 	return s
+}
+
+// installMain makes s the App's session state and re-applies to its main
+// pane's freshly built list the per-list state a persistent list would
+// have carried across a session switch: the current mode's highlight,
+// the current theme's styles version (so a later theme change still
+// re-renders it), and the applied search query (SetSearch), so the
+// search hold (fold.search) it inherited from old still has an actual
+// query behind it for n/N to navigate. A free function, not a method, to
+// stay under App's per-package method budget (archtest's struct-size
+// check).
+func installMain(a *App, s *sessionState) {
+	a.sess = s
+	a.sess.main.list.SetHighlight(a.mode == modeNormal)
+	a.sess.main.list.SetStyles(a.theme.set.Blocklist, a.theme.version)
+	if s.main.track.fold.search {
+		a.sess.main.list.SetSearch(a.w.search.Value())
+	}
 }
 
 // setModel makes ref the model the next send uses, and the session's.

@@ -137,7 +137,7 @@ func TestSend_AttachmentsOnlyForSurvivingTokens(t *testing.T) {
 	if s.Text != "@b.go and @b.goo and look" || !slices.Equal(s.Attachments, []string{"b.go"}) {
 		t.Errorf("send = %q %v, want only b.go attached", s.Text, s.Attachments)
 	}
-	blocks := ta.app.sess.proj.Blocks()
+	blocks := ta.app.sess.main.proj.Blocks()
 	if len(blocks) != 1 || !slices.Equal(blocks[0].Attachments, []string{"b.go"}) {
 		t.Errorf("user block attachments = %+v, want b.go", blocks)
 	}
@@ -171,7 +171,7 @@ func TestSend_AttachmentsClearedAfterSend(t *testing.T) {
 		t.Errorf("second send attachments = %v, want none", got)
 	}
 	var users []transcript.Block
-	for _, b := range ta.app.sess.proj.Blocks() {
+	for _, b := range ta.app.sess.main.proj.Blocks() {
 		if b.Kind == transcript.KindUser {
 			users = append(users, b)
 		}

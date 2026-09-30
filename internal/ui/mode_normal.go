@@ -87,9 +87,9 @@ func (h normalKeys) handle(k tea.KeyPressMsg) tea.Cmd {
 // is open and the selection moved, rebuilds it for the new block.
 func (h normalKeys) navigate(k tea.KeyPressMsg) tea.Cmd {
 	a := h.a
-	before, _ := a.w.list.Selected()
+	before, _ := a.sess.main.list.Selected()
 	var cmd tea.Cmd
-	a.w.list, cmd = a.w.list.Update(k)
+	a.sess.main.list, cmd = a.sess.main.list.Update(k)
 	return tea.Batch(cmd, h.syncDetails(before))
 }
 
@@ -97,8 +97,8 @@ func (h normalKeys) navigate(k tea.KeyPressMsg) tea.Cmd {
 // when the split is open.
 func (h normalKeys) gotoTop() tea.Cmd {
 	a := h.a
-	before, _ := a.w.list.Selected()
-	a.w.list.Top()
+	before, _ := a.sess.main.list.Selected()
+	a.sess.main.list.Top()
 	return h.syncDetails(before)
 }
 
@@ -109,7 +109,7 @@ func (h normalKeys) syncDetails(before blocklist.Item) tea.Cmd {
 	if !a.view.detailsOpen {
 		return nil
 	}
-	after, ok := a.w.list.Selected()
+	after, ok := a.sess.main.list.Selected()
 	if !ok || after.ID == before.ID {
 		return nil
 	}
@@ -124,7 +124,7 @@ func (h normalKeys) toggleDetails() tea.Cmd {
 		a.view.detailsOpen = false
 		return nil
 	}
-	item, ok := a.w.list.Selected()
+	item, ok := a.sess.main.list.Selected()
 	if !ok {
 		return nil
 	}
@@ -140,7 +140,7 @@ func (h normalKeys) toggleDetails() tea.Cmd {
 func (h normalKeys) openDetailsFor(id transcript.BlockID) tea.Cmd {
 	a := h.a
 	members, durs, isGroup := foldCtl{a}.group(id)
-	b, isBlock := a.sess.proj.Block(id)
+	b, isBlock := a.sess.main.proj.Block(id)
 	if !isGroup && !isBlock {
 		return nil
 	}
@@ -173,7 +173,7 @@ func (h normalKeys) closeOrClear() tea.Cmd {
 		a.view.detailsOpen = false
 		return nil
 	}
-	a.w.list.SetSearch("")
+	a.sess.main.list.SetSearch("")
 	return foldCtl{a}.setSearch(false)
 }
 
@@ -196,7 +196,7 @@ func (h normalKeys) handleSearch(k tea.KeyPressMsg) tea.Cmd {
 		a.view.searching = false
 		query := a.w.search.Value()
 		cmd := foldCtl{a}.setSearch(query != "")
-		a.w.list.SetSearch(query)
+		a.sess.main.list.SetSearch(query)
 		a.w.search.Blur()
 		return cmd
 	case "esc":
@@ -215,7 +215,7 @@ func (h normalKeys) handleSearch(k tea.KeyPressMsg) tea.Cmd {
 // "yanked" hint.
 func (h normalKeys) yank() tea.Cmd {
 	a := h.a
-	item, ok := a.w.list.Selected()
+	item, ok := a.sess.main.list.Selected()
 	if !ok {
 		return nil
 	}
@@ -223,7 +223,7 @@ func (h normalKeys) yank() tea.Cmd {
 		a.view.hint = "yanked"
 		return tea.SetClipboard(groupYank(members))
 	}
-	b, ok := a.sess.proj.Block(transcript.BlockID(item.ID))
+	b, ok := a.sess.main.proj.Block(transcript.BlockID(item.ID))
 	if !ok {
 		return nil
 	}

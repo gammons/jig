@@ -33,14 +33,14 @@ func (c foldCtl) apply(res applyResult) tea.Cmd {
 // to its group's header, and an open details split follows it.
 func (c foldCtl) relist(changed []transcript.BlockID) tea.Cmd {
 	a := c.a
-	before, had := a.w.list.Selected()
-	items := a.sess.track.relistItems(a.sess, changed)
-	a.w.setItems(items)
+	before, had := a.sess.main.list.Selected()
+	items := a.sess.main.track.relistItems(a.sess.main, changed, a.sess.run.frame)
+	a.w.setItems(a.sess.main, items)
 	if !had || slices.ContainsFunc(items, func(it blocklist.Item) bool { return it.ID == before.ID }) {
 		return nil
 	}
-	if g, ok := a.sess.track.fold.groupOf(transcript.BlockID(before.ID)); ok {
-		a.w.list.Select(string(g))
+	if g, ok := a.sess.main.track.fold.groupOf(transcript.BlockID(before.ID)); ok {
+		a.sess.main.list.Select(string(g))
 	}
 	return normalKeys{a}.syncDetails(before)
 }
@@ -50,11 +50,11 @@ func (c foldCtl) relist(changed []transcript.BlockID) tea.Cmd {
 // header). It does nothing on any other block.
 func (c foldCtl) toggle() tea.Cmd {
 	a := c.a
-	it, ok := a.w.list.Selected()
+	it, ok := a.sess.main.list.Selected()
 	if !ok {
 		return nil
 	}
-	g, ok := a.sess.track.fold.toggle(transcript.BlockID(it.ID))
+	g, ok := a.sess.main.track.fold.toggle(transcript.BlockID(it.ID))
 	if !ok {
 		return nil
 	}
@@ -62,7 +62,7 @@ func (c foldCtl) toggle() tea.Cmd {
 	if g == transcript.BlockID(it.ID) {
 		// Expanding a header that was the list's last item must not let
 		// SetItems' follow rule move the selection to its last member.
-		a.w.list.Select(it.ID)
+		a.sess.main.list.Select(it.ID)
 	}
 	return cmd
 }
@@ -70,18 +70,18 @@ func (c foldCtl) toggle() tea.Cmd {
 // relayout re-lays out the groups after a fold or search change and
 // rebuilds the list.
 func (c foldCtl) relayout() tea.Cmd {
-	c.a.sess.track.fold.regroup(c.a.sess.proj.Blocks())
+	c.a.sess.main.track.fold.regroup(c.a.sess.main.proj.Blocks())
 	return c.relist(nil)
 }
 
 // group returns group id's member blocks and their durations; false when
 // id is not a group.
 func (c foldCtl) group(id transcript.BlockID) ([]transcript.Block, []time.Duration, bool) {
-	ids, ok := c.a.sess.track.fold.members(id)
+	ids, ok := c.a.sess.main.track.fold.members(id)
 	if !ok {
 		return nil, nil, false
 	}
-	members, durs := groupMembers(c.a.sess, ids)
+	members, durs := groupMembers(c.a.sess.main, ids)
 	return members, durs, len(members) > 0
 }
 
@@ -89,7 +89,7 @@ func (c foldCtl) group(id transcript.BlockID) ([]transcript.Block, []time.Durati
 // a match inside a collapsed group can be found, and lets each group
 // return to its own state when the search is cleared.
 func (c foldCtl) setSearch(on bool) tea.Cmd {
-	f := &c.a.sess.track.fold
+	f := &c.a.sess.main.track.fold
 	if f.search == on {
 		return nil
 	}

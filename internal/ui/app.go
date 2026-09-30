@@ -75,9 +75,8 @@ type (
 )
 
 // viewState is the App's presentation state: the sidebar preference, whether the details split is open, the
-// status hint, the project's prompt history, the streamTick's state
-// (stream), and the transcript list's applied size (listW/listH) and a
-// pending debounced width (pendingW, keyed by resizeGen). keyPrefix holds
+// status hint, the project's prompt history, and the streamTick's state
+// (stream). keyPrefix holds
 // a pending NORMAL g-prefix ("g", awaiting its second key); searching is
 // whether the one-line search input owns the status bar's slot;
 // detailsFor is the block ID the open details split shows, so an async
@@ -92,21 +91,12 @@ type viewState struct {
 	hint        string
 	history     []string
 	stream      streamState
-	list        listSizeState
 	keyPrefix   string
 	searching   bool
 	detailsFor  transcript.BlockID
 	resumeHeld  core.SessionID
 	mouse       mouseState
 	mcp         mcpViewState
-}
-
-// listSizeState is the transcript list's applied size and the debounce
-// state for a pending width change (see relayout/applyListWidth).
-type listSizeState struct {
-	resizeGen int
-	pendingW  int
-	w, h      int
 }
 
 // mcpViewState is the App's view of the configured MCP servers: the last
@@ -146,13 +136,14 @@ func New(p Ports, o Options) *App {
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &App{
 		ports: p, opts: o, ctx: ctx, cancel: cancel,
-		sess:  newSessionState(o.Session, o.Clock, catalog{defaultModel: o.DefaultModel, defaultEffort: o.DefaultEffort}),
 		theme: newThemeState(o.Theme, o.Themes),
 		img:   newImageState(imgrender.Detect(o.Images, ""), o.Tmux),
 		after: tick,
 	}
 	a.w = newWidgets(&a.theme.set, func(text string) tea.Cmd { return editorCmd(a.ports, text) }, levels{a}.load, replyFunc(a))
-	a.w.list.SetHighlight(false) // the App starts in INSERT
+	main := newTranscriptPane(transcript.New(o.Session), a.w.render, &a.theme.set)
+	main.list.SetHighlight(false) // the App starts in INSERT
+	a.sess = newSessionState(o.Session, o.Clock, catalog{defaultModel: o.DefaultModel, defaultEffort: o.DefaultEffort}, main)
 	if p.Subscribe != nil {
 		a.sub = p.Subscribe()
 	}
@@ -197,7 +188,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamTickMsg:
 		cmd = a.onTick()
 	case resizeMsg:
-		if msg.gen == a.view.list.resizeGen {
+		if msg.gen == a.sess.main.sz.resizeGen {
 			a.applyListWidth()
 		}
 	case tea.MouseMsg, mouseScrollMsg:
@@ -240,7 +231,7 @@ func (a *App) View() tea.View {
 	if a.view.searching {
 		status = a.w.search.View()
 	}
-	list := paintSelection(a, regionTranscript, a.w.list.View(), a.lay.Transcript)
+	list := paintSelection(a, regionTranscript, a.sess.main.list.View(), a.lay.Transcript)
 	v.Content = compose(a.lay, list, side, a.w.prompt.View(), status, borderCell(a.theme.set.Blocklist))
 	if a.w.picker.IsOpen() {
 		v.Content = overlay.Center(v.Content, a.width, a.height, a.w.picker.View(), overlayDim)
@@ -255,7 +246,7 @@ func (a *App) onEvent(ev event.Event) tea.Cmd {
 	}
 	res := a.sess.apply(ev)
 	if res.reload {
-		a.w.setItems(a.sess.allItems())
+		a.w.setItems(a.sess.main, a.sess.allItems())
 	}
 	cmds := []tea.Cmd{waitEvent(a.sub), foldCtl{a}.apply(res)}
 	if res.settled {
@@ -291,7 +282,7 @@ func (a *App) onTick() tea.Cmd {
 
 // flush re-renders the blocks ids in the transcript list.
 func (a *App) flush(ids []transcript.BlockID) {
-	a.w.upsert(a.sess.items(ids))
+	a.w.upsert(a.sess.main, a.sess.items(ids))
 }
 
 // onResult handles port results and widget messages.
@@ -360,11 +351,11 @@ func (a *App) onPortResult(msg tea.Msg) tea.Cmd {
 		}
 		if msg.info.ID != a.sess.info.ID {
 			// A session opened from the picker replaces this one.
-			a.sess = freshSession(a.sess, msg.info.ID)
+			installMain(a, freshSession(a.sess, msg.info.ID, a.w.render, &a.theme.set))
 			a.view.detailsOpen = false
 		}
 		a.sess.load(msg.info, msg.msgs, msg.todos)
-		a.w.setItems(a.sess.allItems())
+		a.w.setItems(a.sess.main, a.sess.allItems())
 		a.w.prompt.SetAgent(ansi.SanitizeLine(a.sess.info.Agent))
 	case errMsg:
 		a.view.hint = msg.hint()
@@ -391,27 +382,27 @@ func (a *App) relayout() tea.Cmd {
 	a.w.confirm.SetSize(a.width, a.height)
 
 	tw, th := a.lay.Transcript.W, a.lay.Transcript.H
-	if a.view.list.w == 0 || tw == a.view.list.w {
-		a.view.list.pendingW = tw
-		a.w.list.SetSize(tw, th)
-		a.view.list.w, a.view.list.h = tw, th
+	if a.sess.main.sz.listW == 0 || tw == a.sess.main.sz.listW {
+		a.sess.main.sz.pendingW = tw
+		a.sess.main.list.SetSize(tw, th)
+		a.sess.main.sz.listW, a.sess.main.sz.listH = tw, th
 		return nil
 	}
-	a.w.list.SetSize(a.view.list.w, th)
-	a.view.list.h = th
-	if tw == a.view.list.pendingW {
+	a.sess.main.list.SetSize(a.sess.main.sz.listW, th)
+	a.sess.main.sz.listH = th
+	if tw == a.sess.main.sz.pendingW {
 		return nil
 	}
-	a.view.list.resizeGen++
-	a.view.list.pendingW = tw
-	return a.after(resizeDebounce, resizeMsg{gen: a.view.list.resizeGen})
+	a.sess.main.sz.resizeGen++
+	a.sess.main.sz.pendingW = tw
+	return a.after(resizeDebounce, resizeMsg{gen: a.sess.main.sz.resizeGen})
 }
 
 // applyListWidth gives the transcript list the layout's current size.
 func (a *App) applyListWidth() {
-	a.w.list.SetSize(a.lay.Transcript.W, a.lay.Transcript.H)
-	a.view.list.w, a.view.list.h = a.lay.Transcript.W, a.lay.Transcript.H
-	a.view.list.pendingW = a.view.list.w
+	a.sess.main.list.SetSize(a.lay.Transcript.W, a.lay.Transcript.H)
+	a.sess.main.sz.listW, a.sess.main.sz.listH = a.lay.Transcript.W, a.lay.Transcript.H
+	a.sess.main.sz.pendingW = a.sess.main.sz.listW
 }
 
 // setMode switches the input mode; only INSERT focuses the prompt, and
@@ -419,7 +410,7 @@ func (a *App) applyListWidth() {
 func (a *App) setMode(m mode) tea.Cmd {
 	a.mode = m
 	if m != modePicker {
-		a.w.list.SetHighlight(m == modeNormal)
+		a.sess.main.list.SetHighlight(m == modeNormal)
 	}
 	if m == modeInsert {
 		return a.w.prompt.Focus()

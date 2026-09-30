@@ -128,7 +128,7 @@ func paneRect(a *App, p mouseRegion) wintree.Rect {
 func hitTest(a *App, p mouseRegion, x, y int) (id string, line, col int, ok bool) {
 	switch p {
 	case regionTranscript:
-		return blocklist.HitTest(a.w.list, x, y)
+		return blocklist.HitTest(a.sess.main.list, x, y)
 	case regionDetails:
 		line, col, ok = a.w.details.HitTest(x, y)
 		return detailsSelID, line, col, ok
@@ -167,7 +167,7 @@ func scrollEdge(a *App, p mouseRegion, y int) {
 	if p == regionDetails {
 		a.w.details.ScrollBy(n)
 	} else {
-		a.w.list.ScrollBy(n)
+		a.sess.main.list.ScrollBy(n)
 	}
 }
 
@@ -189,7 +189,7 @@ func (m mouseCtl) wheel(msg tea.MouseWheelMsg) tea.Cmd {
 	}
 	switch p := paneAt(a, ms.X, ms.Y); p {
 	case regionTranscript:
-		a.w.list.ScrollBy(a.view.mouse.wheel.lines(a.opts.Clock.Now(), dir, p))
+		a.sess.main.list.ScrollBy(a.view.mouse.wheel.lines(a.opts.Clock.Now(), dir, p))
 	case regionDetails:
 		a.w.details.ScrollBy(a.view.mouse.wheel.lines(a.opts.Clock.Now(), dir, p))
 	}
@@ -338,7 +338,7 @@ func (m mouseCtl) copySelection() tea.Cmd {
 		if loI >= 0 && hiI < len(ids) && loI <= hiI {
 			subset = ids[loI : hiI+1]
 		}
-		text = selection.Text(sel, subset, order, func(id string) []string { return blocklist.Lines(a.w.list, id) })
+		text = selection.Text(sel, subset, order, func(id string) []string { return blocklist.Lines(a.sess.main.list, id) })
 	}
 	if text == "" {
 		return nil
@@ -357,14 +357,14 @@ func (m mouseCtl) click() tea.Cmd {
 		return nil
 	}
 	if id := a.view.mouse.sel.Start.ID; id != "" {
-		a.w.list.Select(id)
+		a.sess.main.list.Select(id)
 	}
 	return nil
 }
 
 // transcriptIDs lists every transcript block's ID in document order.
 func transcriptIDs(a *App) []string {
-	blocks := a.sess.proj.Blocks()
+	blocks := a.sess.main.proj.Blocks()
 	ids := make([]string, len(blocks))
 	for i, b := range blocks {
 		ids[i] = string(b.ID)

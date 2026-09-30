@@ -123,7 +123,7 @@ func benchHistory(n int) []core.Message {
 // next View. The list re-renders every block at the new width.
 func BenchmarkApp_Resize2000(b *testing.B) {
 	ta := newTestApp(b, withSize(150, 40), withResume(core.Session{ID: "ses_big", Agent: "build"}, benchHistory(2000), nil))
-	if n := ta.app.w.list.Len(); n != 2000 {
+	if n := ta.app.sess.main.list.Len(); n != 2000 {
 		b.Fatalf("list has %d items, want 2000", n)
 	}
 	_ = ta.view()
@@ -189,7 +189,7 @@ func BenchmarkApp_Wheel2000(b *testing.B) {
 // are then cached, so a toggle re-renders nothing in the list.
 func BenchmarkApp_DetailsToggle2000(b *testing.B) {
 	ta := newTestApp(b, withSize(150, 40), withResume(core.Session{ID: "ses_big", Agent: "build"}, benchHistory(2000), nil))
-	if n := ta.app.w.list.Len(); n != 2000 {
+	if n := ta.app.sess.main.list.Len(); n != 2000 {
 		b.Fatalf("list has %d items, want 2000", n)
 	}
 	toggle := func() {
@@ -201,11 +201,11 @@ func BenchmarkApp_DetailsToggle2000(b *testing.B) {
 	}
 	ta.key("esc")
 	_ = ta.view()
-	closedW := ta.app.view.list.w
+	closedW := ta.app.sess.main.sz.listW
 	ta.key("enter")
 	ta.fire()
 	_ = ta.view()
-	if !ta.app.view.detailsOpen || ta.app.view.list.w == closedW {
+	if !ta.app.view.detailsOpen || ta.app.sess.main.sz.listW == closedW {
 		b.Fatalf("enter did not open the split at a new list width (open %v, width %d)", ta.app.view.detailsOpen, closedW)
 	}
 	ta.key("q")

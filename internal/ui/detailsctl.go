@@ -43,7 +43,7 @@ func (d detailsCtl) shownSubagent() (transcript.Block, bool) {
 	if !a.view.detailsOpen {
 		return transcript.Block{}, false
 	}
-	b, ok := a.sess.proj.Block(a.view.detailsFor)
+	b, ok := a.sess.main.proj.Block(a.view.detailsFor)
 	if !ok || b.Kind != transcript.KindSubagent || b.Sub == nil || b.Sub.Child == "" {
 		return transcript.Block{}, false
 	}

@@ -42,21 +42,21 @@ func TestMouse_WheelScrollsTranscriptAndMovesHighlight(t *testing.T) {
 	// Independently compute what ScrollBy(-wheelLines) does to a copy of
 	// the same list, to check the wiring without duplicating blocklist's
 	// own tested behavior.
-	before := ta.app.w.list
+	before := ta.app.sess.main.list
 	before.ScrollBy(-wheelLines)
 	wantSel, ok := before.Selected()
 	if !ok {
 		t.Fatal("test setup: no selection after ScrollBy")
 	}
-	beforeLine := strings.Split(ta.app.w.list.View(), "\n")[0]
+	beforeLine := strings.Split(ta.app.sess.main.list.View(), "\n")[0]
 
 	ta.mouse(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelUp})
 
-	afterLine := strings.Split(ta.app.w.list.View(), "\n")[0]
+	afterLine := strings.Split(ta.app.sess.main.list.View(), "\n")[0]
 	if afterLine == beforeLine {
 		t.Error("wheel up did not change the transcript's first line")
 	}
-	gotSel, ok := ta.app.w.list.Selected()
+	gotSel, ok := ta.app.sess.main.list.Selected()
 	if !ok || gotSel.ID != wantSel.ID {
 		t.Errorf("selection after wheel = %+v, want %+v", gotSel, wantSel)
 	}
@@ -208,7 +208,7 @@ func TestMouse_DragPinnedToStartPane(t *testing.T) {
 	if !sel.Active {
 		t.Fatal("motion outside the pane did not extend the selection")
 	}
-	wantID, wantLine, wantCol, ok := blocklist.HitTest(ta.app.w.list, r.W-2, r.H-1)
+	wantID, wantLine, wantCol, ok := blocklist.HitTest(ta.app.sess.main.list, r.W-2, r.H-1)
 	if !ok {
 		t.Fatal("test setup: pinned cell HitTest failed")
 	}
@@ -221,15 +221,15 @@ func TestMouse_ClickSelectsBlock(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, withResume(core.Session{ID: "ses_1", Agent: "build"}, twentyTextMessages(), nil))
 	ta.key("esc")
-	if !ta.app.w.list.Select("m/a1/0") {
+	if !ta.app.sess.main.list.Select("m/a1/0") {
 		t.Fatal("test setup: block 1 not found")
 	}
-	if !ta.app.w.list.Select("m/a3/0") {
+	if !ta.app.sess.main.list.Select("m/a3/0") {
 		t.Fatal("test setup: block 3 not found")
 	}
 
 	r := ta.app.lay.Transcript
-	id1, line1, _, ok := blocklist.HitTest(ta.app.w.list, 1, r.Y)
+	id1, line1, _, ok := blocklist.HitTest(ta.app.sess.main.list, 1, r.Y)
 	if !ok || id1 != "m/a1/0" {
 		t.Fatalf("test setup: row 0 is %q line %d, want block 1", id1, line1)
 	}
@@ -237,7 +237,7 @@ func TestMouse_ClickSelectsBlock(t *testing.T) {
 	ta.mouse(tea.MouseClickMsg{X: r.X + 1, Y: r.Y, Button: tea.MouseLeft})
 	ta.mouse(tea.MouseReleaseMsg{X: r.X + 1, Y: r.Y, Button: tea.MouseLeft})
 
-	got, ok := ta.app.w.list.Selected()
+	got, ok := ta.app.sess.main.list.Selected()
 	if !ok || got.ID != "m/a1/0" {
 		t.Errorf("selected = %+v, want block 1", got)
 	}
@@ -257,12 +257,12 @@ func TestMouse_ClickOnCardDisarms(t *testing.T) {
 	if !ta.app.w.card.Armed() {
 		t.Fatal("test setup: card not armed")
 	}
-	ta.app.w.list.Select("t/c2")
+	ta.app.sess.main.list.Select("t/c2")
 
 	r := ta.app.lay.Transcript
 	row := -1
 	for y := 0; y < r.H; y++ {
-		if id, _, _, ok := blocklist.HitTest(ta.app.w.list, 1, y); ok && id == "t/c1" {
+		if id, _, _, ok := blocklist.HitTest(ta.app.sess.main.list, 1, y); ok && id == "t/c1" {
 			row = y
 			break
 		}
@@ -274,7 +274,7 @@ func TestMouse_ClickOnCardDisarms(t *testing.T) {
 	ta.mouse(tea.MouseClickMsg{X: r.X + 1, Y: r.Y + row, Button: tea.MouseLeft})
 	ta.mouse(tea.MouseReleaseMsg{X: r.X + 1, Y: r.Y + row, Button: tea.MouseLeft})
 
-	if got, ok := ta.app.w.list.Selected(); !ok || got.ID != "t/c1" {
+	if got, ok := ta.app.sess.main.list.Selected(); !ok || got.ID != "t/c1" {
 		t.Fatalf("selected = %+v, want t/c1", got)
 	}
 	if ta.app.w.card.Armed() {
@@ -300,7 +300,7 @@ func TestMouse_AutoScrollAtEdge(t *testing.T) {
 	if r.H < 8 {
 		t.Fatalf("test setup: transcript too short (%d rows)", r.H)
 	}
-	before := xansi.Strip(ta.app.w.list.View())
+	before := xansi.Strip(ta.app.sess.main.list.View())
 
 	// Press mid-transcript, then drag onto row 0 (the top edge).
 	ta.mouse(tea.MouseClickMsg{X: r.X + 2, Y: r.Y + 5, Button: tea.MouseLeft})
@@ -324,7 +324,7 @@ func TestMouse_AutoScrollAtEdge(t *testing.T) {
 	ta.clk.Advance(autoScrollEvery)
 	ta.fire()
 
-	after := xansi.Strip(ta.app.w.list.View())
+	after := xansi.Strip(ta.app.sess.main.list.View())
 	if after == before {
 		t.Error("auto-scroll ticks did not scroll the transcript")
 	}
@@ -335,10 +335,10 @@ func TestMouse_AutoScrollAtEdge(t *testing.T) {
 
 	// After release, a further fire scrolls nothing.
 	ta.mouse(tea.MouseReleaseMsg{X: r.X + 2, Y: r.Y, Button: tea.MouseLeft})
-	before3 := ta.app.w.list.View()
+	before3 := ta.app.sess.main.list.View()
 	ta.clk.Advance(autoScrollEvery)
 	ta.fire()
-	after3 := ta.app.w.list.View()
+	after3 := ta.app.sess.main.list.View()
 	if after3 != before3 {
 		t.Error("auto-scroll continued after release")
 	}

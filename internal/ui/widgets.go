@@ -15,12 +15,12 @@ import (
 	"github.com/gammons/jig/internal/ui/transcript"
 )
 
-// widgets holds every widget the App owns. upserts counts list Upsert
-// calls (streaming coalescing is asserted on it). cardAt is the block the
-// permission card renders under and the card version and width its item
-// was last built with; arm is the card's arming state (permCtl.guard).
+// widgets holds every widget the App owns but the transcript list, which
+// lives on the current pane. upserts counts list Upsert calls (streaming
+// coalescing is asserted on it). cardAt is the block the permission card
+// renders under and the card version and width its item was last built
+// with; arm is the card's arming state (permCtl.guard).
 type widgets struct {
-	list    blocklist.Model
 	prompt  prompt.Model
 	picker  picker.Model
 	details details.Model
@@ -48,20 +48,20 @@ type cardKey struct {
 	width int
 }
 
-// upsert re-renders items in the transcript list; nothing for none.
-func (w *widgets) upsert(items []blocklist.Item) {
+// upsert re-renders items in p's transcript list; nothing for none.
+func (w *widgets) upsert(p *pane, items []blocklist.Item) {
 	if len(items) == 0 {
 		return
 	}
 	w.upserts++
 	w.gen++
-	w.list.Upsert(w.withCard(items)...)
+	p.list.Upsert(w.withCard(items)...)
 }
 
-// setItems replaces every item in the transcript list.
-func (w *widgets) setItems(items []blocklist.Item) {
+// setItems replaces every item in p's transcript list.
+func (w *widgets) setItems(p *pane, items []blocklist.Item) {
 	w.gen++
-	w.list.SetItems(w.withCard(items))
+	p.list.SetItems(w.withCard(items))
 }
 
 // withCard puts the card's view on the item of the block that carries it.
@@ -94,7 +94,6 @@ func newWidgets(set *theme.Set, edit prompt.EditFunc, load picker.LoadFunc, repl
 	sst.Cursor.Blink = false
 	search.SetStyles(sst)
 	return widgets{
-		list:    blocklist.New(r.render, blocklist.WithStyles(set.Blocklist)),
 		prompt:  prompt.New(edit, prompt.WithStyles(set.Prompt)),
 		picker:  picker.New(load, picker.WithStyles(set.Picker), picker.WithPreview(previewTheme)),
 		details: details.New(details.WithStyles(set.Details)),

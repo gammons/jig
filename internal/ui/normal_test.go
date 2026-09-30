@@ -44,10 +44,10 @@ func TestNormal_GGAndG(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, withResume(core.Session{ID: "ses_1", Agent: "build"}, twoTextMessages(), nil))
 	ta.key("esc")
-	if n := ta.app.w.list.Len(); n != 2 {
+	if n := ta.app.sess.main.list.Len(); n != 2 {
 		t.Fatalf("list has %d items, want 2", n)
 	}
-	if sel, ok := ta.app.w.list.Selected(); !ok || sel.ID != "m/a2/0" {
+	if sel, ok := ta.app.sess.main.list.Selected(); !ok || sel.ID != "m/a2/0" {
 		t.Fatalf("initial selection = %+v, want the last block", sel)
 	}
 
@@ -59,7 +59,7 @@ func TestNormal_GGAndG(t *testing.T) {
 	if ta.app.view.keyPrefix != "" {
 		t.Error("gg did not clear the key prefix")
 	}
-	if sel, ok := ta.app.w.list.Selected(); !ok || sel.ID != "m/a1/0" {
+	if sel, ok := ta.app.sess.main.list.Selected(); !ok || sel.ID != "m/a1/0" {
 		t.Errorf("selection after gg = %+v, want the first block", sel)
 	}
 
@@ -71,7 +71,7 @@ func TestNormal_GGAndG(t *testing.T) {
 	if ta.app.view.keyPrefix != "" {
 		t.Error("prefix not cleared after an unknown g-command")
 	}
-	if sel, ok := ta.app.w.list.Selected(); !ok || sel.ID != "m/a2/0" {
+	if sel, ok := ta.app.sess.main.list.Selected(); !ok || sel.ID != "m/a2/0" {
 		t.Errorf("selection = %+v, want unchanged (last block, from G)", sel)
 	}
 }
@@ -112,7 +112,7 @@ func TestNormal_StaleDetailsMsgIgnored(t *testing.T) {
 	ta.event(event.ToolCallFinished{Base: rootBase(), MessageID: "m1", Result: core.ToolResult{CallID: "c1", Output: "ok"}})
 	ta.key("esc")
 
-	if sel, ok := ta.app.w.list.Selected(); !ok || !strings.HasPrefix(sel.ID, "t/") {
+	if sel, ok := ta.app.sess.main.list.Selected(); !ok || !strings.HasPrefix(sel.ID, "t/") {
 		t.Fatalf("selection = %+v, want the tool block", sel)
 	}
 	// Open details directly (bypassing the harness's auto-delivery) so the
@@ -139,7 +139,7 @@ func TestNormal_SearchInputAndClear(t *testing.T) {
 	ta := newTestApp(t, withResume(core.Session{ID: "ses_1", Agent: "build"}, twoTextMessages(), nil))
 	ta.key("esc")
 	ta.key("k") // start on the first block
-	if sel, ok := ta.app.w.list.Selected(); !ok || sel.ID != "m/a1/0" {
+	if sel, ok := ta.app.sess.main.list.Selected(); !ok || sel.ID != "m/a1/0" {
 		t.Fatalf("selection = %+v, want the first block", sel)
 	}
 
@@ -154,7 +154,7 @@ func TestNormal_SearchInputAndClear(t *testing.T) {
 	}
 
 	ta.key("n")
-	if sel, ok := ta.app.w.list.Selected(); !ok || sel.ID != "m/a2/0" {
+	if sel, ok := ta.app.sess.main.list.Selected(); !ok || sel.ID != "m/a2/0" {
 		t.Fatalf("selection after n = %+v, want the matching second block", sel)
 	}
 
@@ -164,7 +164,7 @@ func TestNormal_SearchInputAndClear(t *testing.T) {
 		t.Fatal("esc should not have anything to close here")
 	}
 	ta.key("n")
-	if sel, ok := ta.app.w.list.Selected(); !ok || sel.ID != "m/a1/0" {
+	if sel, ok := ta.app.sess.main.list.Selected(); !ok || sel.ID != "m/a1/0" {
 		t.Errorf("selection after clearing the search and n = %+v, want unchanged", sel)
 	}
 }
@@ -189,14 +189,14 @@ func TestNormal_EscClosesDetailsFirst(t *testing.T) {
 	}
 	// The search is still applied: n still finds the second block.
 	ta.key("n")
-	if sel, ok := ta.app.w.list.Selected(); !ok || sel.ID != "m/a2/0" {
+	if sel, ok := ta.app.sess.main.list.Selected(); !ok || sel.ID != "m/a2/0" {
 		t.Fatalf("selection after n = %+v, want the search still applied", sel)
 	}
 
 	ta.key("k")
 	ta.key("esc") // no split open now: clears the search
 	ta.key("n")
-	if sel, ok := ta.app.w.list.Selected(); !ok || sel.ID != "m/a1/0" {
+	if sel, ok := ta.app.sess.main.list.Selected(); !ok || sel.ID != "m/a1/0" {
 		t.Errorf("selection after clearing the search = %+v, want unchanged", sel)
 	}
 }
