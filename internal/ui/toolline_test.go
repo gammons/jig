@@ -18,6 +18,51 @@ func toolBlock(name, input, output string, isErr bool) transcript.Block {
 	return b
 }
 
+func TestToolLine_MCP(t *testing.T) {
+	t.Parallel()
+
+	// With Result.Metadata present: name comes from metadata, not the
+	// call name.
+	call := &core.ToolCall{ID: "c1", Name: "mcp__gh__get_issue", Input: json.RawMessage(`{"repo":"owner/repo#1","other":"x"}`)}
+	b := transcript.Block{Kind: transcript.KindTool, Call: call, Result: &core.ToolResult{
+		CallID: "c1", Name: "mcp__gh__get_issue", Output: "ok",
+		Metadata: map[string]string{"mcp.server": "gh", "mcp.tool": "get_issue"},
+	}}
+	icon, name, summary, hasStatus := toolLine(b, 0)
+	if name != "gh get_issue" {
+		t.Errorf("name = %q, want %q", name, "gh get_issue")
+	}
+	if summary != "owner/repo#1" {
+		t.Errorf("summary = %q, want %q", summary, "owner/repo#1")
+	}
+	if hasStatus {
+		t.Errorf("hasStatus = true, want false")
+	}
+	_ = icon
+
+	// Running (no result): name is split from the call name.
+	call2 := &core.ToolCall{ID: "c2", Name: "mcp__fake__echo", Input: json.RawMessage(`{"msg":"hi"}`)}
+	b2 := transcript.Block{Kind: transcript.KindTool, Call: call2}
+	_, name2, summary2, _ := toolLine(b2, 0)
+	if name2 != "fake echo" {
+		t.Errorf("name2 = %q, want %q", name2, "fake echo")
+	}
+	if summary2 != "hi" {
+		t.Errorf("summary2 = %q, want %q", summary2, "hi")
+	}
+}
+
+func TestToolLine_MCPSanitizes(t *testing.T) {
+	t.Parallel()
+
+	call := &core.ToolCall{ID: "c1", Name: "mcp__fake__echo", Input: json.RawMessage(`{"msg":"hi\u001b[2Jthere"}`)}
+	b := transcript.Block{Kind: transcript.KindTool, Call: call}
+	_, _, summary, _ := toolLine(b, 0)
+	if summary != "hithere" {
+		t.Errorf("summary = %q, want no escape sequence", summary)
+	}
+}
+
 func TestToolLine_Table(t *testing.T) {
 	t.Parallel()
 

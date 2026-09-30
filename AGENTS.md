@@ -78,6 +78,10 @@ internal/client/llm/                    fantasy adapter + model Source
 internal/client/llm/jigtest/            scripted provider (build tag jigtest)
 internal/client/shell/                  process execution
 internal/client/search/                 rg + Go fallback glob/grep
+internal/client/mcp/                    MCP client transport (stdio, http/sse), Manager wiring
+internal/client/mcpauth/                OAuth callback listener (client/mcpauth)
+internal/data/mcptokens/                MCP OAuth token storage (0600, keyed by server URL)
+internal/service/mcp/                   MCP Manager, ToolSource, per-server state
 internal/service/agents/                builtins, merge, model resolution, tool filtering
 internal/service/permission/            rules, evaluation, ToolHook, askers, Tighten
 internal/service/trust/                 untrusted project config: Restrict, Effects
@@ -109,6 +113,7 @@ internal/bubbles/statusbar/             lualine-style status bar: mode/branch/ag
 internal/golden/                        golden-frame test assertion
 internal/app/                           composition root + CLI: `jig` (TUI: trust dialog, BusAsker, ports, keymap/themes/prefs), `jig run` (headless)
 e2e/                                    end-to-end tests against the built binary
+e2e/testdata/mcpfake/                   scripted MCP stdio server used by MCP e2e tests
 ```
 
 Dependency rules (spec §3.2, §3.3), enforced by `internal/archtest`:
@@ -285,6 +290,24 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 - bash attaches a screenshot only from the workdir or `screenshot*` files
   in the OS temp dir, after resolving symlinks.
 
+- The extension registry's one live part is `ext.ToolSource`: the
+  Manager's mutex owns it, `Tools()` does no I/O, and the agent Runner
+  recomputes the tool set fresh at every step.
+- OAuth sign-in happens only on an explicit `Manager.Authenticate` call:
+  the fetcher's gate is closed by default, so no callback port is bound
+  and no browser opens until then.
+- MCP OAuth tokens are keyed by the exact server URL, stored 0600 under
+  `<DataDir>/mcp-auth/`, and never appear in logs, events, or `jig mcp
+  list`.
+- An untrusted project can neither start new MCP servers nor turn one on
+  (`trust.restrictMCP`): `.mcp.json` is included in the project trust
+  hash alongside config and agent files.
+- MCP tool names support glob permission keys: each config layer
+  resolves its own rule with `permission.RuleFor` before the layers are
+  overlaid with `permission.EffectiveFor`.
+- Stdio MCP servers run under `shell.ConfigureGroup` and are group-killed
+  (`shell.KillGroup`) both on `Close` and when the initial dial fails.
+
 ## Shared code — check here before writing a helper
 
 | Need | Use |
@@ -344,6 +367,10 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Push the App's current theme `Set` to every widget (and bump item versions) | `pushTheme(a)` in `internal/ui/themestate.go` |
 | The agent-browser `--session` a bash command runs in (else `default`) | `transcript.BrowserSession(command)` |
 | Cache rendered images per (blob ref, cell box), LRU of 32; send a kitty upload only when the terminal lacks that size | `imageState` (`renderFor`, `store`, `cached`, `show`) and `placeSixel(a)` in `internal/ui/images.go`; `imgrender.(*Renderer).Forget(key)` makes the next render upload again |
+| Resolve a tool's rule with glob keys | `permission.RuleFor` / `permission.EffectiveFor` |
+| Enabled MCP servers from a merged config | `config.ResolvedMCP` |
+| Build the MCP Manager | `newMCPManager` in `internal/app/mcp.go` |
+| MCP sign-in records | `mcptokens.New(dir)` |
 
 ## Performance budgets
 

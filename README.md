@@ -282,6 +282,60 @@ invoked with `--yes`, in which case every `ask` is allowed for that
 run. `deny` always blocks, `--yes` or not. This is the standing
 interactive-permission-prompt behavior planned for the TUI in Plan 2.
 
+## MCP servers
+
+jig can call tools from Model Context Protocol servers, alongside its
+built-in tools.
+
+```toml
+[mcp]
+disabled = ["some-project-server"]
+
+[mcp.servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@latest"]
+env = { DEBUG = "0" }
+
+[mcp.servers.github]
+url = "https://api.githubcopilot.com/mcp/"
+headers = { Authorization = "Bearer {env:GITHUB_TOKEN}" }
+```
+
+A server is `stdio` (set `command`) or `http`/`sse` (set `url`); setting
+both, or neither, is a config error. Server names must match
+`^[a-z0-9_-]+$`. See `docs/config.example.toml` for every field.
+
+jig also reads `.mcp.json` (Claude Code's format:
+`{"mcpServers": {"<name>": {...}}}`), one per directory from the git
+root down to the workdir, merged under the global TOML servers and
+under that directory's own `.jig/config.toml`. Its string values expand
+`${VAR}` and `${VAR:-default}` (an unset `${VAR}` with no default
+becomes `""`).
+
+**Trust.** A project's `.mcp.json` and any `[mcp]`/`[mcp.servers.*]` in
+its `.jig/config.toml` are trust-gated like the rest of project config:
+an untrusted project can't add a new server or turn one on, only
+disable one. `.mcp.json` is included in the trust hash, so editing it
+re-opens the trust dialog.
+
+**Permissions.** MCP tool names (`mcp__<server>__<tool>`) fall back to
+`ask` like any other tool with no built-in default, and `[permissions]`
+keys may use `*` globs to match a whole server, e.g. `"mcp__github__*"
+= "allow"`.
+
+**Managing servers.**
+
+```
+jig mcp list             # every configured server, its transport, and status
+jig mcp auth <name>      # sign in to a server that needs OAuth
+jig mcp logout <name>    # forget a server's stored token
+```
+
+OAuth sign-in only happens when you run `jig mcp auth`: jig never opens
+a browser or binds a callback port on its own. A server that needs
+sign-in reports `needs_auth` from `jig mcp list` and from any tool call
+against it.
+
 ## Output limits
 
 Every tool result the model sees is capped at 50 KB (cut at a UTF-8
