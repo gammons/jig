@@ -147,3 +147,33 @@ func TestResolve_AliasesInDefaultAndSmallModel(t *testing.T) {
 		t.Errorf("SmallModel = %+v, want anthropic/haiku", got)
 	}
 }
+
+func TestResolveEffort(t *testing.T) {
+	svc, err := New(core.Config{DefaultEffort: "medium"}, Sources{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	none, err := New(core.Config{}, Sources{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	withEffort := core.Agent{Name: "a", Effort: core.EffortLow}
+	tests := []struct {
+		name    string
+		svc     *Service
+		agent   core.Agent
+		session core.Effort
+		want    core.Effort
+	}{
+		{"session wins", svc, withEffort, core.EffortMax, core.EffortMax},
+		{"agent next", svc, withEffort, "", core.EffortLow},
+		{"default_effort last", svc, core.Agent{Name: "a"}, "", core.EffortMedium},
+		{"nothing set", none, core.Agent{Name: "a"}, "", ""},
+		{"unknown session value skipped", svc, withEffort, "turbo", core.EffortLow},
+	}
+	for _, tt := range tests {
+		if got := tt.svc.ResolveEffort(tt.agent, tt.session); got != tt.want {
+			t.Errorf("%s: ResolveEffort = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}

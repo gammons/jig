@@ -28,8 +28,8 @@ type Service struct {
 // New merges built-in agents with src's four layers, in precedence order
 // built-in < GlobalTOML < GlobalMD < ProjectTOML < ProjectMD, field by
 // field. It returns an error if any layer sets an invalid mode, an
-// unparsable model reference, or a model alias that isn't defined in
-// cfg.ModelAliases.
+// unparsable model reference, an unknown effort, or a model alias that
+// isn't defined in cfg.ModelAliases.
 func New(cfg core.Config, src Sources) (*Service, error) {
 	merged := builtins()
 	layers := []map[string]core.AgentConfig{src.GlobalTOML, src.GlobalMD, src.ProjectTOML, src.ProjectMD}
@@ -87,6 +87,13 @@ func mergeAgent(base core.Agent, ac core.AgentConfig, cfg core.Config) (core.Age
 		}
 		out.Model = ref
 		out.ModelAlias = alias
+	}
+	if ac.Effort != "" {
+		e, err := core.ParseEffort(ac.Effort)
+		if err != nil {
+			return core.Agent{}, fmt.Errorf("agent %q: %w", base.Name, err)
+		}
+		out.Effort = e
 	}
 	if ac.Prompt != "" {
 		out.Prompt = ac.Prompt
