@@ -52,7 +52,7 @@ func isFixed(mode, key string) bool {
 		return false
 	}
 	switch key {
-	case "j", "k", "g", "gg", "gp", "G", "ctrl+u", "q", "n", "N", "i", "a", "A", "d", "D", "ctrl+e", "ctrl+y":
+	case "j", "k", "g", "gg", "gp", "G", "ctrl+u", "q", "n", "N", "i", "a", "A", "d", "D", "ctrl+e", "ctrl+y", "h", "l":
 		return true
 	}
 	return false

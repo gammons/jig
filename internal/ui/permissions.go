@@ -58,35 +58,46 @@ func replyKind(k permcard.ReplyKind) core.ReplyKind {
 	return core.ReplyDeny
 }
 
-// target is the request the card shows: the one being answered with a
-// message (while its request is still pending), else the selected
-// block's, else the first pending request that has a block.
-func (p permCtl) target() *transcript.PendingPermission {
+// target is the request the card shows (spec §4.3), in order: the one
+// being answered with a message (while its request is still pending),
+// else the focused pane's selected block's, else the focused pane's
+// first pending request with a block, else main's first pending request
+// with a block. It returns the pane the request is shown in, or nil,nil
+// when there is none.
+func (p permCtl) target() (*pane, *transcript.PendingPermission) {
 	a := p.a
 	if req := a.w.card.Request(); req != nil && a.w.card.Typing() {
-		if pp := p.shownOn(a.w.cardAt.block); pp != nil && pp.RequestID == req.ID {
-			return pp
+		if pp := p.shownOn(a.w.cardAt.pane, a.w.cardAt.block); pp != nil && pp.RequestID == req.ID {
+			return a.w.cardAt.pane, pp
 		}
 	}
-	if it, ok := a.w.list.Selected(); ok {
-		if pp := p.shownOn(transcript.BlockID(it.ID)); pp != nil {
-			return pp
+	if fp := columnFocused(a); fp.kind == paneTranscript {
+		if it, ok := fp.list.Selected(); ok {
+			if pp := p.shownOn(fp, transcript.BlockID(it.ID)); pp != nil {
+				return fp, pp
+			}
+		}
+		for _, pp := range fp.proj.Pending() {
+			if shown := p.shownOn(fp, pp.Block); shown != nil {
+				return fp, shown
+			}
 		}
 	}
-	for _, pp := range a.sess.proj.Pending() {
-		if shown := p.shownOn(pp.Block); shown != nil {
-			return shown
+	main := a.sess.main
+	for _, pp := range main.proj.Pending() {
+		if shown := p.shownOn(main, pp.Block); shown != nil {
+			return main, shown
 		}
 	}
-	return nil
+	return nil, nil
 }
 
-// shownOn is the request block id shows, or nil.
-func (p permCtl) shownOn(id transcript.BlockID) *transcript.PendingPermission {
-	if id == "" {
+// shownOn is the request pane's block id shows, or nil.
+func (p permCtl) shownOn(pane *pane, id transcript.BlockID) *transcript.PendingPermission {
+	if pane == nil || id == "" {
 		return nil
 	}
-	b, ok := p.a.sess.proj.Block(id)
+	b, ok := pane.proj.Block(id)
 	if !ok {
 		return nil
 	}
@@ -97,12 +108,14 @@ func (p permCtl) shownOn(id transcript.BlockID) *transcript.PendingPermission {
 // the selection arrives on it (returning the arming tick), and re-renders
 // the blocks whose card changed: the one it left and the one it is on (a
 // new request, a keystroke in the deny input, arming, a restyle, or a new
-// list width).
+// list width). It flushes the old pane's block and the new pane's block
+// through flushPane, so the card is never drawn twice.
 func (p permCtl) sync() tea.Cmd {
 	a := p.a
 	var req *permcard.Request
 	var blk transcript.BlockID
-	if pp := p.target(); pp != nil {
+	pane, pp := p.target()
+	if pp != nil {
 		req = &permcard.Request{
 			ID:       pp.RequestID,
 			Tool:     ansi.SanitizeLine(pp.Tool),
@@ -112,35 +125,39 @@ func (p permCtl) sync() tea.Cmd {
 		blk = pp.Block
 	}
 	a.w.card.Set(req)
-	cmd := p.guard(req, blk)
-	if a.view.list.w != a.w.cardAt.width {
-		a.w.card.SetWidth(a.view.list.w)
+	cmd := p.guard(pane, req, blk)
+	width := a.sess.main.sz.listW
+	if pane != nil {
+		width = pane.sz.listW
 	}
-	next := cardKey{block: blk, ver: a.w.card.Version(), width: a.view.list.w}
+	if width != a.w.cardAt.width {
+		a.w.card.SetWidth(width)
+	}
+	next := cardKey{pane: pane, block: blk, ver: a.w.card.Version(), width: width}
 	if next == a.w.cardAt {
 		return cmd
 	}
-	old := a.w.cardAt.block
+	old := a.w.cardAt
 	a.w.cardAt = next
-	ids := make([]transcript.BlockID, 0, 2)
-	if old != "" && old != blk {
-		ids = append(ids, old)
+	if old.pane != nil && (old.pane != pane || old.block != blk) {
+		a.flushPane(old.pane, []transcript.BlockID{old.block})
 	}
-	if blk != "" {
-		ids = append(ids, blk)
+	if pane != nil && blk != "" {
+		a.flushPane(pane, []transcript.BlockID{blk})
 	}
-	a.flush(ids)
 	return cmd
 }
 
-// guard disarms the card showing req under blk when req is new or the
-// selection has just moved onto blk, and returns the tick that arms it
-// cardArmDelay later (App clock); a later disarm supersedes it.
-func (p permCtl) guard(req *permcard.Request, blk transcript.BlockID) tea.Cmd {
+// guard disarms the card showing req under blk in pane when req is new or
+// the selection has just moved onto blk, and returns the tick that arms
+// it cardArmDelay later (App clock); a later disarm supersedes it.
+func (p permCtl) guard(pane *pane, req *permcard.Request, blk transcript.BlockID) tea.Cmd {
 	a := p.a
 	var sel transcript.BlockID
-	if it, ok := a.w.list.Selected(); ok {
-		sel = transcript.BlockID(it.ID)
+	if pane != nil {
+		if it, ok := pane.list.Selected(); ok {
+			sel = transcript.BlockID(it.ID)
+		}
 	}
 	id := ""
 	if req != nil {
@@ -172,8 +189,12 @@ func (p permCtl) armed(msg cardArmMsg) {
 	}
 }
 
-// requested applies the focus rule (spec §6.5) to request e, now
-// pending: with an empty prompt the App enters NORMAL and selects the
+// requested applies the focus rule (spec §4.3, §6.5) to request e, now
+// pending. When the column's top pane is a transcript pane showing e's
+// own session, focus moves to the column and that pane selects the
+// request's tool block, whatever the mode or prompt (a descendant's live
+// view is always current). Otherwise the rule is unchanged, applied to
+// main: with an empty prompt the App enters NORMAL and selects the
 // card's block (a descendant's request shows on its owning Subagent
 // block); while the user is typing (or picking) it stays put and hints.
 // Switching the mode disarms the card, even one already armed on the
@@ -181,7 +202,14 @@ func (p permCtl) armed(msg cardArmMsg) {
 // not answer it.
 func (p permCtl) requested(e event.PermissionRequested) tea.Cmd {
 	a := p.a
-	if !slices.ContainsFunc(a.sess.proj.Pending(), func(pp transcript.PendingPermission) bool { return pp.RequestID == e.RequestID }) {
+	if top := columnTop(a); top != nil && top.kind == paneTranscript && top.session == e.Session() {
+		if !slices.ContainsFunc(top.proj.Pending(), func(pp transcript.PendingPermission) bool { return pp.RequestID == e.RequestID }) {
+			return nil
+		}
+		setFocus(a, focusColumn)
+		return p.selectBlock(top, transcript.BlockID("t/"+e.Call.ID))
+	}
+	if !slices.ContainsFunc(a.sess.main.proj.Pending(), func(pp transcript.PendingPermission) bool { return pp.RequestID == e.RequestID }) {
 		return nil
 	}
 	if a.mode == modePicker || a.w.prompt.Value() != "" {
@@ -193,56 +221,69 @@ func (p permCtl) requested(e event.PermissionRequested) tea.Cmd {
 	if switched {
 		cmd = tea.Batch(cmd, p.disarm())
 	}
-	if it, ok := a.w.list.Selected(); ok && p.shownOn(transcript.BlockID(it.ID)) != nil {
+	main := a.sess.main
+	if it, ok := main.list.Selected(); ok && p.shownOn(main, transcript.BlockID(it.ID)) != nil {
 		return cmd
 	}
-	blocks := p.pendingBlocks()
+	blocks := p.pendingBlocks(main)
 	if len(blocks) == 0 {
 		return cmd
 	}
-	return tea.Batch(cmd, p.selectBlock(blocks[0]))
+	return tea.Batch(cmd, p.selectBlock(main, blocks[0]))
 }
 
-// pendingBlocks lists the blocks showing a pending request, in request
-// order, each once.
-func (p permCtl) pendingBlocks() []transcript.BlockID {
+// pendingBlocks lists pane's blocks showing a pending request, in
+// request order, each once.
+func (p permCtl) pendingBlocks(pane *pane) []transcript.BlockID {
 	var out []transcript.BlockID
-	for _, pp := range p.a.sess.proj.Pending() {
-		if pp.Block != "" && !slices.Contains(out, pp.Block) && p.shownOn(pp.Block) != nil {
+	for _, pp := range pane.proj.Pending() {
+		if pp.Block != "" && !slices.Contains(out, pp.Block) && p.shownOn(pane, pp.Block) != nil {
 			out = append(out, pp.Block)
 		}
 	}
 	return out
 }
 
-// next selects the pending block after the selected one (gp), wrapping;
-// from a block with no request, the first.
+// next selects the pending block after the focused pane's selected one
+// (gp), wrapping; from a block with no request, the first. Nothing on a
+// pane that isn't a transcript pane (a details pane has no requests).
 func (p permCtl) next() tea.Cmd {
-	blocks := p.pendingBlocks()
+	fp := columnFocused(p.a)
+	if fp.kind != paneTranscript {
+		return nil
+	}
+	blocks := p.pendingBlocks(fp)
 	if len(blocks) == 0 {
 		return nil
 	}
 	i := -1
-	if it, ok := p.a.w.list.Selected(); ok {
+	if it, ok := fp.list.Selected(); ok {
 		i = slices.Index(blocks, transcript.BlockID(it.ID))
 	}
-	return p.selectBlock(blocks[(i+1)%len(blocks)])
+	return p.selectBlock(fp, blocks[(i+1)%len(blocks)])
 }
 
-// selectBlock selects id in the transcript, following it with the
-// details split when open.
-func (p permCtl) selectBlock(id transcript.BlockID) tea.Cmd {
-	a := p.a
-	before, _ := a.w.list.Selected()
-	a.w.list.Select(string(id))
-	return normalKeys{a}.syncDetails(before)
+// selectBlock selects id in pane's transcript, following it with the
+// column's single details entry when pane is main.
+func (p permCtl) selectBlock(pane *pane, id transcript.BlockID) tea.Cmd {
+	before, _ := pane.list.Selected()
+	pane.list.Select(string(id))
+	if pane != p.a.sess.main {
+		return nil
+	}
+	return normalKeys(p).syncDetails(before)
 }
 
-// onCard reports whether the selected block carries the card.
+// onCard reports whether the focused pane's selected block carries the
+// card.
 func (p permCtl) onCard() bool {
 	a := p.a
-	it, ok := a.w.list.Selected()
-	return ok && a.w.card.Request() != nil && transcript.BlockID(it.ID) == a.w.cardAt.block
+	fp := columnFocused(a)
+	if fp.kind != paneTranscript {
+		return false
+	}
+	it, ok := fp.list.Selected()
+	return ok && a.w.card.Request() != nil && a.w.cardAt.pane == fp && transcript.BlockID(it.ID) == a.w.cardAt.block
 }
 
 // key sends k to the card.

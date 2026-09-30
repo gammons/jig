@@ -43,7 +43,7 @@ func resumeGroups() testOpt {
 // listIDs returns the transcript list's item IDs in order, walking a copy
 // of the list, so the App's own selection is untouched.
 func (ta *testApp) listIDs() []string {
-	l := ta.app.w.list
+	l := ta.app.sess.main.list
 	l.Top()
 	ids := make([]string, 0, l.Len())
 	for range l.Len() {
@@ -99,7 +99,7 @@ func TestFold_HiddenMembersAreNotLive(t *testing.T) {
 	ta.sendAndAdopt("look around")
 	ta.startTool("m1", "c1", "read", `{"path":"a.go"}`)
 	ta.startTool("m1", "c2", "read", `{"path":"b.go"}`)
-	live := ta.app.sess.track.live
+	live := ta.app.sess.main.track.live
 	if !live["g/c1"] || live["t/c1"] || live["t/c2"] {
 		t.Errorf("live = %v, want the header g/c1 live and its hidden members not", live)
 	}
@@ -139,7 +139,7 @@ func TestFold_CancelSettlesLiveGroup(t *testing.T) {
 	if view := xansi.Strip(ta.view()); !strings.Contains(view, "▸ explored · 2 reads · 2 cancelled ⊘") {
 		t.Errorf("no cancelled header in the view:\n%s", view)
 	}
-	if ta.app.sess.track.live["g/c1"] {
+	if ta.app.sess.main.track.live["g/c1"] {
 		t.Error("the cancelled group is still live (its spinner would keep ticking)")
 	}
 }
@@ -147,12 +147,12 @@ func TestFold_CancelSettlesLiveGroup(t *testing.T) {
 func TestFold_ThemeChangeRerendersHeader(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, resumeGroups())
-	before := ta.app.sess.track.versions["g/c1"]
+	before := ta.app.sess.main.track.versions["g/c1"]
 	if before == 0 {
 		t.Fatal("the header g/c1 was never issued")
 	}
 	pushTheme(ta.app)
-	if got := ta.app.sess.track.versions["g/c1"]; got <= before {
+	if got := ta.app.sess.main.track.versions["g/c1"]; got <= before {
 		t.Errorf("header version after a theme change = %d, want > %d", got, before)
 	}
 }
@@ -200,17 +200,17 @@ func TestFold_ReasoningAbsorbedIntoAnOpenGroupIsNested(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
 	ta.twoReadsThenReasoning()
-	f := &ta.app.sess.track.fold
+	f := &ta.app.sess.main.track.fold
 	f.toggle("g/c1")
-	f.regroup(ta.app.sess.proj.Blocks())
-	foldCtl{ta.app}.relist(nil)
+	f.regroup(ta.app.sess.main.proj.Blocks())
+	foldCtl{ta.app, ta.app.sess.main}.relist(nil)
 	ta.reasonInStepTwo()
 	ta.startTool("m2", "c3", "grep", `{"pattern":"TODO"}`)
 	want := []string{"g/c1", "t/c1", "t/c2", "m/m2/0", "t/c3"}
 	if got := ta.listIDs(); !slices.Equal(got[1:], want) {
 		t.Fatalf("list = %v, want [<user> %v]", got, want)
 	}
-	if !ta.app.sess.track.nested["m/m2/0"] {
+	if !ta.app.sess.main.track.nested["m/m2/0"] {
 		t.Error("the absorbed reasoning was never re-issued as nested")
 	}
 }
@@ -220,7 +220,7 @@ func TestFold_UpsertDoesNotDuplicateTheLayout(t *testing.T) {
 	ta := newTestApp(t)
 	ta.sendAndAdopt("look around")
 	ta.startTool("m1", "c1", "read", `{"path":"a.go"}`)
-	f := &ta.app.sess.track.fold
+	f := &ta.app.sess.main.track.fold
 	seen := map[string]bool{}
 	for _, e := range f.order {
 		if seen[string(e.id)] {
@@ -229,7 +229,7 @@ func TestFold_UpsertDoesNotDuplicateTheLayout(t *testing.T) {
 		seen[string(e.id)] = true
 	}
 	ta.finishTool("m1", "c1", "read", "1: package a", false)
-	if _, changed := f.regroup(ta.app.sess.proj.Blocks()); changed {
+	if _, changed := f.regroup(ta.app.sess.main.proj.Blocks()); changed {
 		t.Errorf("regroup with nothing new reports a restructure; order = %v", f.order)
 	}
 }
@@ -238,7 +238,7 @@ func TestFold_OTogglesAGroup(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, resumeGroups())
 	ta.key("esc")
-	ta.app.w.list.Select("g/c1")
+	ta.app.sess.main.list.Select("g/c1")
 	ta.key("o")
 	want := []string{"u/u1", "g/c1", "t/c1", "m/a2/0", "t/c2", "m/a3/0"}
 	if got := ta.listIDs(); !slices.Equal(got, want) {
@@ -274,10 +274,10 @@ func TestFold_ToggleRerendersOnlyTheFlippedHeader(t *testing.T) {
 		}})
 	ta := newTestApp(t, withResume(core.Session{ID: "ses_1", Agent: "build"}, msgs, nil))
 	ta.key("esc")
-	if !ta.app.w.list.Select("g/c1") {
+	if !ta.app.sess.main.list.Select("g/c1") {
 		t.Fatal("no group g/c1 in the list")
 	}
-	v := ta.app.sess.track.versions
+	v := ta.app.sess.main.track.versions
 	first, other := v["g/c1"], v["g/d1"]
 	ta.key("o")
 	if got := v["g/c1"]; got <= first {
@@ -321,9 +321,9 @@ func TestFold_OOnAMemberCollapsesToTheHeader(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, resumeGroups())
 	ta.key("esc")
-	ta.app.w.list.Select("g/c1")
+	ta.app.sess.main.list.Select("g/c1")
 	ta.key("o")
-	ta.app.w.list.Select("t/c2")
+	ta.app.sess.main.list.Select("t/c2")
 	ta.key("o")
 	if got, want := ta.listIDs(), []string{"u/u1", "g/c1", "m/a3/0"}; !slices.Equal(got, want) {
 		t.Errorf("list = %v, want %v", got, want)
@@ -337,12 +337,12 @@ func TestFold_OElsewhereDoesNothing(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, resumeGroups())
 	ta.key("esc") // the selection is on the reply, m/a3/0
-	before := ta.app.sess.track.versions["g/c1"]
+	before := ta.app.sess.main.track.versions["g/c1"]
 	ta.key("o")
 	if got, want := ta.listIDs(), []string{"u/u1", "g/c1", "m/a3/0"}; !slices.Equal(got, want) {
 		t.Errorf("list = %v, want %v unchanged", got, want)
 	}
-	if got := ta.app.sess.track.versions["g/c1"]; got != before {
+	if got := ta.app.sess.main.track.versions["g/c1"]; got != before {
 		t.Errorf("header version %d → %d, want nothing re-rendered", before, got)
 	}
 }
@@ -351,7 +351,7 @@ func TestFold_KeyCanBeRemapped(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, resumeGroups(), withKeybinds(map[string]string{"normal.z": "transcript.fold"}))
 	ta.key("esc")
-	ta.app.w.list.Select("g/c1")
+	ta.app.sess.main.list.Select("g/c1")
 	ta.key("z")
 	if got := ta.listIDs(); len(got) != 6 {
 		t.Errorf("after the remapped z, list = %v, want the group expanded", got)
@@ -362,13 +362,16 @@ func TestFold_EnterOnAHeaderShowsItsMembers(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, resumeGroups())
 	ta.key("esc")
-	ta.app.w.list.Select("g/c1")
+	ta.app.sess.main.list.Select("g/c1")
 	ta.key("enter")
-	if ta.app.view.detailsFor != "g/c1" {
-		t.Fatalf("detailsFor = %q, want g/c1", ta.app.view.detailsFor)
+	if columnTop(ta.app).forBlock != "g/c1" {
+		t.Fatalf("detailsFor = %q, want g/c1", columnTop(ta.app).forBlock)
 	}
-	body := xansi.Strip(ta.app.w.details.View())
-	for _, s := range []string{"group · 1 read, 1 grep", "▸ read  a.go · 1 lines", "∴ thinking", `▸ grep  "TODO" · 1 matches`} {
+	if got := columnTop(ta.app).title; got != "group · 1 read, 1 grep" {
+		t.Errorf("title = %q, want %q", got, "group · 1 read, 1 grep")
+	}
+	body := xansi.Strip(columnTop(ta.app).body.View())
+	for _, s := range []string{"▸ read  a.go · 1 lines", "∴ thinking", `▸ grep  "TODO" · 1 matches`} {
 		if !strings.Contains(body, s) {
 			t.Errorf("details have no %q:\n%s", s, body)
 		}
@@ -379,7 +382,7 @@ func TestFold_YankOnAHeaderCopiesSubjects(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, resumeGroups())
 	ta.key("esc")
-	ta.app.w.list.Select("g/c1")
+	ta.app.sess.main.list.Select("g/c1")
 	cmd := normalKeys{ta.app}.yank()
 	if cmd == nil {
 		t.Fatal("yank on a header: want a Cmd")
@@ -396,22 +399,22 @@ func TestFold_DetailsFollowCollapse(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, resumeGroups())
 	ta.key("esc")
-	ta.app.w.list.Select("g/c1")
+	ta.app.sess.main.list.Select("g/c1")
 	ta.key("o")
-	ta.app.w.list.Select("t/c1")
+	ta.app.sess.main.list.Select("t/c1")
 	ta.key("enter")
-	if ta.app.view.detailsFor != "t/c1" {
-		t.Fatalf("detailsFor = %q, want t/c1", ta.app.view.detailsFor)
+	if columnTop(ta.app).forBlock != "t/c1" {
+		t.Fatalf("detailsFor = %q, want t/c1", columnTop(ta.app).forBlock)
 	}
 	ta.key("o")
 	if got := ta.selectedID(); got != "g/c1" {
 		t.Errorf("selected = %q, want g/c1", got)
 	}
-	if ta.app.view.detailsFor != "g/c1" {
-		t.Errorf("detailsFor = %q, want the details to follow to g/c1", ta.app.view.detailsFor)
+	if columnTop(ta.app).forBlock != "g/c1" {
+		t.Errorf("detailsFor = %q, want the details to follow to g/c1", columnTop(ta.app).forBlock)
 	}
-	if body := xansi.Strip(ta.app.w.details.View()); !strings.Contains(body, "group · 1 read, 1 grep") {
-		t.Errorf("details still show the hidden member:\n%s", body)
+	if got := columnTop(ta.app).title; got != "group · 1 read, 1 grep" {
+		t.Errorf("title = %q, want the details to follow to the group's header", got)
 	}
 }
 
@@ -443,7 +446,7 @@ func TestFold_ClearingSearchKeepsAUserExpandedGroupOpen(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, resumeGroups())
 	ta.key("esc")
-	ta.app.w.list.Select("g/c1")
+	ta.app.sess.main.list.Select("g/c1")
 	ta.key("o")
 	ta.key("/")
 	ta.typeText("nothing matches this")
@@ -463,14 +466,14 @@ func TestFold_SearchHoldSurvivesASessionSwitch(t *testing.T) {
 	ta.key("/")
 	ta.typeText("TODO")
 	ta.key("enter")
-	if !ta.app.sess.track.fold.search {
+	if !ta.app.sess.main.track.fold.search {
 		t.Fatal("no search hold after applying a search")
 	}
 	ta.send(resumeMsg{info: other, msgs: groupMessages()})
 	if ta.app.sess.info.ID != "ses_2" {
 		t.Fatalf("session = %q, want ses_2", ta.app.sess.info.ID)
 	}
-	if !ta.app.sess.track.fold.search {
+	if !ta.app.sess.main.track.fold.search {
 		t.Error("the search is still applied but the groups are no longer held open")
 	}
 	found := false
@@ -502,7 +505,7 @@ func TestFold_PermissionForcesGroupOpen(t *testing.T) {
 	if got := ta.selectedID(); got != "t/c2" {
 		t.Fatalf("selected = %q, want the requesting member t/c2 (the focus rule)", got)
 	}
-	ta.app.w.list.Top()
+	ta.app.sess.main.list.Top()
 	ta.key("g")
 	ta.key("p")
 	if got := ta.selectedID(); got != "t/c2" {

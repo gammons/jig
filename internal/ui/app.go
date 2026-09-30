@@ -71,42 +71,35 @@ func (m mode) String() string {
 // Messages the App schedules for itself.
 type (
 	streamTickMsg struct{}
-	resizeMsg     struct{ gen int }
+	resizeMsg     struct {
+		gen  int
+		pane *pane
+	}
 )
 
-// viewState is the App's presentation state: the sidebar preference, whether the details split is open, the
-// status hint, the project's prompt history, the streamTick's state
-// (stream), and the transcript list's applied size (listW/listH) and a
-// pending debounced width (pendingW, keyed by resizeGen). keyPrefix holds
+// viewState is the App's presentation state: the sidebar preference, the
+// status hint, the project's prompt history, and the streamTick's state
+// (stream). keyPrefix holds
 // a pending NORMAL g-prefix ("g", awaiting its second key); searching is
-// whether the one-line search input owns the status bar's slot;
-// detailsFor is the block ID the open details split shows, so an async
-// detailsMsg for a block the selection has since left can be ignored.
-// pick is the picker's state (pickerView). resumeHeld is a session whose
-// resume result arrived mid-send; it is re-read once idle. mouse is the
-// current mouse drag state (mouseCtl).
+// whether the one-line search input owns the status bar's slot.
+// pick is the picker's state (pickerView). resumeHeld
+// is a session whose resume result arrived mid-send; it is re-read once
+// idle. mouse is the current mouse drag state (mouseCtl). col is the
+// column stack (only its last entry is drawn); focus says whether
+// NORMAL's navigation keys go to main or the column.
 type viewState struct {
 	pick        pickerView
 	sidebarPref *bool
-	detailsOpen bool
 	hint        string
 	history     []string
 	stream      streamState
-	list        listSizeState
 	keyPrefix   string
 	searching   bool
-	detailsFor  transcript.BlockID
 	resumeHeld  core.SessionID
 	mouse       mouseState
 	mcp         mcpViewState
-}
-
-// listSizeState is the transcript list's applied size and the debounce
-// state for a pending width change (see relayout/applyListWidth).
-type listSizeState struct {
-	resizeGen int
-	pendingW  int
-	w, h      int
+	col         []*pane
+	focus       focus
 }
 
 // mcpViewState is the App's view of the configured MCP servers: the last
@@ -146,13 +139,14 @@ func New(p Ports, o Options) *App {
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &App{
 		ports: p, opts: o, ctx: ctx, cancel: cancel,
-		sess:  newSessionState(o.Session, o.Clock, catalog{defaultModel: o.DefaultModel, defaultEffort: o.DefaultEffort}),
 		theme: newThemeState(o.Theme, o.Themes),
 		img:   newImageState(imgrender.Detect(o.Images, ""), o.Tmux),
 		after: tick,
 	}
 	a.w = newWidgets(&a.theme.set, func(text string) tea.Cmd { return editorCmd(a.ports, text) }, levels{a}.load, replyFunc(a))
-	a.w.list.SetHighlight(false) // the App starts in INSERT
+	main := newTranscriptPane(transcript.New(o.Session), a.w.render, &a.theme.set)
+	main.list.SetHighlight(false) // the App starts in INSERT
+	a.sess = newSessionState(o.Session, o.Clock, catalog{defaultModel: o.DefaultModel, defaultEffort: o.DefaultEffort}, main)
 	if p.Subscribe != nil {
 		a.sub = p.Subscribe()
 	}
@@ -197,9 +191,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamTickMsg:
 		cmd = a.onTick()
 	case resizeMsg:
-		if msg.gen == a.view.list.resizeGen {
-			a.applyListWidth()
-		}
+		applyResizeMsg(a, msg)
 	case tea.MouseMsg, mouseScrollMsg:
 		cmd = mouseCtl{a}.handle(msg)
 	default:
@@ -223,16 +215,16 @@ func (a *App) View() tea.View {
 		AltScreen:       true,
 		MouseMode:       tea.MouseModeCellMotion,
 		WindowTitle:     a.windowTitle(),
-		BackgroundColor: a.theme.set.Background,
-		ForegroundColor: a.theme.set.Foreground,
+		BackgroundColor: a.theme.set.Screen.Background,
+		ForegroundColor: a.theme.set.Screen.Foreground,
 	}
 	if a.width <= 0 || a.height <= 0 {
 		return v
 	}
 	side := ""
 	switch {
-	case a.lay.DetailsOpen:
-		side = paintSelection(a, paneDetails, a.w.details.View(), a.lay.Side)
+	case a.lay.ColumnOpen:
+		side = paintSelection(a, regionDetails, columnView(a), a.lay.Side)
 	case a.lay.SideVisible:
 		side = a.w.side.View()
 	}
@@ -240,8 +232,19 @@ func (a *App) View() tea.View {
 	if a.view.searching {
 		status = a.w.search.View()
 	}
-	list := paintSelection(a, paneTranscript, a.w.list.View(), a.lay.Transcript)
-	v.Content = compose(a.lay, list, side, a.w.prompt.View(), status, borderCell(a.theme.set.Blocklist))
+	trans := paintSelection(a, regionTranscript, a.sess.main.list.View(), a.lay.Transcript)
+	if a.lay.MainCrumb {
+		a.w.mainCrumb.SetSegments([]string{"main"})
+		a.w.mainCrumb.SetFocused(a.view.focus == focusMain)
+		if top := columnTop(a); top != nil {
+			a.w.mainCrumb.SetHint("tab → " + top.title)
+		} else {
+			a.w.mainCrumb.SetHint("")
+		}
+		a.w.mainCrumb.SetWidth(a.lay.Transcript.W)
+		trans = a.w.mainCrumb.View() + "\n" + a.w.mainCrumb.RuleView() + "\n" + trans
+	}
+	v.Content = compose(a.lay, trans, side, a.w.prompt.View(), status, borderCell(a.theme.set.Blocklist))
 	if a.w.picker.IsOpen() {
 		v.Content = overlay.Center(v.Content, a.width, a.height, a.w.picker.View(), overlayDim)
 	}
@@ -255,9 +258,10 @@ func (a *App) onEvent(ev event.Event) tea.Cmd {
 	}
 	res := a.sess.apply(ev)
 	if res.reload {
-		a.w.setItems(a.sess.allItems())
+		a.w.setItems(a.sess.main, a.sess.allItems())
 	}
-	cmds := []tea.Cmd{waitEvent(a.sub), foldCtl{a}.apply(res)}
+	cmds := []tea.Cmd{waitEvent(a.sub), foldCtl{a, a.sess.main}.apply(res)}
+	cmds = append(cmds, kidsCtl{a}.onEvent(ev))
 	if res.settled {
 		cmds = append(cmds, a.sender().afterRun())
 	}
@@ -267,31 +271,39 @@ func (a *App) onEvent(ev event.Event) tea.Cmd {
 	if e, ok := ev.(event.PermissionRequested); ok {
 		cmds = append(cmds, permCtl{a}.sync(), permCtl{a}.requested(e))
 	}
-	if ev.Session() != a.sess.info.ID {
-		detailsCtl{a}.childEvent()
-	}
 	return tea.Batch(cmds...)
 }
 
 // onTick renders the dirty streaming blocks and advances the spinners in
-// one Upsert, and reschedules itself while the run lasts, after a delay
-// stretched by how long that render pass took (nextInterval).
+// one Upsert per pane (main, and every transcript pane in the column,
+// sharing the root run's frame), and reschedules itself while the run
+// lasts, after a delay stretched by how long that render pass took
+// (nextInterval).
 func (a *App) onTick() tea.Cmd {
 	ids := a.sess.tick()
 	start := a.opts.Clock.Now()
 	a.flush(ids)
+	for _, p := range a.view.col {
+		if p.kind == paneTranscript {
+			a.w.upsert(p, p.items(p.tick(), a.sess.run.frame))
+		}
+	}
 	took := a.opts.Clock.Now().Sub(start)
-	refresh := detailsCtl{a}.refresh()
 	if a.sess.run.running {
-		return tea.Batch(refresh, a.after(nextInterval(took), streamTickMsg{}))
+		return a.after(nextInterval(took), streamTickMsg{})
 	}
 	a.view.stream.ticking = false
-	return refresh
+	return nil
 }
 
 // flush re-renders the blocks ids in the transcript list.
 func (a *App) flush(ids []transcript.BlockID) {
-	a.w.upsert(a.sess.items(ids))
+	a.w.upsert(a.sess.main, a.sess.items(ids))
+}
+
+// flushPane re-renders the blocks ids in pane's transcript list.
+func (a *App) flushPane(pane *pane, ids []transcript.BlockID) {
+	a.w.upsert(pane, pane.items(ids, a.sess.run.frame))
 }
 
 // onResult handles port results and widget messages.
@@ -319,7 +331,9 @@ func (a *App) onResult(msg tea.Msg) tea.Cmd {
 	case sendDoneMsg:
 		return a.sender().done(msg)
 	case detailsMsg:
-		return detailsCtl{a}.result(msg)
+		return detailsResult(a, msg)
+	case childLoadedMsg:
+		return kidsCtl{a}.childLoaded(msg)
 	case cardArmMsg:
 		permCtl{a}.armed(msg)
 	case tea.TerminalVersionMsg:
@@ -360,11 +374,12 @@ func (a *App) onPortResult(msg tea.Msg) tea.Cmd {
 		}
 		if msg.info.ID != a.sess.info.ID {
 			// A session opened from the picker replaces this one.
-			a.sess = freshSession(a.sess, msg.info.ID)
-			a.view.detailsOpen = false
+			installMain(a, freshSession(a.sess, msg.info.ID, a.w.render, &a.theme.set))
 		}
+		columnClose(a)
+		kidsCtl{a}.clearKids()
 		a.sess.load(msg.info, msg.msgs, msg.todos)
-		a.w.setItems(a.sess.allItems())
+		a.w.setItems(a.sess.main, a.sess.allItems())
 		a.w.prompt.SetAgent(ansi.SanitizeLine(a.sess.info.Agent))
 	case errMsg:
 		a.view.hint = msg.hint()
@@ -378,48 +393,13 @@ func (a *App) onPortResult(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-// relayout recomputes the layout for the current size and prompt height
-// and sizes every widget to it. The transcript list's height applies at
-// once; a width change is debounced (it re-renders every block).
-func (a *App) relayout() tea.Cmd {
-	a.lay = layoutFor(a)
-	a.w.status.SetWidth(a.lay.Status.W)
-	a.w.search.SetWidth(max(a.lay.Status.W-2, 0))
-	a.w.side.SetSize(a.lay.Side.W, a.lay.Side.H)
-	a.w.details.SetSize(a.lay.Side.W, a.lay.Side.H)
-	a.w.picker.SetSize(a.width, a.height)
-	a.w.confirm.SetSize(a.width, a.height)
-
-	tw, th := a.lay.Transcript.W, a.lay.Transcript.H
-	if a.view.list.w == 0 || tw == a.view.list.w {
-		a.view.list.pendingW = tw
-		a.w.list.SetSize(tw, th)
-		a.view.list.w, a.view.list.h = tw, th
-		return nil
-	}
-	a.w.list.SetSize(a.view.list.w, th)
-	a.view.list.h = th
-	if tw == a.view.list.pendingW {
-		return nil
-	}
-	a.view.list.resizeGen++
-	a.view.list.pendingW = tw
-	return a.after(resizeDebounce, resizeMsg{gen: a.view.list.resizeGen})
-}
-
-// applyListWidth gives the transcript list the layout's current size.
-func (a *App) applyListWidth() {
-	a.w.list.SetSize(a.lay.Transcript.W, a.lay.Transcript.H)
-	a.view.list.w, a.view.list.h = a.lay.Transcript.W, a.lay.Transcript.H
-	a.view.list.pendingW = a.view.list.w
-}
-
 // setMode switches the input mode; only INSERT focuses the prompt, and
-// only NORMAL highlights the selected block (the picker keeps the prior).
+// only NORMAL highlights the focused pane's selection (the picker keeps
+// the prior).
 func (a *App) setMode(m mode) tea.Cmd {
 	a.mode = m
 	if m != modePicker {
-		a.w.list.SetHighlight(m == modeNormal)
+		syncHighlight(a)
 	}
 	if m == modeInsert {
 		return a.w.prompt.Focus()
@@ -469,9 +449,12 @@ func dispatchAction(a *App, id actions.ID) tea.Cmd {
 	case actions.TranscriptYank:
 		return normalKeys{a}.yank()
 	case actions.TranscriptDetails:
-		return normalKeys{a}.toggleDetails()
+		return normalKeys{a}.enter()
 	case actions.TranscriptFold:
-		return foldCtl{a}.toggle()
+		if columnFocused(a).kind == paneDetails {
+			return nil
+		}
+		return foldCtl{a, columnFocused(a)}.toggle()
 	case actions.PickerOpen:
 		return pickerCtl{a}.open(rootLevel(), false)
 	case actions.AppQuit:

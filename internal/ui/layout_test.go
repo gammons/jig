@@ -29,7 +29,6 @@ func TestLayout_Table(t *testing.T) {
 		{name: "120 sidebar 32%", w: 120, h: 30, transW: 81, sideW: 37, sideVisible: true},
 		{name: "119 no sidebar", w: 119, h: 30, transW: 117, narrow: true},
 		{name: "150 details half", w: 150, h: 40, details: true, transW: 74, sideW: 74},
-		{name: "100 details full width", w: 100, h: 30, details: true, transW: 0, sideW: 98, narrow: true},
 		{name: "200 sidebar pref off", w: 200, h: 50, pref: &off, transW: 198},
 		{name: "100 sidebar pref on still hidden", w: 100, h: 30, pref: &on, transW: 98, narrow: true},
 		{name: "30 sidebar clamps to 30 is irrelevant when narrow", w: 30, h: 10, transW: 28, narrow: true},
@@ -37,13 +36,13 @@ func TestLayout_Table(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			r := computeLayout(tt.w, tt.h, promptH, tt.pref, tt.details)
+			r := computeLayout(tt.w, tt.h, promptH, tt.pref, tt.details, focusMain)
 			if r.Transcript.W != tt.transW || r.Side.W != tt.sideW {
 				t.Errorf("transcript W = %d, side W = %d; want %d, %d", r.Transcript.W, r.Side.W, tt.transW, tt.sideW)
 			}
-			if r.SideVisible != tt.sideVisible || r.Narrow != tt.narrow || r.DetailsOpen != tt.details {
-				t.Errorf("SideVisible, Narrow, DetailsOpen = %v, %v, %v; want %v, %v, %v",
-					r.SideVisible, r.Narrow, r.DetailsOpen, tt.sideVisible, tt.narrow, tt.details)
+			if r.SideVisible != tt.sideVisible || r.Narrow != tt.narrow || r.ColumnOpen != tt.details {
+				t.Errorf("SideVisible, Narrow, ColumnOpen = %v, %v, %v; want %v, %v, %v",
+					r.SideVisible, r.Narrow, r.ColumnOpen, tt.sideVisible, tt.narrow, tt.details)
 			}
 			if r.MX != margin || r.MY != margin {
 				t.Errorf("margins = %d, %d; want %d on every side", r.MX, r.MY, margin)
@@ -109,7 +108,7 @@ func TestLayout_Table(t *testing.T) {
 func TestLayout_TinySizesNeverNegative(t *testing.T) {
 	t.Parallel()
 	for _, sz := range [][2]int{{0, 0}, {1, 1}, {20, 5}, {5, 2}, {-3, -1}} {
-		r := computeLayout(sz[0], sz[1], 3, nil, true)
+		r := computeLayout(sz[0], sz[1], 3, nil, true, focusMain)
 		for _, rc := range []wintree.Rect{r.Transcript, r.Side, r.Prompt, r.Status, r.Gap, r.Below} {
 			if rc.W < 0 || rc.H < 0 || rc.X < 0 || rc.Y < 0 {
 				t.Errorf("%dx%d: negative rect %+v", sz[0], sz[1], rc)
@@ -121,6 +120,49 @@ func TestLayout_TinySizesNeverNegative(t *testing.T) {
 		if total := 2*r.MX + max(r.Transcript.W+r.Side.W, r.Status.W); total > max(sz[0], 0) {
 			t.Errorf("%dx%d: columns %d exceed width", sz[0], sz[1], total)
 		}
+	}
+}
+
+// TestLayout_ColumnWide: at 160 wide (≥ 120), the column takes 50% of the
+// width whichever pane has focus, and the sidebar never shows.
+func TestLayout_ColumnWide(t *testing.T) {
+	t.Parallel()
+	r := computeLayout(160, 50, 3, nil, true, focusMain)
+	if r.SideVisible {
+		t.Error("SideVisible = true, want false while the column is open")
+	}
+	if r.Side.W == 0 || r.Transcript.W == 0 || r.Side.W != r.Transcript.W {
+		t.Errorf("Side.W = %d, Transcript.W = %d, want equal non-zero halves", r.Side.W, r.Transcript.W)
+	}
+}
+
+// TestLayout_ColumnNarrowFocus: at 100 wide (narrow), only the focused
+// pane takes the region; the other's width is 0.
+func TestLayout_ColumnNarrowFocus(t *testing.T) {
+	t.Parallel()
+	r := computeLayout(100, 30, 3, nil, true, focusColumn)
+	if r.Side.W == 0 || r.Transcript.W != 0 {
+		t.Errorf("focusColumn: Side.W = %d, Transcript.W = %d, want side full, transcript 0", r.Side.W, r.Transcript.W)
+	}
+	r = computeLayout(100, 30, 3, nil, true, focusMain)
+	if r.Transcript.W == 0 || r.Side.W != 0 || !r.MainCrumb {
+		t.Errorf("focusMain: Transcript.W = %d, Side.W = %d, MainCrumb = %v, want transcript full, side 0, MainCrumb true", r.Transcript.W, r.Side.W, r.MainCrumb)
+	}
+}
+
+// TestLayout_ColumnTiny: at 20×4 with the column open, no rect goes
+// negative and View renders exactly 4 rows.
+func TestLayout_ColumnTiny(t *testing.T) {
+	t.Parallel()
+	r := computeLayout(20, 4, 3, nil, true, focusColumn)
+	for _, rc := range []wintree.Rect{r.Transcript, r.Side, r.Prompt, r.Status, r.Gap, r.Below} {
+		if rc.W < 0 || rc.H < 0 || rc.X < 0 || rc.Y < 0 {
+			t.Errorf("negative rect %+v", rc)
+		}
+	}
+	got := compose(r, "T", "S", "P", "St", "|")
+	if n := strings.Count(got, "\n") + 1; n != 4 {
+		t.Errorf("compose produced %d rows, want 4", n)
 	}
 }
 
@@ -143,7 +185,7 @@ func TestLayout_MarginAndGapsYieldFirst(t *testing.T) {
 		{h: 2, transH: 0, gapH: 0, belowH: 0, promptH: 2, my: 0}, // prompt squeezed, gaps still 0
 	}
 	for _, tt := range tests {
-		r := computeLayout(80, tt.h, promptH, nil, false)
+		r := computeLayout(80, tt.h, promptH, nil, false, focusMain)
 		if r.Transcript.H != tt.transH || r.Gap.H != tt.gapH || r.Below.H != tt.belowH || r.Prompt.H != tt.promptH || r.MY != tt.my {
 			t.Errorf("h=%d: transcript %d gap %d below %d prompt %d margin %d; want %d %d %d %d %d",
 				tt.h, r.Transcript.H, r.Gap.H, r.Below.H, r.Prompt.H, r.MY, tt.transH, tt.gapH, tt.belowH, tt.promptH, tt.my)
@@ -158,10 +200,10 @@ func TestLayout_MarginAndGapsYieldFirst(t *testing.T) {
 // useful body drops the left/right margin rather than squeezing it.
 func TestLayout_SideMarginYieldsWhenNarrow(t *testing.T) {
 	t.Parallel()
-	if r := computeLayout(marginMinW, 20, 3, nil, false); r.MX != margin {
+	if r := computeLayout(marginMinW, 20, 3, nil, false, focusMain); r.MX != margin {
 		t.Errorf("w=%d: MX = %d, want %d", marginMinW, r.MX, margin)
 	}
-	r := computeLayout(marginMinW-1, 20, 3, nil, false)
+	r := computeLayout(marginMinW-1, 20, 3, nil, false, focusMain)
 	if r.MX != 0 || r.Transcript.X != 0 || r.Transcript.W != marginMinW-1 {
 		t.Errorf("w=%d: MX = %d, transcript %+v; want no side margin, full width", marginMinW-1, r.MX, r.Transcript)
 	}
@@ -171,7 +213,7 @@ func TestLayout_SideMarginYieldsWhenNarrow(t *testing.T) {
 // first and last row and a blank first and last column around the body.
 func TestCompose_MarginOnEverySide(t *testing.T) {
 	t.Parallel()
-	lay := computeLayout(30, 10, 3, nil, false)
+	lay := computeLayout(30, 10, 3, nil, false, focusMain)
 	rows := strings.Split(compose(lay, "T", "", "P", "S", "|"), "\n")
 	if len(rows) != 10 {
 		t.Fatalf("got %d rows, want 10: %q", len(rows), rows)
@@ -208,7 +250,7 @@ func TestCompose_MarginOnEverySide(t *testing.T) {
 // full width.
 func TestCompose_SideRunsBesideThePrompt(t *testing.T) {
 	t.Parallel()
-	lay := computeLayout(130, 12, 3, nil, false)
+	lay := computeLayout(130, 12, 3, nil, false, focusMain)
 	if !lay.SideSpans {
 		t.Fatalf("layout %+v: want the side slot spanning down beside the prompt", lay)
 	}
@@ -243,7 +285,7 @@ func TestCompose_ExactFrameSize(t *testing.T) {
 	for _, sz := range [][2]int{{200, 50}, {130, 12}, {119, 30}, {30, 10}, {19, 6}, {5, 3}} {
 		for _, pref := range []*bool{nil, &off} {
 			for _, details := range []bool{false, true} {
-				lay := computeLayout(sz[0], sz[1], 3, pref, details)
+				lay := computeLayout(sz[0], sz[1], 3, pref, details, focusMain)
 				out := compose(lay, lines(sz[1]+5, long), lines(sz[1]+5, long), lines(4, long), long, "\x1b[34m│\x1b[0m")
 				rows := strings.Split(out, "\n")
 				if len(rows) != sz[1] {

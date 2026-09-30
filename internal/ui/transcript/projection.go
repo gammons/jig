@@ -13,6 +13,7 @@ import (
 // serializes Load and Apply.
 type Projection struct {
 	root    core.SessionID
+	self    core.SessionID // the session this projection displays: root, or a descendant for NewChild
 	list    blockList
 	open    map[core.MessageID]*Block // the text/reasoning block each message's deltas append to
 	parts   map[core.MessageID]int    // next "m/<msg>/<n>" ordinal per message
@@ -28,9 +29,38 @@ const pendingUserPrefix = "u/pending/"
 
 // New returns an empty projection of root's transcript.
 func New(root core.SessionID) *Projection {
-	p := &Projection{root: root, tree: newLineage()}
-	p.reset()
+	p := &Projection{root: root, self: root, tree: newLineage()}
+	reset(p)
 	return p
+}
+
+// NewChild returns an empty projection of one descendant session (child)
+// under root's run: the display state a drilled-in subagent view shows.
+// Load takes child's own stored messages.
+func NewChild(root, child core.SessionID) *Projection {
+	p := &Projection{root: root, self: child, tree: newLineage()}
+	reset(p)
+	return p
+}
+
+// Self returns the session this projection displays: root for New, or the
+// child session for NewChild.
+func (p *Projection) Self() core.SessionID { return p.self }
+
+// inSubtree reports whether s is self or a known descendant of self. For
+// the root projection (self == root) this is always true, keeping its
+// behaviour unchanged: every session under root is in its subtree. It is a
+// free function, not a method, to stay under the package's per-type method
+// budget.
+func inSubtree(p *Projection, s core.SessionID) bool {
+	if p.self == p.root {
+		return true
+	}
+	if s == p.self {
+		return true
+	}
+	_, ok := p.tree.owner[s]
+	return ok
 }
 
 // AddUser appends a block for a user message the caller just sent, which
@@ -84,10 +114,19 @@ func (p *Projection) Pending() []PendingPermission {
 // agent-browser navigation, or "".
 func (p *Projection) LastBrowserURL() string { return p.derived.url }
 
+// AddNotice appends a notice block with no stored message behind it — a
+// kid pane's load error, currently the only caller (task 5) — and
+// returns its ID, "n/<k>".
+func (p *Projection) AddNotice(text string, level Level) BlockID {
+	return p.addNotice("", "", text, level).ID
+}
+
 // reset clears the state Load rebuilds from stored messages. The counters
 // and the live-run state (the descendant lineage and unresolved permission
-// requests, which stored messages don't record) survive.
-func (p *Projection) reset() {
+// requests, which stored messages don't record) survive. It is a free
+// function, not a method, to stay under the package's per-type method
+// budget.
+func reset(p *Projection) {
 	p.list = blockList{index: make(map[BlockID]int)}
 	p.open = make(map[core.MessageID]*Block)
 	p.parts = make(map[core.MessageID]int)

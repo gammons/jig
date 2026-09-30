@@ -12,7 +12,7 @@ import (
 )
 
 // Layout constants (spec §4): the sidebar shows at ≥ 120 columns and takes
-// 32% of the width, clamped to 30–50; the details split takes 50%. Both
+// 32% of the width, clamped to 30–50; the column takes 50%. Both
 // are measured inside the margin.
 const (
 	sidebarMinTerm = 120
@@ -41,32 +41,36 @@ const (
 const splitBounds = 1000
 
 // rects is one frame's layout, in terminal coordinates: the transcript,
-// the side slot (sidebar or details split), the blank gap above the
+// the side slot (sidebar or the column), the blank gap above the
 // prompt, the prompt, the blank row(s) below it, and the status bar,
 // inside an MX-column left/right and MY-row top/bottom margin. When
 // SideSpans, the side slot runs from the top margin down beside the gap,
 // the prompt, and the row below it to the status bar, and those are only
 // as wide as the transcript column; the status bar always spans the full
 // inner width. Narrow is terminal width < 120;
-// SideVisible is whether the sidebar is shown (never while the details
-// split holds the side slot).
+// SideVisible is whether the sidebar is shown (never while the column
+// holds the side slot). MainCrumb is whether main's region carries its
+// own breadcrumb+rule rows (narrow, column open, main focused).
 type rects struct {
 	Transcript, Side, Gap, Prompt, Below, Status wintree.Rect
 	MX, MY                                       int
-	Narrow, SideVisible, DetailsOpen, SideSpans  bool
+	Narrow, SideVisible, ColumnOpen, SideSpans   bool
+	MainCrumb                                    bool
 }
 
 // computeLayout lays out a w×h terminal with a promptH-row prompt. The
 // sidebar is visible iff w ≥ 120 and sidebarPref is nil or true; the
-// details split, when open, takes the side slot at 50% of the width, or
-// the whole transcript region when narrow. The margin rows are kept only
+// column, when open, takes the side slot at 50% of the width when wide,
+// or, when narrow, the whole transcript region if it has focus, else
+// none of it (main takes the whole region instead, with its own
+// breadcrumb rows). The margin rows are kept only
 // while the body still keeps both blank rows and a transcript row; the
 // row below the prompt only while the gap and a transcript row stay; the
 // gap only while the transcript keeps a row. So on a short terminal the
 // margin goes first, then the row below the prompt, then the gap, and
 // none ever squeezes the prompt or status bar. The side margin goes below marginMinW columns. Negative
 // sizes count as 0.
-func computeLayout(w, h, promptH int, sidebarPref *bool, detailsOpen bool) rects {
+func computeLayout(w, h, promptH int, sidebarPref *bool, columnOpen bool, focus focus) rects {
 	w, h = max(w, 0), max(h, 0)
 	mx := 0
 	if w >= marginMinW {
@@ -74,12 +78,12 @@ func computeLayout(w, h, promptH int, sidebarPref *bool, detailsOpen bool) rects
 	}
 	narrow := w < sidebarMinTerm
 	if h > 2*margin {
-		r := layoutBody(w-2*mx, h-2*margin, promptH, sidebarPref, detailsOpen, narrow)
+		r := layoutBody(w-2*mx, h-2*margin, promptH, sidebarPref, columnOpen, narrow, focus)
 		if r.Below.H == belowRows {
 			return r.shift(mx, margin)
 		}
 	}
-	return layoutBody(w-2*mx, h, promptH, sidebarPref, detailsOpen, narrow).shift(mx, 0)
+	return layoutBody(w-2*mx, h, promptH, sidebarPref, columnOpen, narrow, focus).shift(mx, 0)
 }
 
 // shift moves every rect of r right by mx and down by my, recording them
@@ -98,15 +102,17 @@ func (r rects) shift(mx, my int) rects {
 // layoutBody lays out everything inside the margin in a w×h area, at the
 // origin; see computeLayout. narrow is decided by the terminal's width,
 // not w.
-func layoutBody(w, h, promptH int, sidebarPref *bool, detailsOpen, narrow bool) rects {
-	r := rects{Narrow: narrow, DetailsOpen: detailsOpen}
-	r.SideVisible = !detailsOpen && !r.Narrow && (sidebarPref == nil || *sidebarPref)
+func layoutBody(w, h, promptH int, sidebarPref *bool, columnOpen, narrow bool, focus focus) rects {
+	r := rects{Narrow: narrow, ColumnOpen: columnOpen}
+	r.SideVisible = !columnOpen && !r.Narrow && (sidebarPref == nil || *sidebarPref)
 
 	side := 0
 	switch {
-	case detailsOpen && r.Narrow:
+	case columnOpen && r.Narrow && focus == focusColumn:
 		side = w
-	case detailsOpen:
+	case columnOpen && r.Narrow:
+		r.MainCrumb = true
+	case columnOpen:
 		side = w * detailsPercent / 100
 	case r.SideVisible:
 		side = min(max(w*sidebarPercent/100, sidebarMin), sidebarMax)
@@ -169,11 +175,11 @@ func layoutBody(w, h, promptH int, sidebarPref *bool, detailsOpen, narrow bool) 
 // the prompt is laid out once more at the new height. a.lay.Prompt.W is
 // the width the prompt was last given (0 before the first layout).
 func layoutFor(a *App) rects {
-	detailsOpen := a.view.detailsOpen
-	lay := computeLayout(a.width, a.height, a.w.prompt.Height(), a.view.sidebarPref, detailsOpen)
+	columnOpen := columnOpen(a)
+	lay := computeLayout(a.width, a.height, a.w.prompt.Height(), a.view.sidebarPref, columnOpen, a.view.focus)
 	if lay.Prompt.W != a.lay.Prompt.W || a.lay.Prompt.W == 0 {
 		a.w.prompt.SetWidth(lay.Prompt.W)
-		lay = computeLayout(a.width, a.height, a.w.prompt.Height(), a.view.sidebarPref, detailsOpen)
+		lay = computeLayout(a.width, a.height, a.w.prompt.Height(), a.view.sidebarPref, columnOpen, a.view.focus)
 	}
 	return lay
 }

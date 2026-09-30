@@ -19,13 +19,17 @@ import (
 )
 
 // detailsMsg carries the details pane's content for one block, once a
-// buildDetails Cmd's port call (a file read, a blob open, or a child
-// session's messages) resolves.
+// buildDetails Cmd's port call (a file read, or a blob open) resolves.
+// pane and gen are set by columnEntryFor's wrapper: a result whose pane
+// has since left the column, or whose gen no longer matches that pane's
+// current build, is stale and dropped (column.go's detailsResult).
 type detailsMsg struct {
 	Block   transcript.BlockID
 	Content details.Content
 	Image   *imgrender.Result
 	key     imgKey // Image's cache key
+	pane    *pane
+	gen     int
 }
 
 // readNumberedLinePattern matches one line of the read tool's "<n>: <line>"
@@ -59,7 +63,7 @@ func buildDetails(ctx context.Context, b transcript.Block, width, height int, r 
 	case transcript.KindTool:
 		return buildToolDetails(ctx, b, width, height, r, p, img)
 	case transcript.KindSubagent:
-		return buildSubagentDetails(ctx, b, p)
+		return buildSubagentDetails(b), nil
 	case transcript.KindText, transcript.KindReasoning, transcript.KindUser:
 		return buildTextDetails(b, r, width), nil
 	default:
@@ -311,76 +315,20 @@ func buildImageDetails(ctx context.Context, block transcript.BlockID, kind, subj
 	return content, cmd
 }
 
-// buildSubagentDetails shows the running task's agent and description
-// immediately, then a Cmd loads the child session's messages and renders
-// its tool one-liners (toolLine) followed by its final text.
-func buildSubagentDetails(ctx context.Context, b transcript.Block, p Ports) (details.Content, tea.Cmd) {
+// buildSubagentDetails shows the subagent's header only: agent and
+// description. It is used only for a block with no child yet (the
+// column shows the live pane, kids[child], once one exists — a later
+// task).
+func buildSubagentDetails(b transcript.Block) details.Content {
 	sub := b.Sub
 	if sub == nil {
-		return details.Content{}, nil
+		return details.Content{}
 	}
-	hdr := header("subagent", sub.Agent, sub.Description)
-	content := details.Content{Header: hdr}
-	if sub.Child == "" {
-		return content, nil
-	}
-
-	block, child := b.ID, sub.Child
-	cmd := sessionMessagesCmd(ctx, p, child, func(msgs []core.Message, err error) tea.Msg {
-		if err != nil {
-			return detailsMsg{Block: block, Content: errorContent(hdr, "could not load subagent", err)}
-		}
-		return detailsMsg{Block: block, Content: details.Content{Header: hdr, Lines: subagentLines(msgs)}}
-	})
-	return content, cmd
-}
-
-// subagentLines renders a child session's tool calls as toolLine
-// one-liners, in call order, followed by a blank line and its last
-// assistant text part, if any.
-func subagentLines(msgs []core.Message) []string {
-	var order []string
-	blocks := map[string]*transcript.Block{}
-	var final string
-	for _, m := range msgs {
-		for _, part := range m.Parts {
-			switch part.Kind {
-			case core.PartToolCall:
-				if part.Call == nil {
-					continue
-				}
-				blocks[part.Call.ID] = &transcript.Block{Call: part.Call}
-				order = append(order, part.Call.ID)
-			case core.PartToolResult:
-				if part.Result == nil {
-					continue
-				}
-				if blk, ok := blocks[part.Result.CallID]; ok {
-					res := *part.Result
-					blk.Result = &res
-				}
-			case core.PartText:
-				if part.Text != "" {
-					final = part.Text
-				}
-			}
-		}
-	}
-
-	lines := make([]string, 0, len(order)+2)
-	for _, id := range order {
-		lines = append(lines, ansi.SanitizeLine(oneLiner(*blocks[id])))
-	}
-	if final != "" {
-		lines = append(lines, "")
-		lines = append(lines, strings.Split(ansi.Sanitize(final), "\n")...)
-	}
-	return lines
+	return details.Content{Header: header("subagent", sub.Agent, sub.Description)}
 }
 
 // oneLiner renders b's toolLine (icon, name, summary) as one plain line,
-// with no styling or state suffix (the subagent details pane shows a
-// child's calls as a flat log, not a live blocklist).
+// with no styling or state suffix (used by a group's flat member log).
 func oneLiner(b transcript.Block) string {
 	icon, name, summary, _ := toolLine(b, 0)
 	line := icon + " "

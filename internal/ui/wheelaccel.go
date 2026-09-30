@@ -35,7 +35,7 @@ func accelFactor(avg time.Duration) float64 {
 // its last counted notch, the recent gaps, and the carried fraction.
 type wheelAccel struct {
 	dir   int
-	pane  pane
+	pane  mouseRegion
 	last  time.Time
 	gaps  []time.Duration
 	carry float64
@@ -43,7 +43,7 @@ type wheelAccel struct {
 
 // lines is how far a notch at now in dir (+1 down, -1 up) over p scrolls:
 // signed, wheelLines at the start of a streak, more as it speeds up.
-func (w *wheelAccel) lines(now time.Time, dir int, p pane) int {
+func (w *wheelAccel) lines(now time.Time, dir int, p mouseRegion) int {
 	gap := now.Sub(w.last)
 	switch {
 	case w.last.IsZero() || dir != w.dir || p != w.pane || gap > accelStreak:

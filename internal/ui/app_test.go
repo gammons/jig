@@ -85,7 +85,7 @@ func TestApp_SendScrollsToBottom(t *testing.T) {
 	ta.typeText("scroll me")
 	ta.key("enter")
 
-	if sel, ok := ta.app.w.list.Selected(); !ok || !strings.HasPrefix(sel.ID, "u/") {
+	if sel, ok := ta.app.sess.main.list.Selected(); !ok || !strings.HasPrefix(sel.ID, "u/") {
 		t.Errorf("selection = %+v, want the new user block", sel)
 	}
 	if v := ta.view(); !strings.Contains(v, "scroll me") {
@@ -110,7 +110,7 @@ func TestApp_SendNewSessionAdoptsRoot(t *testing.T) {
 	if v := ta.app.w.prompt.Value(); v != "" {
 		t.Errorf("prompt = %q, want reset", v)
 	}
-	if n := ta.app.w.list.Len(); n != 1 {
+	if n := ta.app.sess.main.list.Len(); n != 1 {
 		t.Errorf("list has %d items, want the pending user block", n)
 	}
 
@@ -128,7 +128,7 @@ func TestApp_SendNewSessionAdoptsRoot(t *testing.T) {
 
 	ta.event(event.TextDelta{Base: rootBase(), MessageID: "m1", Text: "hi back"})
 	ta.fire()
-	if n := ta.app.w.list.Len(); n != 2 {
+	if n := ta.app.sess.main.list.Len(); n != 2 {
 		t.Errorf("list has %d items after a root delta, want 2", n)
 	}
 	if !strings.Contains(xansi.Strip(ta.view()), "hi back") {
@@ -294,7 +294,7 @@ func TestApp_RunFailureBeforeEventIsNotUndone(t *testing.T) {
 	// user message was stored, so the block stays and the text is not
 	// restored (a retry would duplicate it).
 	ta.returnSend()
-	if n := ta.app.w.list.Len(); n != 1 || ta.app.w.prompt.Value() != "" {
+	if n := ta.app.sess.main.list.Len(); n != 1 || ta.app.w.prompt.Value() != "" {
 		t.Fatalf("list=%d prompt=%q; want the user block kept and no text restored", n, ta.app.w.prompt.Value())
 	}
 	ta.event(event.RunFailed{Base: rootBase(), Err: "provider exploded"})
@@ -315,15 +315,15 @@ func TestApp_AdoptsRootFromSendResult(t *testing.T) {
 	if id := ta.app.sess.info.ID; id != "ses_1" {
 		t.Fatalf("root = %q, want ses_1 from the Send result", id)
 	}
-	if n := ta.app.w.list.Len(); n != 1 {
+	if n := ta.app.sess.main.list.Len(); n != 1 {
 		t.Errorf("list has %d items, want the user block", n)
 	}
 	ta.event(event.SessionCreated{Base: rootBase(), Info: core.Session{ID: "ses_1"}})
 	ta.event(event.MessageStarted{Base: rootBase(), MessageID: "m1"})
 	ta.event(event.TextDelta{Base: rootBase(), MessageID: "m1", Text: "hi"})
 	ta.event(event.RunFinished{Base: rootBase(), MessageID: "m1"})
-	if ta.app.sess.run.running || ta.app.w.list.Len() != 2 {
-		t.Fatalf("running=%v list=%d; want the run applied to the adopted root", ta.app.sess.run.running, ta.app.w.list.Len())
+	if ta.app.sess.run.running || ta.app.sess.main.list.Len() != 2 {
+		t.Fatalf("running=%v list=%d; want the run applied to the adopted root", ta.app.sess.run.running, ta.app.sess.main.list.Len())
 	}
 	ta.typeText("again")
 	ta.key("enter")
@@ -351,7 +351,7 @@ func TestApp_QueuedSendBusyKeepsText(t *testing.T) {
 	if ta.app.sess.run.running || ta.app.sess.queued {
 		t.Errorf("running=%v queued=%v, want idle", ta.app.sess.run.running, ta.app.sess.queued)
 	}
-	if n := ta.app.w.list.Len(); n != 1 {
+	if n := ta.app.sess.main.list.Len(); n != 1 {
 		t.Errorf("list has %d items, want only the first user block (no ghost)", n)
 	}
 	if h := ta.app.statusState().Hint; !strings.Contains(h, "busy") {
@@ -390,7 +390,7 @@ func TestApp_FailedSendLeavesNoGhost(t *testing.T) {
 	ta.typeText("hello")
 	ta.key("enter")
 	ta.returnSend()
-	if n := ta.app.w.list.Len(); n != 0 {
+	if n := ta.app.sess.main.list.Len(); n != 0 {
 		t.Errorf("list has %d items after a send that never ran, want 0", n)
 	}
 	if v := ta.app.w.prompt.Value(); v != "hello" {
@@ -401,9 +401,9 @@ func TestApp_FailedSendLeavesNoGhost(t *testing.T) {
 	}
 	ta.key("enter")
 	ta.event(event.SessionCreated{Base: rootBase(), Info: core.Session{ID: "ses_1"}})
-	blocks := ta.app.sess.proj.Blocks()
-	if len(blocks) != 1 || blocks[0].Text != "hello" || ta.app.w.list.Len() != 1 {
-		t.Errorf("adopted session has %d blocks (list %d), want just the retried one", len(blocks), ta.app.w.list.Len())
+	blocks := ta.app.sess.main.proj.Blocks()
+	if len(blocks) != 1 || blocks[0].Text != "hello" || ta.app.sess.main.list.Len() != 1 {
+		t.Errorf("adopted session has %d blocks (list %d), want just the retried one", len(blocks), ta.app.sess.main.list.Len())
 	}
 }
 
@@ -763,7 +763,7 @@ func TestApp_ToolDurationsFromClock(t *testing.T) {
 	ta.event(event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: call})
 	ta.clk.Advance(1200 * time.Millisecond)
 	ta.event(event.ToolCallFinished{Base: rootBase(), MessageID: "m1", Result: core.ToolResult{CallID: "c1", Name: "bash", Output: "ok"}})
-	if d := ta.app.sess.times.durs["t/c1"]; d != 1200*time.Millisecond {
+	if d := ta.app.sess.main.times.durs["t/c1"]; d != 1200*time.Millisecond {
 		t.Errorf("duration = %v, want 1.2s", d)
 	}
 }
@@ -870,7 +870,7 @@ func TestApp_ResumeLoadsSession(t *testing.T) {
 	todos := []core.Todo{{Content: "write tests", Status: "in_progress"}}
 	ta := newTestApp(t, withResume(sess, msgs, todos))
 
-	if n := ta.app.w.list.Len(); n != 2 {
+	if n := ta.app.sess.main.list.Len(); n != 2 {
 		t.Fatalf("list has %d items after resume, want 2", n)
 	}
 	s := ta.app.sess
@@ -924,19 +924,19 @@ func TestApp_QuitCancelsBaseContext(t *testing.T) {
 func TestApp_ResizeDebouncesListWidth(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
-	w0 := ta.app.view.list.w
+	w0 := ta.app.sess.main.sz.listW
 	ta.send(tea.WindowSizeMsg{Width: 130, Height: 30})
 	ta.send(tea.WindowSizeMsg{Width: 140, Height: 30})
 	ta.send(tea.WindowSizeMsg{Width: 150, Height: 32})
-	if ta.app.view.list.w != w0 {
-		t.Fatalf("list width changed to %d before the debounce tick", ta.app.view.list.w)
+	if ta.app.sess.main.sz.listW != w0 {
+		t.Fatalf("list width changed to %d before the debounce tick", ta.app.sess.main.sz.listW)
 	}
 	// 150 columns less the 2-cell margin, less the 47-column sidebar.
 	if ta.app.lay.Transcript.W != 101 {
 		t.Fatalf("layout not applied at once: %+v", ta.app.lay.Transcript)
 	}
-	if ta.app.view.list.h != ta.app.lay.Transcript.H {
-		t.Errorf("list height %d, want %d applied at once", ta.app.view.list.h, ta.app.lay.Transcript.H)
+	if ta.app.sess.main.sz.listH != ta.app.lay.Transcript.H {
+		t.Errorf("list height %d, want %d applied at once", ta.app.sess.main.sz.listH, ta.app.lay.Transcript.H)
 	}
 	for _, d := range ta.deferred {
 		if d.d != 50*time.Millisecond {
@@ -944,8 +944,8 @@ func TestApp_ResizeDebouncesListWidth(t *testing.T) {
 		}
 	}
 	ta.fire()
-	if ta.app.view.list.w != 101 {
-		t.Errorf("list width = %d after the debounce, want 101", ta.app.view.list.w)
+	if ta.app.sess.main.sz.listW != 101 {
+		t.Errorf("list width = %d after the debounce, want 101", ta.app.sess.main.sz.listW)
 	}
 }
 
@@ -1201,7 +1201,7 @@ func TestApp_ThinkingDurationFromClock(t *testing.T) {
 			ta.event(tt.end)
 			ta.clk.Advance(5 * time.Second) // a late tick must not stretch it
 			ta.fire()
-			if d := ta.app.sess.times.durs["m/m1/0"]; d != 4200*time.Millisecond {
+			if d := ta.app.sess.main.times.durs["m/m1/0"]; d != 4200*time.Millisecond {
 				t.Errorf("duration = %v, want 4.2s", d)
 			}
 			if v := xansi.Strip(ta.view()); !strings.Contains(v, "∴ thought for 4.2s") {
@@ -1309,7 +1309,7 @@ func TestApp_StatusShowsEffectiveEffort(t *testing.T) {
 
 func TestEffortControllable(t *testing.T) {
 	t.Parallel()
-	s := newSessionState("", clock.NewFake(testStart()), catalog{providers: effortCatalog()})
+	s := newSessionState("", clock.NewFake(testStart()), catalog{providers: effortCatalog()}, nil)
 	for ref, want := range map[string]bool{
 		"anthropic/claude-sonnet-5":  true,
 		"anthropic/claude-haiku-4-5": false,

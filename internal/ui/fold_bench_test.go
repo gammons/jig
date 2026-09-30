@@ -34,7 +34,7 @@ func BenchmarkApp_FoldToggle2000(b *testing.B) {
 	ta := newTestApp(b, withSize(150, 40), withResume(core.Session{ID: "ses_big", Agent: "build"}, benchHistoryGroups(2000), nil))
 	_ = ta.view()
 	ta.key("esc")
-	if !ta.app.w.list.Select("g/r01003") {
+	if !ta.app.sess.main.list.Select("g/r01003") {
 		b.Fatal("no group g/r01003 in the list")
 	}
 	_ = ta.view()
@@ -94,7 +94,7 @@ func BenchmarkApp_ToolStart2000(b *testing.B) {
 		_ = ta.view()
 		b.StopTimer()
 		if i == 0 {
-			if got := len(ta.app.sess.track.fold.groups); got <= 500 {
+			if got := len(ta.app.sess.main.track.fold.groups); got <= 500 {
 				b.Fatalf("live events were not applied: %d groups, want the resumed 500 plus the run's", got)
 			}
 		}

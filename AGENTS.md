@@ -111,6 +111,7 @@ internal/bubbles/selection/             pure selection range: paint over rendere
 internal/bubbles/picker/                ctrl+p picker: fuzzy drill-down list, groups, recents, multi-mark, text-input level, preview callback
 internal/bubbles/prompt/                growing 1-8 line prompt: history walk, paste chips, $EDITOR round trip, queued state
 internal/bubbles/statusbar/             lualine-style status bar: mode/branch/agent·model/run state left, indicators/ctx·cost/ctrl+p right, powerline (Nerd Font) arrows
+internal/bubbles/breadcrumb/            path widget: segments, focus/blur styling, slk-style truncation
 internal/golden/                        golden-frame test assertion
 internal/app/                           composition root + CLI: `jig` (TUI: trust dialog, BusAsker, ports, keymap/themes/prefs), `jig run` (headless)
 e2e/                                    end-to-end tests against the built binary
@@ -270,9 +271,15 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   `Keymap.Lookup`, so a `[keybinds]` entry can never override them;
   `actions.Resolve` skips such an entry with a warning
   (`actions.isFixed` mirrors the handlers).
-- The permission card mirrors one of `Projection.Pending()` (the selected
-  block's, else the first); `permCtl.sync` re-points it after every
-  Update, so a resolved or cancelled request can never leave a card up.
+- The permission card mirrors one of `Projection.Pending()`: the focused
+  pane's selected block's, else its first, else main's first
+  (`permCtl.target`); `permCtl.sync` re-points it after every Update, so
+  a resolved or cancelled request can never leave a card up.
+- The App owns `kids` and `col` (`a.sess.kids`, `a.view.col`); child panes
+  are created on `SubagentSpawned` (always loaded from the child's stored
+  messages first, then any events that arrived meanwhile replayed per
+  `replayable`) and cleared whenever the root projection is rebuilt (a
+  session switch, a new session, or an explicit same-session reload).
 - Only `imgrender` produces kitty placeholder cells and raw image payloads;
   `ui` sends payloads with `tea.Raw`, never inside `View`.
 - `core.Media.Data` is never persisted; only `client/llm` fills it, from
@@ -372,10 +379,11 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | A built-in agent by name | `agents.Builtin(name)` / `agents.BuiltinNames()` |
 | Resolve a model string (ref or alias) | `agents.ParseRef(s, cfg.ModelAliases)` / `(*agents.Service).ResolveRef(s)` |
 | Session events/messages → display blocks | `transcript.New(root)`, `Load`, `Apply` |
+| Project one descendant session's own events/messages, keyed by its own IDs | `transcript.NewChild(root, child)`; `(*Projection).Self()` |
 | Golden-frame assertion | `golden.Assert(t, name, got)`; update with `JIG_UPDATE_GOLDEN=1` |
 | Drive a `ui.App` in tests: fake ports, fake clock, Cmds run synchronously, ticks collected (not slept) | `newTestApp(t, opts...)` / `.send`, `.key`, `.typeText`, `.event`, `.fire` in `internal/ui/apptest_test.go` |
 | Clip/pad a styled string to exactly w×h cells (as rows of known width, to join with `hjoin`/`vjoin`) | `fitRows(s, w, h)` in `internal/ui/layout.go` |
-| Lay out the frame (1-cell margin, side slot running down beside the prompt) and size the prompt to it | `layoutFor(a)` / `computeLayout(w, h, promptH, sidebarPref, detailsOpen)` in `internal/ui/layout.go` |
+| Lay out the frame (1-cell margin, side slot running down beside the prompt) and size the prompt to it | `layoutFor(a)` / `computeLayout(w, h, promptH, sidebarPref, columnOpen, focus)` in `internal/ui/layout.go` |
 | Changed-file paths resolved against the workdir and de-duplicated | `normalizeChanges(workDir, projection.ChangedFiles())` in `internal/ui/sidebar.go` |
 | Make untrusted text (model/tool/file/store) safe to render | `ansi.Sanitize(s)` in `internal/bubbles/ansi` (keeps `\n`, `\t`) |
 | Same, for single-line contexts (titles, paths, list rows) | `ansi.SanitizeLine(s)` (`\n`/`\t` → space) |
@@ -384,8 +392,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | A scrolling list of variable-height blocks with a cursor, cache, and search | `blocklist.New(render, opts...)` / `SetItems`, `Upsert`, `SetSearch`, `View` in `internal/bubbles/blocklist` |
 | Hit-test a screen cell to a block/line/column, or get a block's rendered lines, for mouse selection | `blocklist.HitTest(m, x, y)` / `blocklist.Lines(m, id)` in `internal/bubbles/blocklist` |
 | A pure selection range: paint it over already-rendered rows, or extract its plain text in document order | `selection.Highlight(row, id, line, r, order, on, off)` / `selection.Text(r, ids, order, lines)` in `internal/bubbles/selection` |
-| The ctrl+p picker: fuzzy drill-down list, groups, recents, multi-mark, a text-entry level, a preview callback | `picker.New(load, opts...)` / `Open(root)`, `Close`, `SetRecent`, `SetSize`, `Update`, `View` in `internal/bubbles/picker` |
-| The action catalogue (built-ins + registered `ext.Command`s) / resolve the keymap from default binds + `[keybinds]` config | `actions.NewCatalogue(cmds)` / `.All()`, `.Get(id)`; `actions.Resolve(binds, config, c)` / `Keymap.Lookup`, `.Keys` in `internal/ui/actions` |
+| A trail of segments over a stack of drilled-into panes, with a scroll hint | `breadcrumb.New(opts...)` / `SetSegments`, `SetHint`, `SetFocused`, `SetWidth`, `View`, `RuleView` in `internal/bubbles/breadcrumb` |
+| The ctrl+p picker: fuzzy drill-down list, groups, recents, multi-mark, a text-entry level, a preview callback | `picker.New(load, opts...)` / `Open(root)`, `Close`, `SetRecent`, `SetSize`, `Update`, `View` in `internal/bubbles/picker` || The action catalogue (built-ins + registered `ext.Command`s) / resolve the keymap from default binds + `[keybinds]` config | `actions.NewCatalogue(cmds)` / `.All()`, `.Get(id)`; `actions.Resolve(binds, config, c)` / `Keymap.Lookup`, `.Keys` in `internal/ui/actions` |
 | The growing prompt textarea: history walk, paste-collapse chips, an `$EDITOR` round trip, a filled panel with a ▌ focus bar in INSERT, and a queued label on its top edge | `prompt.New(edit, opts...)` / `SetWidth`, `Height`, `SetAgent`, `SetQueued`, `SetHistory`, `Insert`, `Value`, `Reset`, `Focus`, `Blur`, `Update`, `View` in `internal/bubbles/prompt` |
 | Wrap styled text to a width, hard-breaking long words | `ansi.Wrap(s, width)` (also `ansi.Width`/`Truncate`/`Cut`) |
 | Center a modal box over a dimmed background | `overlay.Center(background, width, height, box, dim)` in `internal/bubbles/overlay` |
@@ -400,6 +408,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Push the App's current theme `Set` to every widget (and bump item versions) | `pushTheme(a)` in `internal/ui/themestate.go` |
 | The agent-browser `--session` a bash command runs in (else `default`) | `transcript.BrowserSession(command)` |
 | Cache rendered images per (blob ref, cell box), LRU of 32; send a kitty upload only when the terminal lacks that size | `imageState` (`renderFor`, `store`, `cached`, `show`) and `placeSixel(a)` in `internal/ui/images.go`; `imgrender.(*Renderer).Forget(key)` makes the next render upload again |
+| The pane a transcript/details column holds, and the pane the top of the stack focuses NORMAL keys on | `pane` (`newTranscriptPane`, `.items`/`.allItems`/`.data`/`.tick`/`.withDirty`/`.timeTools`/`.resetBlocks`), `columnTop(a)` / `columnFocused(a)` in `internal/ui/column.go` and `internal/ui/pane.go` |
+| A subagent's live pane: create/find it on spawn, route child events to every open one, replay a buffered event against the loaded snapshot | `kidsCtl{a}` (`.kid`, `.routeKids`, `.childLoaded`, `.clearKids`) / `replayable(ev, loaded, lastStatus)` in `internal/ui/kids.go` |
 | Group consecutive exploration calls (read/grep/glob, with the reasoning between them) | `transcript.Groups(blocks)` in `internal/ui/transcript/groups.go` |
 | Rebuild the transcript list after a layout change, keeping the selection on a listed block | `foldCtl{a}.relist(changed)` in `internal/ui/foldctl.go` |
 | Resolve a tool's rule with glob keys | `permission.RuleFor` / `permission.EffectiveFor` |
@@ -428,6 +438,12 @@ the budget. Run with `go test -run XXX -bench . -benchmem <pkg>`.
 | `BenchmarkApp_ReasoningTick2000` — one streaming reasoning delta, its tick, and `View`, with the thinking already ~16 KB and shown | < 5 ms/op | 0.79 ms/op (QEMU VM, 4 vCPU) |
 | `BenchmarkApp_FoldToggle2000` — `o` on a group header (a list rebuild), then `View`, over 2,000 messages holding 500 groups | < 50 ms/op | 2.30 ms/op (QEMU VM, 4 vCPU) |
 | `BenchmarkApp_ToolStart2000` — one `ToolCallStarted` that joins a group and absorbs the reasoning before it (a list rebuild), then `View` | < 5 ms/op | 2.59 ms/op (QEMU VM, 4 vCPU) |
+| `BenchmarkApp_SubagentStream` — a resumed 2,000-block root with a spawned child pane (200 blocks) open in the column: one child `TextDelta`, its `streamTick`, and `View` (only the column's top pane re-renders; main renders nothing) | < 3 ms/op | 2.1 ms/op (this machine) |
+
+`BenchmarkApp_SubagentStream` runs at 160×40 (wide enough for the column);
+its setup drains the debounced resize the column's opening schedules for
+main's 2,000 blocks before the timed loop starts, so that one-time cost
+never leaks into the per-iteration measurement.
 
 Every keystroke and wheel notch re-renders the whole frame, so
 `compose` (`internal/ui/layout.go`) measures each widget's output once:
@@ -466,8 +482,8 @@ after the last one (`themeDebounce`, keyed by `themeState.gen`); `esc`
 The blocklist renders only new, changed, or restyled items (cache key:
 ID, Version, width, stylesVersion); a warm `View` renders nothing and
 touches only the visible rows. Each item keeps its render at the current
-width and at the previous one (lines and height), so toggling the
-details split back and forth re-renders nothing. Rendered lines stay
+width and at the previous one (lines and height), so opening and
+closing the column back and forth re-renders nothing. Rendered lines stay
 cached after they scroll off screen, so scrolling back re-renders
 nothing: a long block coming back into view used to cost 10+ ms and
 hitch the scroll. After each `View`, only while the cache holds more
@@ -541,7 +557,7 @@ Each mode has one key handler that runs its fixed R21 keys first, then
   the run (and drop the queue), else clear the prompt, else quit; for
   1 s after a press that cancelled a run (`cancelGrace`, App clock),
   further presses do nothing. The mouse wheel scrolls the transcript or
-  the open details split (`mouse.go`'s `mouseCtl`): 3 lines a notch,
+  the column's top entry (`mouse.go`'s `mouseCtl`): 3 lines a notch,
   more in a fast streak (`wheelaccel.go`, opencode's curve, up to 6×,
   App clock), and a press-drag-
   release over either selects and, on release, copies text to the
@@ -549,12 +565,25 @@ Each mode has one key handler that runs its fixed R21 keys first, then
 - NORMAL (`mode_normal.go`, `normalKeys`): `ctrl+c` only cancels a
   run (never clears or quits), starting the same `cancelGrace`; vim-style navigation of the
   transcript list (`j k gg G ctrl+u`, `n`/`N` search matches),
-  `enter` toggles the details split (`ctrl+e`/`ctrl+y` scroll it),
-  `o` expands or collapses a tool-call group,
-  `q`/`esc` close the split or clear the search (or a mouse selection,
-  cleared first), `gp` jumps to the next
-  pending permission, and `a A d D` answer the card on the selected
-  block; `i` (or `a` off a card) → INSERT. The card is disarmed for
+  `gp` jumps to the next pending permission, and `a A d D` answer the
+  card on the selected block; `i` (or `a` off a card) → INSERT.
+  `enter` on main's selected block opens the column, replacing its whole
+  stack — a subagent block pushes its live child pane, any other block a
+  details entry — or, when the column's bottom entry already shows that
+  block, closes it instead. With the column open, `tab`/`shift+tab`
+  toggle focus between main and the column's top pane, `h`/`l` focus
+  main/column directly, `enter` in a focused transcript pane pushes
+  another entry onto the column's top (a subagent's live pane, or a
+  details entry), `q`/`esc` pop the column's top entry (from main,
+  `q`/`esc` closes the column outright), and on a focused details pane
+  `j`/`k` scroll its body while `y`/`gp`/`a A d D` do nothing there;
+  `ctrl+e`/`ctrl+y` always scroll the column's top details pane. Wide
+  terminals (≥ 120 columns) show main and the column side by side
+  (50/50), the column topped by a breadcrumb
+  (`main › ↳ explore: … › …`, hint `esc back`); narrower terminals show
+  only the focused pane, with main topped by a `tab → <top title>` crumb
+  row instead. `o` expands or collapses a tool-call group. The card is
+  disarmed for
   400 ms (`cardArmDelay`, an App-clock tick) after a new request, a
   request switching the App to NORMAL, or the selection moving onto it: its keys do nothing and its legend shows
   `…` until it arms (`permCtl.guard`). The mouse wheel and drag-to-copy

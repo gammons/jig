@@ -4,7 +4,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/jig/internal/bubbles/blocklist"
-	"github.com/gammons/jig/internal/bubbles/details"
 	"github.com/gammons/jig/internal/bubbles/selection"
 	"github.com/gammons/jig/internal/ui/transcript"
 )
@@ -30,6 +29,9 @@ func (h normalKeys) handle(k tea.KeyPressMsg) tea.Cmd {
 		case "g":
 			return h.gotoTop()
 		case "p":
+			if columnFocused(a).kind == paneDetails {
+				return nil
+			}
 			return permCtl{a}.next()
 		}
 		return nil // any unknown g-command: swallowed.
@@ -50,6 +52,9 @@ func (h normalKeys) handle(k tea.KeyPressMsg) tea.Cmd {
 		a.view.keyPrefix = "g"
 		return nil
 	case "a", "A", "d", "D":
+		if columnFocused(a).kind == paneDetails {
+			return nil
+		}
 		if (permCtl{a}).onCard() {
 			return permCtl{a}.key(k)
 		}
@@ -60,16 +65,32 @@ func (h normalKeys) handle(k tea.KeyPressMsg) tea.Cmd {
 	case "i":
 		return a.setMode(modeInsert)
 	case "tab":
+		if columnOpen(a) {
+			return h.toggleFocus()
+		}
 		return a.cycleAgent(1)
 	case "shift+tab":
+		if columnOpen(a) {
+			return h.toggleFocus()
+		}
 		return a.cycleAgent(-1)
+	case "h":
+		if columnOpen(a) {
+			setFocus(a, focusMain)
+		}
+		return nil
+	case "l":
+		if columnOpen(a) {
+			setFocus(a, focusColumn)
+		}
+		return nil
 	case "enter":
-		return h.toggleDetails()
+		return h.enter()
 	case "ctrl+e":
-		a.w.details.ScrollBy(1)
+		h.scrollTop(1)
 		return nil
 	case "ctrl+y":
-		a.w.details.ScrollBy(-1)
+		h.scrollTop(-1)
 		return nil
 	case "q", "esc":
 		return h.closeOrClear()
@@ -83,120 +104,180 @@ func (h normalKeys) handle(k tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// navigate forwards k to the transcript list, then, if the details split
-// is open and the selection moved, rebuilds it for the new block.
+// toggleFocus swaps NORMAL's focus between main and the column, only
+// while the column is open.
+func (h normalKeys) toggleFocus() tea.Cmd {
+	a := h.a
+	if a.view.focus == focusMain {
+		setFocus(a, focusColumn)
+	} else {
+		setFocus(a, focusMain)
+	}
+	return nil
+}
+
+// scrollTop scrolls the column's top entry's body by n lines, when it is
+// a details pane (spec §5.2: ctrl+e/ctrl+y act on it whatever has focus).
+func (h normalKeys) scrollTop(n int) {
+	if top := columnTop(h.a); top != nil && top.kind == paneDetails {
+		top.body.ScrollBy(n)
+	}
+}
+
+// navigate forwards k to the focused pane's list. On main, when the
+// column holds a single details entry, a moved selection rebuilds it
+// (the split "follows" the cursor, spec §5.2). On a focused details
+// pane, j/k scroll its body and everything else (G, ctrl+u, n, N) does
+// nothing (spec §5.2).
 func (h normalKeys) navigate(k tea.KeyPressMsg) tea.Cmd {
 	a := h.a
-	before, _ := a.w.list.Selected()
+	p := columnFocused(a)
+	if p.kind == paneDetails {
+		switch k.String() {
+		case "j":
+			p.body.ScrollBy(1)
+		case "k":
+			p.body.ScrollBy(-1)
+		}
+		return nil
+	}
+	before, _ := p.list.Selected()
 	var cmd tea.Cmd
-	a.w.list, cmd = a.w.list.Update(k)
+	p.list, cmd = p.list.Update(k)
+	if p != a.sess.main {
+		return cmd
+	}
 	return tea.Batch(cmd, h.syncDetails(before))
 }
 
-// gotoTop selects the first block ("gg"), rebuilding the details for it
-// when the split is open.
+// gotoTop selects the first block ("gg") in the focused pane, rebuilding
+// a following details entry.
 func (h normalKeys) gotoTop() tea.Cmd {
 	a := h.a
-	before, _ := a.w.list.Selected()
-	a.w.list.Top()
+	p := columnFocused(a)
+	if p.kind == paneDetails {
+		return nil
+	}
+	before, _ := p.list.Selected()
+	p.list.Top()
+	if p != a.sess.main {
+		return nil
+	}
 	return h.syncDetails(before)
 }
 
-// syncDetails rebuilds the details pane for the selection's new block, if
-// the split is open and the selection actually moved from before.
+// syncDetails rebuilds the column's sole details entry for main's new
+// selection, if the column holds exactly one and it is a details pane
+// following main, and the selection actually moved from before (spec
+// §5.2: "moving main's cursor rebuilds that entry for the new block").
 func (h normalKeys) syncDetails(before blocklist.Item) tea.Cmd {
 	a := h.a
-	if !a.view.detailsOpen {
+	if len(a.view.col) != 1 || a.view.col[0].kind != paneDetails {
 		return nil
 	}
-	after, ok := a.w.list.Selected()
+	after, ok := a.sess.main.list.Selected()
 	if !ok || after.ID == before.ID {
 		return nil
 	}
 	return h.openDetailsFor(transcript.BlockID(after.ID))
 }
 
-// toggleDetails opens the details split for the selected block, building
-// its content, or closes an already-open split.
-func (h normalKeys) toggleDetails() tea.Cmd {
+// enter opens or closes the column, per spec §5.2's table:
+//   - main focused: same block as the column's base entry closes it,
+//     otherwise the whole stack is replaced with a new entry for it.
+//   - column focused on a transcript pane: pushes an entry for the
+//     selected block (a subagent's live child pane, or a details pane
+//     for any other block).
+//   - column focused on a details pane: nothing.
+func (h normalKeys) enter() tea.Cmd {
 	a := h.a
-	if a.view.detailsOpen {
-		a.view.detailsOpen = false
-		return nil
+	if a.view.focus == focusColumn {
+		top := columnTop(a)
+		if top == nil || top.kind != paneTranscript {
+			return nil
+		}
+		item, ok := top.list.Selected()
+		if !ok {
+			return nil
+		}
+		p, cmd := columnEntryFor(a, top, transcript.BlockID(item.ID))
+		if p == nil {
+			return nil
+		}
+		return tea.Batch(cmd, columnPush(a, p))
 	}
-	item, ok := a.w.list.Selected()
+	item, ok := a.sess.main.list.Selected()
 	if !ok {
 		return nil
 	}
-	a.view.detailsOpen = true
-	return h.openDetailsFor(transcript.BlockID(item.ID))
+	id := transcript.BlockID(item.ID)
+	if columnTop(a) != nil && a.view.col[0].forBlock == id {
+		columnClose(a)
+		return nil
+	}
+	p, cmd := columnEntryFor(a, a.sess.main, id)
+	if p == nil {
+		return nil
+	}
+	return tea.Batch(cmd, columnReplace(a, p))
 }
 
-// openDetailsFor builds and shows id's details: a group's member list, or
-// a block's own details. A block's build is sized for the details split
-// at the App's current width/height directly, rather than a.lay (not yet
-// recomputed for detailsOpen when opening for the first time in this same
-// key press), so the content is never built at a stale width.
+// openDetailsFor rebuilds the column's sole entry for id (main's new
+// selection), keeping it as the column's only entry.
 func (h normalKeys) openDetailsFor(id transcript.BlockID) tea.Cmd {
 	a := h.a
-	members, durs, isGroup := foldCtl{a}.group(id)
-	b, isBlock := a.sess.proj.Block(id)
-	if !isGroup && !isBlock {
+	p, cmd := columnEntryFor(a, a.sess.main, id)
+	if p == nil {
 		return nil
 	}
-	a.view.detailsFor = id
-	a.img.shown = nil
-	var content details.Content
-	var cmd tea.Cmd
-	if isGroup {
-		content = groupDetails(members, durs)
-	} else {
-		// Only the side slot's size is needed: the prompt beside it wraps
-		// the same at either width to within its height, and relayout sizes
-		// the prompt for real.
-		lay := computeLayout(a.width, a.height, a.w.prompt.Height(), a.view.sidebarPref, true)
-		content, cmd = buildDetails(a.ctx, b, lay.Side.W, lay.Side.H, a.w.render, a.ports, a.img)
-	}
-	a.w.details.SetContent(content)
-	if a.view.mouse.pane == paneDetails {
+	if a.view.mouse.pane == regionDetails {
 		a.view.mouse.sel = selection.Range{}
 	}
-	return cmd
+	return tea.Batch(cmd, columnReplace(a, p))
 }
 
-// closeOrClear closes the details split, or, when it is already closed,
-// clears any applied search (spec §6.3: "q/esc close the split, else
-// clear the search").
+// closeOrClear pops the column when it is open (closing it entirely from
+// main, or one entry from the column — spec §5.2), or, when it is
+// already closed, clears any applied search.
 func (h normalKeys) closeOrClear() tea.Cmd {
 	a := h.a
-	if a.view.detailsOpen {
-		a.view.detailsOpen = false
+	switch {
+	case a.view.focus == focusColumn:
+		columnPop(a)
+		return nil
+	case columnOpen(a):
+		columnClose(a)
 		return nil
 	}
-	a.w.list.SetSearch("")
-	return foldCtl{a}.setSearch(false)
+	a.sess.main.list.SetSearch("")
+	return foldCtl{a, a.sess.main}.setSearch(false)
 }
 
 // openSearch focuses the one-line search input, shown in place of the
-// status bar, ready to type a new query.
+// status bar, ready to type a new query; nothing while the focused pane
+// is a details pane (spec §5.2: only j/k act on one).
 func (h normalKeys) openSearch() tea.Cmd {
 	a := h.a
+	if columnFocused(a).kind == paneDetails {
+		return nil
+	}
 	a.view.searching = true
 	a.w.search.Reset()
 	return a.w.search.Focus()
 }
 
 // handleSearch routes a key while the search input is open: enter applies
-// the query to the transcript list, esc cancels it, everything else types
-// into it.
+// the query to the focused pane's list, esc cancels it, everything else
+// types into it.
 func (h normalKeys) handleSearch(k tea.KeyPressMsg) tea.Cmd {
 	a := h.a
 	switch k.String() {
 	case "enter":
 		a.view.searching = false
 		query := a.w.search.Value()
-		cmd := foldCtl{a}.setSearch(query != "")
-		a.w.list.SetSearch(query)
+		p := columnFocused(a)
+		cmd := foldCtl{a, p}.setSearch(query != "")
+		p.list.SetSearch(query)
 		a.w.search.Blur()
 		return cmd
 	case "esc":
@@ -210,20 +291,24 @@ func (h normalKeys) handleSearch(k tea.KeyPressMsg) tea.Cmd {
 	return cmd
 }
 
-// yank copies the selected block's text (a group header's member subjects,
-// groupYank) to the clipboard (spec §6.3, via yankText) and shows a
-// "yanked" hint.
+// yank copies the focused pane's selected block's text (a group header's
+// member subjects, groupYank) to the clipboard (spec §6.3, via
+// yankText) and shows a "yanked" hint; nothing on a details pane.
 func (h normalKeys) yank() tea.Cmd {
 	a := h.a
-	item, ok := a.w.list.Selected()
+	p := columnFocused(a)
+	if p.kind == paneDetails {
+		return nil
+	}
+	item, ok := p.list.Selected()
 	if !ok {
 		return nil
 	}
-	if members, _, ok := (foldCtl{a}).group(transcript.BlockID(item.ID)); ok {
+	if members, _, ok := (foldCtl{a, p}).group(transcript.BlockID(item.ID)); ok {
 		a.view.hint = "yanked"
 		return tea.SetClipboard(groupYank(members))
 	}
-	b, ok := a.sess.proj.Block(transcript.BlockID(item.ID))
+	b, ok := p.proj.Block(transcript.BlockID(item.ID))
 	if !ok {
 		return nil
 	}

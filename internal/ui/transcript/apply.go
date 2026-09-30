@@ -15,16 +15,19 @@ func (p *Projection) Apply(ev event.Event) []BlockID {
 	if ev.Root() != p.root {
 		return nil
 	}
+	if !inSubtree(p, ev.Session()) {
+		return nil
+	}
 	switch e := ev.(type) {
 	case event.SubagentSpawned:
-		return p.tree.spawn(&p.list, p.root, e)
+		return p.tree.spawn(&p.list, p.self, e)
 	case event.PermissionRequested:
-		return p.perms.request(&p.list, &p.tree, p.root, e)
+		return p.perms.request(&p.list, &p.tree, p.self, e)
 	case event.PermissionResolved:
 		return p.perms.resolve(&p.list, e.RequestID)
 	}
-	if ev.Session() != p.root {
-		return p.applyDescendant(ev)
+	if ev.Session() != p.self {
+		return applyDescendant(p, ev)
 	}
 	switch e := ev.(type) {
 	case event.TextDelta:
@@ -49,8 +52,9 @@ func (p *Projection) Apply(ev event.Event) []BlockID {
 // applyDescendant handles an event from a session under root. Descendant
 // events never create blocks; their tool calls update the subagent block
 // that owns the session. Events from sessions with no known owner are
-// ignored.
-func (p *Projection) applyDescendant(ev event.Event) []BlockID {
+// ignored. A free function, not a method, to stay under the package's
+// per-type method budget.
+func applyDescendant(p *Projection, ev event.Event) []BlockID {
 	return p.tree.descendant(&p.list, ev)
 }
 

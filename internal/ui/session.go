@@ -72,8 +72,8 @@ func (r *runState) returned(ran bool) bool {
 	return true
 }
 
-// blockTimes measures root blocks by ID, on the App clock: when each tool
-// call (R22) or reasoning block started, and the duration of each
+// blockTimes measures a pane's blocks by ID, on the App clock: when each
+// tool call (R22) or reasoning block started, and the duration of each
 // finished one. Loaded blocks have none.
 type blockTimes struct {
 	starts map[transcript.BlockID]time.Time
@@ -116,16 +116,17 @@ func (s *idSet) take() []transcript.BlockID {
 	return out
 }
 
-// sessionState reconciles the root session's display state: its
-// projection, the session itself (info.Agent/Model are the agent and
-// model the next send uses), the run, the queue, the last step's usage,
-// the summed cost, todos, tool durations, and the transcript list's
-// bookkeeping (track). model is the model the last root step reported. attach
+// sessionState reconciles the root session's display state: the session
+// itself (info.Agent/Model are the agent and model the next send uses),
+// the run, the queue, the last step's usage, the summed cost, todos, and
+// the catalog. model is the model the last root step reported. attach
 // holds the paths the file picker inserted as @mentions; a send attaches
-// those whose token survives in its text.
+// those whose token survives in its text. main is the root transcript
+// pane: its projection, blocklist, and render bookkeeping.
 type sessionState struct {
 	attach []string
-	proj   *transcript.Projection
+	main   *pane
+	kids   map[core.SessionID]*pane
 	info   core.Session
 	model  string
 	run    runState
@@ -133,27 +134,18 @@ type sessionState struct {
 	usage  core.Usage
 	cost   float64
 	todos  []core.Todo
-	times  blockTimes
-	track  itemTrack
 	cat    catalog
 	clk    clock.Clock
 }
 
 // newSessionState starts with root id ("" for a session the first send
-// will create) and the configured defaults in cat.
-func newSessionState(id core.SessionID, clk clock.Clock, cat catalog) *sessionState {
-	s := &sessionState{
-		proj: transcript.New(id), info: core.Session{ID: id}, clk: clk,
-		track: newItemTrack(), cat: cat,
+// will create) and the configured defaults in cat. main is the root
+// transcript pane, already built by the caller (its blocklist styled
+// from the App's theme).
+func newSessionState(id core.SessionID, clk clock.Clock, cat catalog, main *pane) *sessionState {
+	return &sessionState{
+		main: main, kids: map[core.SessionID]*pane{}, info: core.Session{ID: id}, clk: clk, cat: cat,
 	}
-	s.resetBlocks()
-	return s
-}
-
-// resetBlocks clears the per-block state a new projection invalidates.
-func (s *sessionState) resetBlocks() {
-	s.times = blockTimes{starts: map[transcript.BlockID]time.Time{}, durs: map[transcript.BlockID]time.Duration{}}
-	s.track.reset()
 }
 
 // applyResult is what the App must do after sessionState.apply: re-render
@@ -181,16 +173,17 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 	if s.info.ID == "" || ev.Root() != s.info.ID {
 		return applyResult{}
 	}
-	ids := s.proj.Apply(ev)
+	main := s.main
+	ids := main.proj.Apply(ev)
 	if ev.Session() != s.info.ID {
-		return applyResult{upsert: s.withDirty(ids)}
+		return applyResult{upsert: main.withDirty(ids)}
 	}
-	s.times.thinking(s.proj, ev, ids, s.clk.Now())
-	res := applyResult{relist: regroupsOn(ev) && s.track.regroup(s.proj)}
+	main.times.thinking(main.proj, ev, ids, s.clk.Now())
+	res := applyResult{relist: regroupsOn(ev) && main.track.regroup(main.proj)}
 	switch e := ev.(type) {
 	case event.TextDelta, event.ReasoningDelta:
 		for _, id := range ids {
-			s.track.dirty.add(id)
+			main.track.dirty.add(id)
 		}
 		return applyResult{}
 	case event.MessageStarted:
@@ -199,14 +192,14 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 			s.model = e.Model
 		}
 	case event.ToolCallStarted, event.ToolCallFinished:
-		s.timeTools(ev, ids)
+		main.timeTools(ev, ids, s.clk.Now())
 	case event.StepFinished:
 		s.usage = e.Usage
 		s.cost += e.CostUSD
 	case event.RunFinished, event.RunFailed:
 		_, finished := ev.(event.RunFinished)
 		res.settled = s.run.end(finished)
-		res.upsert = s.withDirty(ids)
+		res.upsert = main.withDirty(ids)
 		return res
 	case event.SessionUpdated:
 		s.info = withID(e.Info, s.info.ID)
@@ -216,7 +209,7 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 	if len(ids) == 0 && !res.relist {
 		return applyResult{}
 	}
-	res.upsert = s.withDirty(ids)
+	res.upsert = main.withDirty(ids)
 	return res
 }
 
@@ -232,42 +225,12 @@ func regroupsOn(ev event.Event) bool {
 	return false
 }
 
-// withDirty prepends the dirty blocks (emptying the set) to ids, without
-// repeating any.
-func (s *sessionState) withDirty(ids []transcript.BlockID) []transcript.BlockID {
-	if len(s.track.dirty.order) == 0 {
-		return ids
-	}
-	out := s.track.dirty.take()
-	for _, id := range ids {
-		if !slices.Contains(out, id) {
-			out = append(out, id)
-		}
-	}
-	return out
-}
-
-// timeTools records a root tool call's start, or its duration on finish.
-func (s *sessionState) timeTools(ev event.Event, ids []transcript.BlockID) {
-	now := s.clk.Now()
-	for _, id := range ids {
-		if _, ok := ev.(event.ToolCallStarted); ok {
-			s.times.starts[id] = now
-			continue
-		}
-		if start, ok := s.times.starts[id]; ok {
-			s.times.durs[id] = now.Sub(start)
-			delete(s.times.starts, id)
-		}
-	}
-}
-
 // thinking runs after every root event: it records when a reasoning
 // block starts thinking (its first delta) and, once an event ends that
 // thinking (text or a tool call follows, the step or run ends), its
 // duration. It is measured at the event, not the next streamTick, so the
 // tick interval never pads it. The block itself stays live until a tick
-// re-renders it (sessionState.item), which picks the duration up.
+// re-renders it (itemTrack.entryItem), which picks the duration up.
 func (t blockTimes) thinking(proj *transcript.Projection, ev event.Event, ids []transcript.BlockID, now time.Time) {
 	if _, ok := ev.(event.ReasoningDelta); ok {
 		for _, id := range ids {
@@ -298,11 +261,13 @@ func (s *sessionState) adopt(info core.Session) bool {
 	if s.info.ID != "" || !s.run.inFlight || info.ID == "" {
 		return false
 	}
-	old := s.proj
-	s.proj = transcript.New(info.ID)
+	main := s.main
+	old := main.proj
+	main.proj = transcript.New(info.ID)
+	main.session = info.ID
 	for _, b := range old.Blocks() {
 		if b.Kind == transcript.KindUser {
-			id := s.proj.AddUser(b.Text, b.Attachments)
+			id := main.proj.AddUser(b.Text, b.Attachments)
 			if b.ID == s.run.userID {
 				s.run.userID = id
 			}
@@ -319,7 +284,8 @@ func (s *sessionState) adopt(info core.Session) bool {
 	if s.info.Effort == "" {
 		s.info.Effort = prev.Effort
 	}
-	s.resetBlocks()
+	main.resetBlocks()
+	s.kids = map[core.SessionID]*pane{}
 	return true
 }
 
@@ -345,19 +311,21 @@ func (s *sessionState) endSend(ran bool) (bool, []transcript.BlockID) {
 	if !s.run.returned(ran) {
 		return false, nil
 	}
-	return true, s.track.dirty.take()
+	return true, s.main.track.dirty.take()
 }
 
-// dropUser removes the block of a send that never ran and returns every
-// remaining item at its current version (nothing re-renders).
+// dropUser removes the block of a send that never ran from the root
+// pane's projection and returns every remaining item at its current
+// version (nothing re-renders).
 func (s *sessionState) dropUser(id transcript.BlockID) []blocklist.Item {
-	s.proj.DropUser(id)
-	delete(s.track.versions, id)
-	entries, _ := s.track.fold.regroup(s.proj.Blocks())
-	return s.track.layoutItems(s, entries, bumpNone)
+	main := s.main
+	main.proj.DropUser(id)
+	delete(main.track.versions, id)
+	entries, _ := main.track.fold.regroup(main.proj.Blocks())
+	return main.track.layoutItems(main, entries, bumpNone, s.run.frame)
 }
 
-// load replaces the projection's blocks with msgs, the root's stored
+// load replaces the root pane's projection with msgs, the root's stored
 // history, and recomputes the summed cost and last-step usage from it.
 // Only call it while idle: a mid-step Load drops unsaved blocks.
 func (s *sessionState) load(info core.Session, msgs []core.Message, todos []core.Todo) {
@@ -366,8 +334,8 @@ func (s *sessionState) load(info core.Session, msgs []core.Message, todos []core
 	if s.info.Agent == "" {
 		s.info.Agent = agent
 	}
-	s.proj.Load(msgs)
-	s.resetBlocks()
+	s.main.proj.Load(msgs)
+	s.main.resetBlocks()
 	s.cost, s.usage, s.model = 0, core.Usage{}, ""
 	for _, m := range msgs {
 		s.cost += m.CostUSD
@@ -378,13 +346,14 @@ func (s *sessionState) load(info core.Session, msgs []core.Message, todos []core
 	s.todos = slices.Clone(todos)
 }
 
-// tick advances the spinner and returns the blocks to re-render: every
-// dirty one, then every live one.
+// tick advances the spinner and returns the root pane's blocks to
+// re-render: every dirty one, then every live one.
 func (s *sessionState) tick() []transcript.BlockID {
 	s.run.frame++
-	ids := s.track.dirty.take()
-	live := make([]transcript.BlockID, 0, len(s.track.live))
-	for id := range s.track.live {
+	main := s.main
+	ids := main.track.dirty.take()
+	live := make([]transcript.BlockID, 0, len(main.track.live))
+	for id := range main.track.live {
 		live = append(live, id)
 	}
 	slices.Sort(live)
@@ -400,24 +369,15 @@ func (s *sessionState) tick() []transcript.BlockID {
 // ids (a member of a collapsed group shows as its header), tracks which
 // of them are live, and records the new ones in the fold layout.
 func (s *sessionState) items(ids []transcript.BlockID) []blocklist.Item {
-	return s.track.upsert(s, ids)
+	return s.main.track.upsert(s.main, ids, s.run.frame)
 }
 
 // allItems regroups the blocks and builds every item of the layout, in
 // display order, each at a new version.
 func (s *sessionState) allItems() []blocklist.Item {
-	entries, _ := s.track.fold.regroup(s.proj.Blocks())
-	return s.track.layoutItems(s, entries, bumpAll)
-}
-
-// data builds b's blockData from the session's current run state.
-func (s *sessionState) data(b transcript.Block) blockData {
-	return blockData{
-		Block:    b,
-		Duration: s.times.durs[b.ID],
-		Frame:    s.run.frame,
-		Thinking: b.Thinking,
-	}
+	main := s.main
+	entries, _ := main.track.fold.regroup(main.proj.Blocks())
+	return main.track.layoutItems(main, entries, bumpAll, s.run.frame)
 }
 
 // isLive reports whether b shows an animated spinner: a running tool, or

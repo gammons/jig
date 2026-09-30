@@ -1,14 +1,10 @@
 package ui
 
 import (
-	"fmt"
-	"strings"
 	"time"
-	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/bubbles/selection"
 	"github.com/gammons/jig/internal/bubbles/wintree"
@@ -34,12 +30,12 @@ type mouseCell = struct{ x, y int }
 type mouseScrollMsg struct{ gen int }
 
 // pane is which region of the layout a mouse cell falls in.
-type pane int
+type mouseRegion int
 
 const (
-	paneNone pane = iota
-	paneTranscript
-	paneDetails
+	regionNone mouseRegion = iota
+	regionTranscript
+	regionDetails
 )
 
 // dragPhase is the mouse's drag state machine (spec §3.2/§3.3).
@@ -64,7 +60,7 @@ const (
 // starts the next notch on a new streak.
 type mouseState struct {
 	phase   dragPhase
-	pane    pane
+	pane    mouseRegion
 	sel     selection.Range
 	last    mouseCell
 	autoGen int
@@ -96,16 +92,16 @@ func (m mouseCtl) handle(msg tea.Msg) tea.Cmd {
 }
 
 // paneAt maps a screen cell to the pane it falls in: the transcript, or
-// the details split's body when it is open. Everything else — the gap,
-// the prompt, the status bar, and the sidebar — is paneNone.
-func paneAt(a *App, x, y int) pane {
+// the column's body when it is open. Everything else — the gap,
+// the prompt, the status bar, and the sidebar — is regionNone.
+func paneAt(a *App, x, y int) mouseRegion {
 	if inRect(a.lay.Transcript, x, y) {
-		return paneTranscript
+		return regionTranscript
 	}
-	if a.lay.DetailsOpen && inRect(a.lay.Side, x, y) {
-		return paneDetails
+	if a.lay.ColumnOpen && inRect(a.lay.Side, x, y) {
+		return regionDetails
 	}
-	return paneNone
+	return regionNone
 }
 
 // inRect reports whether (x, y) falls inside r.
@@ -113,24 +109,34 @@ func inRect(r wintree.Rect, x, y int) bool {
 	return x >= r.X && x < r.X+r.W && y >= r.Y && y < r.Y+r.H
 }
 
-// paneRect is p's rect: the transcript's, or the (open) details split's
-// side slot.
-func paneRect(a *App, p pane) wintree.Rect {
-	if p == paneDetails {
+// paneRect is p's rect: the transcript's, or the (open) column's side
+// slot.
+func paneRect(a *App, p mouseRegion) wintree.Rect {
+	if p == regionDetails {
 		return a.lay.Side
 	}
 	return a.lay.Transcript
 }
 
 // hitTest maps pane-local (x, y) to a selection.Point's fields: for the
-// transcript, blocklist.HitTest's item ID and line; for the details pane,
-// the fixed detailsSelID and details.HitTest's content line.
-func hitTest(a *App, p pane, x, y int) (id string, line, col int, ok bool) {
+// transcript, blocklist.HitTest's item ID and line; for the column's
+// top entry, when it is a transcript pane, blocklist.HitTest against
+// that pane's list, and, when it is a details pane, the fixed
+// detailsSelID and details.HitTest's content line. Anything else there
+// (no top entry) is not draggable; its caller checks bodyHeight first.
+func hitTest(a *App, p mouseRegion, x, y int) (id string, line, col int, ok bool) {
 	switch p {
-	case paneTranscript:
-		return blocklist.HitTest(a.w.list, x, y)
-	case paneDetails:
-		line, col, ok = a.w.details.HitTest(x, y)
+	case regionTranscript:
+		return blocklist.HitTest(a.sess.main.list, x, y)
+	case regionDetails:
+		top := columnTop(a)
+		if top == nil {
+			return "", 0, 0, false
+		}
+		if top.kind == paneTranscript {
+			return blocklist.HitTest(top.list, x, y-columnHeaderRows)
+		}
+		line, col, ok = top.body.HitTest(x, y-columnHeaderRows)
 		return detailsSelID, line, col, ok
 	}
 	return "", 0, 0, false
@@ -138,44 +144,58 @@ func hitTest(a *App, p pane, x, y int) (id string, line, col int, ok bool) {
 
 // pinCell clamps (x, y) to r's draggable body: for the transcript, x in
 // [1, w-2] (skipping the prefix and scrollbar columns) and y in [0, h-1];
-// for the details pane, x in [0, w-1] and y in [2, h-1] (skipping the
-// header and rule rows).
-func pinCell(p pane, r wintree.Rect, x, y int) (int, int) {
-	if p == paneDetails {
-		return max(0, min(x, r.W-1)), max(2, min(y, r.H-1))
+// for the column's body, when its top entry is a transcript pane the same
+// x in [1, w-2] applies (blocklist.HitTest rejects the prefix and
+// scrollbar columns there too), else (a details pane) x in [0, w-1]; y is
+// [columnHeaderRows, h-1] either way (skipping the breadcrumb and rule
+// rows).
+func pinCell(a *App, p mouseRegion, r wintree.Rect, x, y int) (int, int) {
+	if p == regionDetails {
+		y = max(columnHeaderRows, min(y, r.H-1))
+		if top := columnTop(a); top != nil && top.kind == paneTranscript {
+			return max(1, min(x, r.W-2)), y
+		}
+		return max(0, min(x, r.W-1)), y
 	}
 	return max(1, min(x, r.W-2)), max(0, min(y, r.H-1))
 }
 
 // edgeRow reports whether pane-local y is p's top or bottom row: 0 and
-// h-1 for the transcript, or 2 (the first body row) and h-1 for the
-// details split. A pane whose body height is at most 1 has no edges.
-func edgeRow(p pane, y, h int) bool {
-	if p == paneDetails {
-		return h-2 > 1 && (y == 2 || y == h-1)
+// h-1 for the transcript, or columnHeaderRows (the first body row) and
+// h-1 for the column's body. A pane whose body height is at most 1 has
+// no edges.
+func edgeRow(p mouseRegion, y, h int) bool {
+	if p == regionDetails {
+		return h-columnHeaderRows > 1 && (y == columnHeaderRows || y == h-1)
 	}
 	return h > 1 && (y == 0 || y == h-1)
 }
 
 // scrollEdge scrolls p by one line toward the edge row y is on (up from
 // the top edge, down from the bottom).
-func scrollEdge(a *App, p pane, y int) {
+func scrollEdge(a *App, p mouseRegion, y int) {
 	n := 1
-	if (p == paneDetails && y == 2) || (p != paneDetails && y == 0) {
+	if (p == regionDetails && y == columnHeaderRows) || (p != regionDetails && y == 0) {
 		n = -1
 	}
-	if p == paneDetails {
-		a.w.details.ScrollBy(n)
-	} else {
-		a.w.list.ScrollBy(n)
+	if p == regionDetails {
+		if top := columnTop(a); top != nil {
+			if top.kind == paneTranscript {
+				top.list.ScrollBy(n)
+			} else {
+				top.body.ScrollBy(n)
+			}
+		}
+		return
 	}
+	a.sess.main.list.ScrollBy(n)
 }
 
 // wheel scrolls the pane under the pointer, moving the highlight
 // (blocklist.ScrollBy/details.ScrollBy do this themselves), and clears
 // any selection. A slow notch scrolls wheelLines; a fast streak scrolls
 // further (wheelAccel, timed on the App clock). It does nothing while the
-// picker is open, or outside the transcript and the (open) details split.
+// picker is open, or outside the transcript and the (open) column.
 func (m mouseCtl) wheel(msg tea.MouseWheelMsg) tea.Cmd {
 	a := m.a
 	a.view.mouse.sel = selection.Range{}
@@ -188,19 +208,26 @@ func (m mouseCtl) wheel(msg tea.MouseWheelMsg) tea.Cmd {
 		dir = -1
 	}
 	switch p := paneAt(a, ms.X, ms.Y); p {
-	case paneTranscript:
-		a.w.list.ScrollBy(a.view.mouse.wheel.lines(a.opts.Clock.Now(), dir, p))
-	case paneDetails:
-		a.w.details.ScrollBy(a.view.mouse.wheel.lines(a.opts.Clock.Now(), dir, p))
+	case regionTranscript:
+		a.sess.main.list.ScrollBy(a.view.mouse.wheel.lines(a.opts.Clock.Now(), dir, p))
+	case regionDetails:
+		if top := columnTop(a); top != nil {
+			n := a.view.mouse.wheel.lines(a.opts.Clock.Now(), dir, p)
+			if top.kind == paneTranscript {
+				top.list.ScrollBy(n)
+			} else {
+				top.body.ScrollBy(n)
+			}
+		}
 	}
 	return nil
 }
 
 // bodyHeight is p's draggable body height: the transcript's full height,
-// or the details pane's height minus its header and rule rows.
-func bodyHeight(p pane, r wintree.Rect) int {
-	if p == paneDetails {
-		return r.H - 2
+// or the column's body height minus its breadcrumb and rule rows.
+func bodyHeight(p mouseRegion, r wintree.Rect) int {
+	if p == regionDetails {
+		return r.H - columnHeaderRows
 	}
 	return r.H
 }
@@ -220,8 +247,15 @@ func (m mouseCtl) press(msg tea.MouseClickMsg) tea.Cmd {
 		return nil
 	}
 	p := paneAt(a, ms.X, ms.Y)
-	if p == paneNone {
+	if p == regionNone {
 		return nil
+	}
+	if a.mode == modeNormal {
+		if p == regionDetails {
+			setFocus(a, focusColumn)
+		} else {
+			setFocus(a, focusMain)
+		}
 	}
 	r := paneRect(a, p)
 	if bodyHeight(p, r) <= 1 {
@@ -250,7 +284,7 @@ func (m mouseCtl) motion(msg tea.MouseMotionMsg) tea.Cmd {
 	p := a.view.mouse.pane
 	r := paneRect(a, p)
 	ms := msg.Mouse()
-	lx, ly := pinCell(p, r, ms.X-r.X, ms.Y-r.Y)
+	lx, ly := pinCell(a, p, r, ms.X-r.X, ms.Y-r.Y)
 	id, line, col, ok := hitTest(a, p, lx, ly)
 	if !ok {
 		return nil
@@ -264,7 +298,7 @@ func (m mouseCtl) motion(msg tea.MouseMotionMsg) tea.Cmd {
 // armAutoScroll records (x, y) as the drag's last pointer cell and, the
 // first time it lands on an edge row (the previous last cell was not also
 // on one), schedules the first auto-scroll tick.
-func (m mouseCtl) armAutoScroll(p pane, x, y, h int) tea.Cmd {
+func (m mouseCtl) armAutoScroll(p mouseRegion, x, y, h int) tea.Cmd {
 	a := m.a
 	wasEdge := edgeRow(p, a.view.mouse.last.y, h)
 	a.view.mouse.last = mouseCell{x: x, y: y}
@@ -317,144 +351,4 @@ func (m mouseCtl) release(tea.MouseReleaseMsg) tea.Cmd {
 		return m.click()
 	}
 	return nil
-}
-
-// copySelection extracts the dragged range's plain text in document order
-// (or, in the details pane, from its single "line space") and, if it
-// isn't empty, copies it and sets the hint.
-func (m mouseCtl) copySelection() tea.Cmd {
-	a := m.a
-	sel := a.view.mouse.sel
-	var text string
-	if a.view.mouse.pane == paneDetails {
-		order := func(string) int { return 0 }
-		text = selection.Text(sel, []string{detailsSelID}, order, func(string) []string { return a.w.details.Lines() })
-	} else {
-		ids := transcriptIDs(a)
-		order := indexOrder(ids)
-		lo, hi := sel.Normalized(order)
-		loI, hiI := order(lo.ID), order(hi.ID)
-		var subset []string
-		if loI >= 0 && hiI < len(ids) && loI <= hiI {
-			subset = ids[loI : hiI+1]
-		}
-		text = selection.Text(sel, subset, order, func(id string) []string { return blocklist.Lines(a.w.list, id) })
-	}
-	if text == "" {
-		return nil
-	}
-	a.view.hint = fmt.Sprintf("copied %d chars", utf8.RuneCountInString(text))
-	return tea.SetClipboard(text)
-}
-
-// click selects the block the press landed on, the same as j/k (Select
-// scrolls it into view); permCtl.sync, run after every Update, disarms
-// the card when the selection lands on it. In the details pane a click
-// selects nothing (there is no analogous block to select).
-func (m mouseCtl) click() tea.Cmd {
-	a := m.a
-	if a.view.mouse.pane != paneTranscript {
-		return nil
-	}
-	if id := a.view.mouse.sel.Start.ID; id != "" {
-		a.w.list.Select(id)
-	}
-	return nil
-}
-
-// transcriptIDs lists every transcript block's ID in document order.
-func transcriptIDs(a *App) []string {
-	blocks := a.sess.proj.Blocks()
-	ids := make([]string, len(blocks))
-	for i, b := range blocks {
-		ids[i] = string(b.ID)
-	}
-	return ids
-}
-
-// indexOrder returns the selection order function for ids: an id's
-// position in ids, or len(ids) for one not found (so it sorts after every
-// known id, and never panics).
-func indexOrder(ids []string) func(string) int {
-	idx := make(map[string]int, len(ids))
-	for i, id := range ids {
-		idx[id] = i
-	}
-	return func(id string) int {
-		if i, ok := idx[id]; ok {
-			return i
-		}
-		return len(ids)
-	}
-}
-
-// paintSelection draws the active drag's highlight over rendered (a
-// pane's already-composed view, exactly r.W×r.H cells). A transcript
-// selection whose block no longer exists (a Load dropped it) is cleared
-// here, at paint time, rather than from onEvent (spec §5). rendered is
-// returned unchanged when there is no active, non-empty selection for p,
-// or for any other pane.
-func paintSelection(a *App, p pane, rendered string, r wintree.Rect) string {
-	if a.view.mouse.pane == paneTranscript {
-		clearGoneSelection(a)
-	}
-	sel := a.view.mouse.sel
-	if p != a.view.mouse.pane || !sel.Active || sel.Empty() || (p == paneTranscript && r.W < 3) {
-		return rendered
-	}
-	order := paneOrder(a, p)
-	on, off := a.theme.set.Selection.On, a.theme.set.Selection.Off
-	x := 1
-	if p == paneDetails {
-		x = 0
-	}
-	lines := strings.Split(rendered, "\n")
-	for y := range lines {
-		if y >= r.H {
-			break
-		}
-		id, line, _, ok := hitTest(a, p, x, y)
-		if !ok {
-			continue
-		}
-		lines[y] = paintRow(lines[y], id, line, sel, order, on, off, p, r.W)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// paneOrder is p's selection order function: document order for the
-// transcript, or a constant (there is only one ID) for the details pane.
-func paneOrder(a *App, p pane) func(string) int {
-	if p == paneDetails {
-		return func(string) int { return 0 }
-	}
-	return indexOrder(transcriptIDs(a))
-}
-
-// paintRow highlights row's selected cells. For the transcript it skips
-// the prefix column (x=0, the "▌" bar) and the scrollbar column (x=w-1);
-// for the details pane the whole row is eligible.
-func paintRow(row, id string, line int, sel selection.Range, order func(string) int, on, off string, p pane, w int) string {
-	if p != paneTranscript {
-		return selection.Highlight(row, id, line, sel, order, on, off)
-	}
-	width := ansi.Width(row)
-	prefix := ansi.Cut(row, 0, 1)
-	content := ansi.Cut(row, 1, w-1)
-	tail := ansi.Cut(row, w-1, width)
-	return prefix + selection.Highlight(content, id, line, sel, order, on, off) + tail
-}
-
-// clearGoneSelection clears an active transcript selection whose Start or
-// End block no longer exists in the projection.
-func clearGoneSelection(a *App) {
-	sel := a.view.mouse.sel
-	if !sel.Active {
-		return
-	}
-	ids := transcriptIDs(a)
-	order := indexOrder(ids)
-	if order(sel.Start.ID) >= len(ids) || order(sel.End.ID) >= len(ids) {
-		a.view.mouse.sel = selection.Range{}
-	}
 }

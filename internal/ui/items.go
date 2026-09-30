@@ -101,7 +101,7 @@ func (t *itemTrack) visible(ids []transcript.BlockID) []foldEntry {
 // added twice, nor is one build skipped (it is not listed at all). Only
 // an entry never issued before this build can be missing from order, so
 // only those scan it.
-func (t *itemTrack) upsert(s *sessionState, ids []transcript.BlockID) []blocklist.Item {
+func (t *itemTrack) upsert(p *pane, ids []transcript.BlockID, frame int) []blocklist.Item {
 	entries := t.visible(ids)
 	var unissued []foldEntry
 	for _, e := range entries {
@@ -109,7 +109,7 @@ func (t *itemTrack) upsert(s *sessionState, ids []transcript.BlockID) []blocklis
 			unissued = append(unissued, e)
 		}
 	}
-	items := t.build(s, entries, bumpAll)
+	items := t.build(p, entries, bumpAll, frame)
 	for _, e := range unissued {
 		// build issues a version exactly when it lists the item.
 		if t.versions[e.id] > 0 && !slices.ContainsFunc(t.fold.order, func(o foldEntry) bool { return o.id == e.id }) {
@@ -122,9 +122,9 @@ func (t *itemTrack) upsert(s *sessionState, ids []transcript.BlockID) []blocklis
 // layoutItems builds the whole list from entries (a full layout), so the
 // live set is rebuilt from scratch: a member hidden since it was last
 // built is no longer live.
-func (t *itemTrack) layoutItems(s *sessionState, entries []foldEntry, bump func(foldEntry) bool) []blocklist.Item {
+func (t *itemTrack) layoutItems(p *pane, entries []foldEntry, bump func(foldEntry) bool, frame int) []blocklist.Item {
 	t.live = map[transcript.BlockID]bool{}
-	return t.build(s, entries, bump)
+	return t.build(p, entries, bump, frame)
 }
 
 // relistItems builds every item of the current layout (fold.order),
@@ -132,21 +132,21 @@ func (t *itemTrack) layoutItems(s *sessionState, entries []foldEntry, bump func(
 // its members changed, for its tally) and the headers whose shown open
 // state flipped (entryItem); every other item keeps its version, so the
 // list re-renders only those.
-func (t *itemTrack) relistItems(s *sessionState, changed []transcript.BlockID) []blocklist.Item {
+func (t *itemTrack) relistItems(p *pane, changed []transcript.BlockID, frame int) []blocklist.Item {
 	bumped := map[transcript.BlockID]bool{}
 	for _, e := range t.visible(changed) {
 		bumped[e.id] = true
 	}
-	return t.layoutItems(s, t.fold.order, func(e foldEntry) bool {
+	return t.layoutItems(p, t.fold.order, func(e foldEntry) bool {
 		return bumped[e.id]
-	})
+	}, frame)
 }
 
 // build returns an item for each entry whose block still exists.
-func (t *itemTrack) build(s *sessionState, entries []foldEntry, bump func(foldEntry) bool) []blocklist.Item {
+func (t *itemTrack) build(p *pane, entries []foldEntry, bump func(foldEntry) bool, frame int) []blocklist.Item {
 	out := make([]blocklist.Item, 0, len(entries))
 	for _, e := range entries {
-		if it, ok := t.entryItem(s, e, bump(e)); ok {
+		if it, ok := t.entryItem(p, e, bump(e), frame); ok {
 			out = append(out, it)
 		}
 	}
@@ -157,8 +157,8 @@ func (t *itemTrack) build(s *sessionState, entries []foldEntry, bump func(foldEn
 // it was never issued, or when its nesting changed since it was last
 // issued (the cached render would keep the old indent). It records
 // whether the item is live.
-func (t *itemTrack) entryItem(s *sessionState, e foldEntry, bump bool) (blocklist.Item, bool) {
-	data, live, ok := t.entryData(s, e)
+func (t *itemTrack) entryItem(p *pane, e foldEntry, bump bool, frame int) (blocklist.Item, bool) {
+	data, live, ok := t.entryData(p, e, frame)
 	if !ok {
 		return blocklist.Item{}, false
 	}
@@ -184,41 +184,41 @@ func (t *itemTrack) entryItem(s *sessionState, e foldEntry, bump bool) (blocklis
 
 // entryData is e's blockData and whether it animates: a header's members
 // and open state, or a block's data (nested when e is a member).
-func (t *itemTrack) entryData(s *sessionState, e foldEntry) (blockData, bool, bool) {
+func (t *itemTrack) entryData(p *pane, e foldEntry, frame int) (blockData, bool, bool) {
 	if e.kind == entryHeader {
 		g := t.fold.groups[e.group]
-		members, durs := groupMembers(s, g.Members)
+		members, durs := groupMembers(p, g.Members)
 		if len(members) == 0 {
 			return blockData{}, false, false
 		}
 		data := blockData{
 			Block: transcript.Block{ID: g.ID},
-			Frame: s.run.frame,
+			Frame: frame,
 			Group: &groupData{Members: members, Durs: durs, Open: t.fold.expanded(e.group)},
 		}
 		return data, groupLive(members), true
 	}
-	b, ok := s.proj.Block(e.id)
+	b, ok := p.proj.Block(e.id)
 	if !ok {
 		return blockData{}, false, false
 	}
-	data := s.data(b)
+	data := p.data(b, frame)
 	data.Nested = e.kind == entryNested
 	return data, isLive(b) || data.Thinking, true
 }
 
-// groupMembers returns the blocks ids name that are still in s's
+// groupMembers returns the blocks ids name that are still in p's
 // projection, with their measured durations (0 for none).
-func groupMembers(s *sessionState, ids []transcript.BlockID) ([]transcript.Block, []time.Duration) {
+func groupMembers(p *pane, ids []transcript.BlockID) ([]transcript.Block, []time.Duration) {
 	blocks := make([]transcript.Block, 0, len(ids))
 	durs := make([]time.Duration, 0, len(ids))
 	for _, id := range ids {
-		b, ok := s.proj.Block(id)
+		b, ok := p.proj.Block(id)
 		if !ok {
 			continue
 		}
 		blocks = append(blocks, b)
-		durs = append(durs, s.times.durs[id])
+		durs = append(durs, p.times.durs[id])
 	}
 	return blocks, durs
 }

@@ -27,7 +27,7 @@ func (s *sessionState) status(aliases map[string]string) statusbar.State {
 		CtxLimit: s.contextWindow(ref),
 		CostUSD:  s.cost,
 	}
-	st.Pending = len(s.proj.Pending())
+	st.Pending = len(s.main.proj.Pending())
 	st.Queued = s.queued
 	if s.run.running {
 		st.Elapsed = s.clk.Now().Sub(s.run.startedAt)
@@ -93,7 +93,7 @@ func (a *App) statusState() statusbar.State {
 	st.Mode = a.mode.String()
 	st.Untrusted = a.opts.Untrusted
 	st.Hint = a.view.hint
-	st.Pending = len(a.sess.proj.Pending())
+	st.Pending = len(a.sess.main.proj.Pending())
 	if st.Hint == "" && st.Pending > 0 && (a.mode != modeNormal || !permCtl{a}.onCard()) {
 		st.Hint = permissionHint
 	}

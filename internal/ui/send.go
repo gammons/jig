@@ -48,12 +48,12 @@ func (s sender) send(text string) tea.Cmd {
 	// A sent path is consumed: a later message repeating its "@<path>"
 	// token (by coincidence, or by re-typing it) must not re-attach it.
 	a.sess.attach = nil
-	id := a.sess.proj.AddUser(text, req.Attachments)
-	before, _ := a.w.list.Selected()
-	a.flush(a.sess.withDirty([]transcript.BlockID{id}))
+	id := a.sess.main.proj.AddUser(text, req.Attachments)
+	before, _ := a.sess.main.list.Selected()
+	a.flush(a.sess.main.withDirty([]transcript.BlockID{id}))
 	// Sending always jumps the view to the bottom, even if the user had
 	// scrolled up, so the new message and the reply are in view.
-	a.w.list.Bottom()
+	a.sess.main.list.Bottom()
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.sess.startRun(id, text, cancel)
 	a.w.prompt.Reset()
@@ -185,7 +185,7 @@ func (s sender) unqueue() {
 func (s sender) done(msg sendDoneMsg) tea.Cmd {
 	a := s.a
 	if a.sess.adopt(core.Session{ID: msg.res.SessionID}) {
-		a.w.setItems(a.sess.allItems())
+		a.w.setItems(a.sess.main, a.sess.allItems())
 	}
 	ran := msg.res.SessionID != "" && !errors.Is(msg.err, core.ErrBusy)
 	run := a.sess.run
@@ -213,7 +213,8 @@ func (s sender) done(msg sendDoneMsg) tea.Cmd {
 // dropped.
 func (s sender) undo(id transcript.BlockID, text string, err error) {
 	a := s.a
-	a.w.setItems(a.sess.dropUser(id))
+	a.w.setItems(a.sess.main, a.sess.dropUser(id))
+	columnDropStale(a)
 	if cur := a.w.prompt.Value(); cur != "" {
 		text += "\n" + cur
 	}

@@ -218,7 +218,7 @@ func TestImages_SixelNotPlacedWithoutBodyRow(t *testing.T) {
 	// The side slot runs beside the prompt too, so squeeze the whole
 	// frame down to leave the pane no body row.
 	ta.send(tea.WindowSizeMsg{Width: 120, Height: 2})
-	if _, _, ok := ta.app.w.details.BodyOrigin(); ok {
+	if _, _, ok := columnTop(ta.app).body.BodyOrigin(); ok {
 		t.Fatalf("test setup: the details pane (%+v) still has a body row", ta.app.lay.Side)
 	}
 	if len(ta.raws) != n {
@@ -259,7 +259,7 @@ func TestTheme_PushBumpsAllVersions(t *testing.T) {
 	ta.request("p1", "c9", "make")
 	cardVer := ta.app.w.card.Version()
 	before := map[string]int{}
-	for id, v := range ta.app.sess.track.versions {
+	for id, v := range ta.app.sess.main.track.versions {
 		before[string(id)] = v
 	}
 	if len(before) == 0 {
@@ -273,7 +273,7 @@ func TestTheme_PushBumpsAllVersions(t *testing.T) {
 	ta.send(nil)
 
 	for id, v := range before {
-		if got := ta.app.sess.track.versions[transcript.BlockID(id)]; got <= v {
+		if got := ta.app.sess.main.track.versions[transcript.BlockID(id)]; got <= v {
 			t.Errorf("item %s version = %d, want > %d", id, got, v)
 		}
 	}
@@ -294,9 +294,12 @@ func TestTheme_PushBumpsAllVersions(t *testing.T) {
 	if got := ta.app.w.side.View(); got != sb.View() {
 		t.Errorf("sidebar not restyled")
 	}
-	dt := details.New(details.WithStyles(set.Details))
-	dt.SetSize(ta.app.lay.Side.W, ta.app.lay.Side.H)
-	dt2 := ta.app.w.details
+	ta.key("esc")
+	ta.key("enter")
+	bw, bh := columnBodySize(ta.app)
+	dt := details.New(details.WithoutHeader(), details.WithStyles(set.Details))
+	dt.SetSize(bw, bh)
+	dt2 := columnTop(ta.app).body
 	dt2.SetContent(details.Content{Header: "x"})
 	dt.SetContent(details.Content{Header: "x"})
 	if dt2.View() != dt.View() {

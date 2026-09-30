@@ -135,7 +135,7 @@ func (l levels) load(level picker.Level) tea.Cmd {
 		}
 		return sessionsCmd(a.ctx, a.ports, a.opts.WorkDir, a.sess.info.ID, a.opts.Clock.Now())
 	case levelFiles:
-		return filesCmd(a.ctx, a.ports, touchedFiles(a.opts.WorkDir, a.sess.proj.Blocks(), a.sess.proj.ChangedFiles()))
+		return filesCmd(a.ctx, a.ports, touchedFiles(a.opts.WorkDir, a.sess.main.proj.Blocks(), a.sess.main.proj.ChangedFiles()))
 	case levelMCP:
 		return itemsCmd(level.ID, mcpServerItems(a.view.mcp.list, a.ports.MCP != nil))
 	case levelMCPSvr:

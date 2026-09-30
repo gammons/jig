@@ -22,7 +22,7 @@ const newSessionTitle = "new session"
 // row's text is sanitized.
 func sidebarSections(a *App) []sidebar.Section {
 	head := []sidebar.Section{a.sess.sessionSection(a.opts.Aliases), todoSection(a.sess.todos)}
-	sections := append(head, a.w.sideProj.get(a.sess.proj, a.w.gen, a.opts.WorkDir)...)
+	sections := append(head, a.w.sideProj.get(a.sess.main.proj, a.w.gen, a.opts.WorkDir)...)
 	return append(sections, mcpSection(a.view.mcp.list))
 }
 
