@@ -144,11 +144,18 @@ func hitTest(a *App, p mouseRegion, x, y int) (id string, line, col int, ok bool
 
 // pinCell clamps (x, y) to r's draggable body: for the transcript, x in
 // [1, w-2] (skipping the prefix and scrollbar columns) and y in [0, h-1];
-// for the column's body, x in [0, w-1] and y in [columnHeaderRows, h-1]
-// (skipping the breadcrumb and rule rows).
-func pinCell(p mouseRegion, r wintree.Rect, x, y int) (int, int) {
+// for the column's body, when its top entry is a transcript pane the same
+// x in [1, w-2] applies (blocklist.HitTest rejects the prefix and
+// scrollbar columns there too), else (a details pane) x in [0, w-1]; y is
+// [columnHeaderRows, h-1] either way (skipping the breadcrumb and rule
+// rows).
+func pinCell(a *App, p mouseRegion, r wintree.Rect, x, y int) (int, int) {
 	if p == regionDetails {
-		return max(0, min(x, r.W-1)), max(columnHeaderRows, min(y, r.H-1))
+		y = max(columnHeaderRows, min(y, r.H-1))
+		if top := columnTop(a); top != nil && top.kind == paneTranscript {
+			return max(1, min(x, r.W-2)), y
+		}
+		return max(0, min(x, r.W-1)), y
 	}
 	return max(1, min(x, r.W-2)), max(0, min(y, r.H-1))
 }
@@ -277,7 +284,7 @@ func (m mouseCtl) motion(msg tea.MouseMotionMsg) tea.Cmd {
 	p := a.view.mouse.pane
 	r := paneRect(a, p)
 	ms := msg.Mouse()
-	lx, ly := pinCell(p, r, ms.X-r.X, ms.Y-r.Y)
+	lx, ly := pinCell(a, p, r, ms.X-r.X, ms.Y-r.Y)
 	id, line, col, ok := hitTest(a, p, lx, ly)
 	if !ok {
 		return nil

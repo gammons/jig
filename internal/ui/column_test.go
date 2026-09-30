@@ -625,6 +625,111 @@ func TestColumn_ChildGroupsFold(t *testing.T) {
 
 // TestMouse_SelectCopyInSubagentPane: dragging across two child blocks
 // in the column copies their text.
+// TestMouse_SubagentPaneDragPastEdgeClamps: a drag past a subagent pane's
+// right edge clamps to the pane's last content column, like main's
+// transcript, rather than pinning to a HitTest-rejected cell (which would
+// silently stop the selection from extending).
+func TestMouse_SubagentPaneDragPastEdgeClamps(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withSize(160, 30))
+	ta.sendAndAdopt("find it")
+	ta.startSubagent()
+	ta.event(event.TextDelta{Base: childBase(), MessageID: "k1", Text: "first child line"})
+	ta.event(event.TextDelta{Base: childBase(), MessageID: "k2", Text: "second child line"})
+	ta.key("esc")
+	ta.key("enter") // main -> child pane, focused
+
+	side := ta.app.lay.Side
+	startY := side.Y + columnHeaderRows
+	endY := startY + 2
+
+	ta.mouse(tea.MouseClickMsg{X: side.X + 1, Y: startY, Button: tea.MouseLeft})
+	// Drag far past the column's right edge, on the second block's row.
+	ta.mouse(tea.MouseMotionMsg{X: side.X + side.W + 5, Y: endY, Button: tea.MouseLeft})
+	_, cmd := ta.app.Update(tea.MouseReleaseMsg{X: side.X + side.W + 5, Y: endY, Button: tea.MouseLeft})
+	if cmd == nil {
+		t.Fatal("release produced no Cmd")
+	}
+	msg := cmd()
+	var clipMsg tea.Msg
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			if m := c(); fmt.Sprintf("%T", m) == "tea.setClipboardMsg" {
+				clipMsg = m
+			}
+		}
+	} else if fmt.Sprintf("%T", msg) == "tea.setClipboardMsg" {
+		clipMsg = msg
+	}
+	if clipMsg == nil {
+		t.Fatalf("no clipboard Cmd from the drag: %#v", msg)
+	}
+	got := fmt.Sprint(clipMsg)
+	if !strings.Contains(got, "second child line") {
+		t.Errorf("copied text = %q, want it to include the second line (clamped, not stopped)", got)
+	}
+}
+
+// TestMouse_SubagentPaneDragPastLeftEdgeStaysInColumn: the mirror case,
+// dragging past the column's left edge into main's region — the drag
+// stays pinned to the column and still extends.
+func TestMouse_SubagentPaneDragPastLeftEdgeStaysInColumn(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withSize(160, 30))
+	ta.sendAndAdopt("find it")
+	ta.startSubagent()
+	ta.event(event.TextDelta{Base: childBase(), MessageID: "k1", Text: "first child line"})
+	ta.event(event.TextDelta{Base: childBase(), MessageID: "k2", Text: "second child line"})
+	ta.key("esc")
+	ta.key("enter") // main -> child pane, focused
+
+	side := ta.app.lay.Side
+	startY := side.Y + columnHeaderRows
+	endY := startY + 2
+
+	ta.mouse(tea.MouseClickMsg{X: side.X + 1, Y: startY, Button: tea.MouseLeft})
+	// Drag far past the column's left edge, into main's region.
+	ta.mouse(tea.MouseMotionMsg{X: side.X - 20, Y: endY, Button: tea.MouseLeft})
+
+	sel := ta.app.view.mouse.sel
+	if !sel.Active {
+		t.Fatal("motion past the left edge did not extend the selection")
+	}
+	if a := ta.app.view.mouse.pane; a != regionDetails {
+		t.Errorf("pane = %v, want regionDetails (pinned to the column)", a)
+	}
+}
+
+// TestMouse_ColumnPoppedMidDrag: popping the column mid-drag (esc) leaves
+// motion and release as no-ops, with no panic and nothing copied from the
+// now-gone pane.
+func TestMouse_ColumnPoppedMidDrag(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withSize(160, 30))
+	ta.sendAndAdopt("find it")
+	ta.startSubagent()
+	ta.event(event.TextDelta{Base: childBase(), MessageID: "k1", Text: "first child line"})
+	ta.event(event.TextDelta{Base: childBase(), MessageID: "k2", Text: "second child line"})
+	ta.key("esc")
+	ta.key("enter") // main -> child pane, focused
+
+	side := ta.app.lay.Side
+	startY := side.Y + columnHeaderRows
+	ta.mouse(tea.MouseClickMsg{X: side.X + 1, Y: startY, Button: tea.MouseLeft})
+
+	ta.key("esc") // pop the column mid-drag
+
+	ta.mouse(tea.MouseMotionMsg{X: side.X + 5, Y: startY + 2, Button: tea.MouseLeft})
+	_, cmd := ta.app.Update(tea.MouseReleaseMsg{X: side.X + 5, Y: startY + 2, Button: tea.MouseLeft})
+	if cmd != nil {
+		msg := cmd()
+		got := fmt.Sprint(msg)
+		if strings.Contains(got, "child line") {
+			t.Errorf("release after column pop copied %q, want nothing from the popped pane", got)
+		}
+	}
+}
+
 func TestMouse_SelectCopyInSubagentPane(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, withSize(160, 30))
