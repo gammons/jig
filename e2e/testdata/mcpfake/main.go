@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -64,7 +66,7 @@ func run() error {
 		fmt.Fprintln(os.Stderr, s.Stderr)
 	}
 	if s.HangInitialize {
-		select {}
+		hangForever()
 	}
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "mcpfake", Version: "dev"}, nil)
@@ -113,4 +115,17 @@ func replyResult(r reply) *mcp.CallToolResult {
 		content = append(content, &mcp.ImageContent{Data: data, MIMEType: r.ImageMIME})
 	}
 	return &mcp.CallToolResult{Content: content, IsError: r.IsError}
+}
+
+// hangForever blocks without serving until the process is signalled. A
+// bare select{} is not enough: when the runtime sees no other live
+// goroutine it can report "all goroutines are asleep - deadlock!" and exit
+// (seen on macOS CI), closing stdout, so the client sees EOF instead of a
+// server that never answers initialize. Waiting on a signal channel keeps
+// the runtime's signal goroutine alive, and SIGTERM/SIGINT still end the
+// process normally.
+func hangForever() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
+	<-c
 }
