@@ -157,11 +157,13 @@ func (s *sessionState) resetBlocks() {
 }
 
 // applyResult is what the App must do after sessionState.apply: re-render
-// upsert now, rebuild the whole list (reload), or send the queue now the
-// previous send has settled (settled).
+// upsert now (with relist, by rebuilding the list from the new layout),
+// rebuild the whole list (reload), or send the queue now the previous
+// send has settled (settled).
 type applyResult struct {
 	upsert  []transcript.BlockID
 	reload  bool
+	relist  bool
 	settled bool
 }
 
@@ -184,6 +186,7 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 		return applyResult{upsert: s.withDirty(ids)}
 	}
 	s.times.thinking(s.proj, ev, ids, s.clk.Now())
+	res := applyResult{relist: regroupsOn(ev) && s.track.regroup(s.proj)}
 	switch e := ev.(type) {
 	case event.TextDelta, event.ReasoningDelta:
 		for _, id := range ids {
@@ -202,17 +205,29 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 		s.cost += e.CostUSD
 	case event.RunFinished, event.RunFailed:
 		_, finished := ev.(event.RunFinished)
-		settled := s.run.end(finished)
-		return applyResult{upsert: s.withDirty(ids), settled: settled}
+		res.settled = s.run.end(finished)
+		res.upsert = s.withDirty(ids)
+		return res
 	case event.SessionUpdated:
 		s.info = withID(e.Info, s.info.ID)
 	case event.TodosUpdated:
 		s.todos = slices.Clone(e.Todos)
 	}
-	if len(ids) == 0 {
+	if len(ids) == 0 && !res.relist {
 		return applyResult{}
 	}
-	return applyResult{upsert: s.withDirty(ids)}
+	res.upsert = s.withDirty(ids)
+	return res
+}
+
+// regroupsOn reports whether ev can change how the root's blocks group:
+// a tool call starting or finishing, or a run settling its calls.
+func regroupsOn(ev event.Event) bool {
+	switch ev.(type) {
+	case event.ToolCallStarted, event.ToolCallFinished, event.RunFinished, event.RunFailed:
+		return true
+	}
+	return false
 }
 
 // withDirty prepends the dirty blocks (emptying the set) to ids, without
@@ -332,20 +347,12 @@ func (s *sessionState) endSend(ran bool) (bool, []transcript.BlockID) {
 }
 
 // dropUser removes the block of a send that never ran and returns every
-// remaining block's item at its current version (nothing re-renders).
+// remaining item at its current version (nothing re-renders).
 func (s *sessionState) dropUser(id transcript.BlockID) []blocklist.Item {
 	s.proj.DropUser(id)
 	delete(s.track.versions, id)
-	blocks := s.proj.Blocks()
-	out := make([]blocklist.Item, len(blocks))
-	for i, b := range blocks {
-		out[i] = blocklist.Item{
-			ID:      string(b.ID),
-			Version: s.track.versions[b.ID],
-			Data:    s.data(b),
-		}
-	}
-	return out
+	entries, _ := s.track.fold.regroup(s.proj.Blocks())
+	return s.track.layoutItems(s, entries, bumpNone)
 }
 
 // load replaces the projection's blocks with msgs, the root's stored
@@ -387,46 +394,18 @@ func (s *sessionState) tick() []transcript.BlockID {
 	return ids
 }
 
-// items builds the blocklist items for ids, each at a new version, and
-// tracks which of them are live.
+// items builds, each at a new version, the items that show the blocks
+// ids (a member of a collapsed group shows as its header), and tracks
+// which of them are live.
 func (s *sessionState) items(ids []transcript.BlockID) []blocklist.Item {
-	out := make([]blocklist.Item, 0, len(ids))
-	for _, id := range ids {
-		b, ok := s.proj.Block(id)
-		if !ok {
-			continue
-		}
-		out = append(out, s.item(b))
-	}
-	return out
+	return s.track.build(s, s.track.visible(ids), bumpAll)
 }
 
-// allItems builds an item for every block, in display order.
+// allItems regroups the blocks and builds every item of the layout, in
+// display order, each at a new version.
 func (s *sessionState) allItems() []blocklist.Item {
-	blocks := s.proj.Blocks()
-	out := make([]blocklist.Item, len(blocks))
-	for i, b := range blocks {
-		out[i] = s.item(b)
-	}
-	return out
-}
-
-// item builds b's blocklist item at its next version. A reasoning block
-// the model is still thinking in counts as live (its spinner animates);
-// it stays in s.track.live until a tick re-renders it after thinking ends.
-func (s *sessionState) item(b transcript.Block) blocklist.Item {
-	s.track.versions[b.ID]++
-	data := s.data(b)
-	if isLive(b) || data.Thinking {
-		s.track.live[b.ID] = true
-	} else {
-		delete(s.track.live, b.ID)
-	}
-	return blocklist.Item{
-		ID:      string(b.ID),
-		Version: s.track.versions[b.ID],
-		Data:    data,
-	}
+	entries, _ := s.track.fold.regroup(s.proj.Blocks())
+	return s.track.layoutItems(s, entries, bumpAll)
 }
 
 // data builds b's blockData from the session's current run state.

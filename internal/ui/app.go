@@ -240,8 +240,7 @@ func (a *App) onEvent(ev event.Event) tea.Cmd {
 	if res.reload {
 		a.w.setItems(a.sess.allItems())
 	}
-	a.flush(res.upsert)
-	cmds := []tea.Cmd{waitEvent(a.sub)}
+	cmds := []tea.Cmd{waitEvent(a.sub), foldCtl{a}.apply(res)}
 	if res.settled {
 		cmds = append(cmds, a.sender().afterRun())
 	}
