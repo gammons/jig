@@ -25,7 +25,7 @@ The UIs call services only through three ports in `internal/core/ports.go`:
 resolving any `SendRequest.Attachments` against its `WorkDir` first,
 `Compact` summarizes history behind the Runner's busy exclusion),
 `core.SessionService` (implemented by `service/session`, covering listing,
-`Rename`, and `Configure`), and `core.PermissionService` (implemented by
+`Rename`, `Configure`, and `SetEffort`), and `core.PermissionService` (implemented by
 `permission.BusAsker`). Persisted UI preferences go through
 `core.PrefsService` (`internal/core/prefs.go`, implemented by
 `prefsfs.Store`): `Get` and `Update(fn)`, never a whole-struct save —
@@ -205,6 +205,15 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
   (`provider/model` or a `[model_aliases]` name) everywhere: `--model`,
   `default_model`, `small_model`, agent `model` fields, startup
   validation.
+- Reasoning effort: services put the *requested* level on
+  `ext.RunContext.Effort` (primary runs: session > agent `effort` >
+  `default_effort`, via `agents.Service.ResolveEffort`; subagents skip the
+  session). The Runner sets `LLMRequest.Effort` to
+  `core.EffectiveEffort(runModelInfo, rc.Effort)`: the catalog default when
+  unset, clamped to the model's levels, "" for a model without levels.
+  `client/llm` only maps that value onto provider options and never
+  validates it; "" sets no option. Small-model calls send
+  `core.LowestEffort`.
 - `chat.Send` resumes a session only from its own `Cwd`; only a missing
   session (`session.ErrNotFound`, via `Store.IsNotFound`) is a
   `ConfigError` on resume.
@@ -319,7 +328,8 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Assert on debug log lines in a test (`time` dropped, so lines are stable) | `logtest.New()` returns a `*slog.Logger` and `*Buffer`; `buf.Find(msg)` / `buf.Lines()` in `internal/core/logtest` |
 | Scripted model for e2e tests (tag `jigtest`) | `jigtest.Script` + `writeScript`/`jigtestConfig` in `e2e/harness_test.go` |
 | Drive the real TUI binary under a pseudo-terminal and wait for screen text | `pty.StartWithSize` + `newScreen`/`.read`/`.waitFor(ctx, t, from, text)`/`.mark` in `e2e/tui_test.go` |
-| One-shot, tool-less LLM call returning joined text | `agent.Complete(ctx, llm, system, user)` |
+| One-shot, tool-less LLM call returning joined text | `agent.Complete(ctx, llm, system, user, effort)` |
+| Parse, clamp, or default a reasoning effort | `core.ParseEffort(s)`, `core.EffectiveEffort(info, want)`, `core.LowestEffort(info)`, `Effort.Known()` in `internal/core/effort.go` |
 | Session title placeholder (first line, ≤50 runes) | `session.PlaceholderTitle(text)` |
 | Compare two paths for identity (symlinks, macOS `/var` → `/private/var`) | `pathid.Key(p)` (`EvalSymlinks`, falling back to `Abs`) |
 | Expand a leading `~`/`~/` in a config path | `paths.ExpandHome(p, home)` |

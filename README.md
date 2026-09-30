@@ -54,7 +54,7 @@ terminal: with stdout redirected, `jig` exits 2 and suggests `jig run`.
 ## `jig run`
 
 ```
-jig run [--agent A] [--model M] [--yes] [--session ID] [--cwd DIR] <prompt...>
+jig run [--agent A] [--model M] [--effort E] [--yes] [--session ID] [--cwd DIR] <prompt...>
 ```
 
 - `--agent A` — which agent runs the prompt (default: `build`; see
@@ -67,6 +67,12 @@ jig run [--agent A] [--model M] [--yes] [--session ID] [--cwd DIR] <prompt...>
   set. It does **not** override an agent that has its own configured
   `model` — see "Models and per-agent models" for the full precedence.
   An unknown alias is a configuration error (exit code 2).
+- `--effort E` — the reasoning effort for this session: `none`,
+  `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` (any case).
+  Like `--model`, it is stored on the session and persists across its
+  turns. It is clamped to the nearest level the model supports; see
+  "Reasoning effort". An unknown level is a configuration error (exit
+  code 2).
 - `--yes` — allow every tool call that would otherwise ask for
   permission. Headless jig has no one to ask, so without `--yes` an
   `ask` rule denies the call (see "Permissions").
@@ -90,7 +96,9 @@ a directory, and the like).
 
 - `jig models [provider]` — lists every provider in the catalog (or
   just one), each model's context window and per-million-token
-  pricing, and whether jig has credentials for it.
+  pricing, for models that accept one their reasoning effort levels and
+  default (e.g. `effort low…max (high)`), and whether jig has
+  credentials for it.
 - `jig sessions` — lists root sessions, newest first, as `<id>
   <updated RFC3339> <title>`.
 - `jig version` — prints the build version (or `dev` for an untagged
@@ -183,6 +191,35 @@ model = "haiku"
 [agents.plan]
 model = "opus"
 ```
+
+## Reasoning effort
+
+Models that accept a reasoning effort (their catalog entry lists
+effort levels, shown by `jig models`) get one on every request. The
+level requested comes from, highest first:
+
+1. The session's effort: `--effort`, or "Switch effort…" in the TUI's
+   ctrl+p picker (its "Model default" item clears it).
+2. The running agent's own `effort` (`agents.<name>.effort`, TOML or
+   markdown frontmatter).
+3. `default_effort`.
+4. Otherwise the model's catalog default.
+
+A subagent spawned by `task` skips step 1: it uses its own agent's
+`effort`, then `default_effort`, then its model's default. Session
+titles and compaction use the small model's lowest level.
+
+The requested level is clamped to the nearest level the model
+supports (a tie goes to the lower one), so switching to a model with
+fewer levels never errors, and switching back restores the session's
+choice. Models without effort levels (older budget-token thinking
+models, and custom providers without `efforts`) get no effort setting
+at all. The TUI's status bar shows the level in use after the model
+(`build · claude-opus-5-5 · high`).
+
+Levels are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`.
+A custom provider can declare the levels its models accept with
+`efforts = ["low", "medium", "high"]` under `[providers.<id>]`.
 
 ## Agents
 
