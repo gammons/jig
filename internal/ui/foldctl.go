@@ -77,3 +77,15 @@ func (c foldCtl) group(id transcript.BlockID) ([]transcript.Block, []time.Durati
 	members, durs := groupMembers(c.a.sess, ids)
 	return members, durs, len(members) > 0
 }
+
+// setSearch holds every group open while a search is applied (on), so
+// a match inside a collapsed group can be found, and lets each group
+// return to its own state when the search is cleared.
+func (c foldCtl) setSearch(on bool) tea.Cmd {
+	f := &c.a.sess.track.fold
+	if f.search == on {
+		return nil
+	}
+	f.search = on
+	return c.relayout()
+}

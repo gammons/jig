@@ -356,3 +356,42 @@ func TestFold_DetailsFollowCollapse(t *testing.T) {
 		t.Errorf("details still show the hidden member:\n%s", body)
 	}
 }
+
+func TestFold_SearchExpandsGroupsAndClearingRestores(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, resumeGroups())
+	ta.key("esc")
+	ta.key("/")
+	ta.typeText("a.go")
+	ta.key("enter")
+	want := []string{"u/u1", "g/c1", "t/c1", "m/a2/0", "t/c2", "m/a3/0"}
+	if got := ta.listIDs(); !slices.Equal(got, want) {
+		t.Fatalf("with a search applied, list = %v, want %v", got, want)
+	}
+	ta.key("n")
+	if got := ta.selectedID(); got != "t/c1" {
+		t.Fatalf("n selected %q, want the match inside the group, t/c1", got)
+	}
+	ta.key("esc") // no split open: clears the search
+	if got, want := ta.listIDs(), []string{"u/u1", "g/c1", "m/a3/0"}; !slices.Equal(got, want) {
+		t.Errorf("after clearing the search, list = %v, want %v", got, want)
+	}
+	if got := ta.selectedID(); got != "g/c1" {
+		t.Errorf("selected = %q, want the hidden match's header g/c1", got)
+	}
+}
+
+func TestFold_ClearingSearchKeepsAUserExpandedGroupOpen(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, resumeGroups())
+	ta.key("esc")
+	ta.app.w.list.Select("g/c1")
+	ta.key("o")
+	ta.key("/")
+	ta.typeText("nothing matches this")
+	ta.key("enter")
+	ta.key("esc")
+	if got := ta.listIDs(); len(got) != 6 {
+		t.Errorf("after clearing the search, list = %v, want g/c1 still expanded", got)
+	}
+}

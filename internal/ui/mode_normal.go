@@ -174,7 +174,7 @@ func (h normalKeys) closeOrClear() tea.Cmd {
 		return nil
 	}
 	a.w.list.SetSearch("")
-	return nil
+	return foldCtl{a}.setSearch(false)
 }
 
 // openSearch focuses the one-line search input, shown in place of the
@@ -194,9 +194,11 @@ func (h normalKeys) handleSearch(k tea.KeyPressMsg) tea.Cmd {
 	switch k.String() {
 	case "enter":
 		a.view.searching = false
-		a.w.list.SetSearch(a.w.search.Value())
+		query := a.w.search.Value()
+		cmd := foldCtl{a}.setSearch(query != "")
+		a.w.list.SetSearch(query)
 		a.w.search.Blur()
-		return nil
+		return cmd
 	case "esc":
 		a.view.searching = false
 		a.w.search.Reset()
