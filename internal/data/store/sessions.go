@@ -13,10 +13,10 @@ import (
 // CreateSession inserts a new session row.
 func (s *Store) CreateSession(ctx context.Context, sess core.Session) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO sessions (id, parent_id, title, agent, model, cwd, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO sessions (id, parent_id, title, agent, model, effort, cwd, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
-		string(sess.ID), string(sess.ParentID), sess.Title, sess.Agent, sess.Model, sess.Cwd,
+		string(sess.ID), string(sess.ParentID), sess.Title, sess.Agent, sess.Model, string(sess.Effort), sess.Cwd,
 		sess.CreatedAt.UnixMilli(), sess.UpdatedAt.UnixMilli(),
 	)
 	if err != nil {
@@ -25,13 +25,13 @@ func (s *Store) CreateSession(ctx context.Context, sess core.Session) error {
 	return nil
 }
 
-// UpdateSession updates title, agent, model, and updated_at for an existing
+// UpdateSession updates title, agent, model, effort, and updated_at for an existing
 // session. It returns ErrNotFound if id does not exist.
 func (s *Store) UpdateSession(ctx context.Context, sess core.Session) error {
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE sessions SET title = ?, agent = ?, model = ?, updated_at = ?
+		UPDATE sessions SET title = ?, agent = ?, model = ?, effort = ?, updated_at = ?
 		WHERE id = ?
-	`, sess.Title, sess.Agent, sess.Model, sess.UpdatedAt.UnixMilli(), string(sess.ID))
+	`, sess.Title, sess.Agent, sess.Model, string(sess.Effort), sess.UpdatedAt.UnixMilli(), string(sess.ID))
 	if err != nil {
 		return fmt.Errorf("store: updating session %s: %w", sess.ID, err)
 	}
@@ -54,7 +54,7 @@ func (s *Store) IsNotFound(err error) bool {
 // exists.
 func (s *Store) GetSession(ctx context.Context, id core.SessionID) (core.Session, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, parent_id, title, agent, model, cwd, created_at, updated_at
+		SELECT id, parent_id, title, agent, model, effort, cwd, created_at, updated_at
 		FROM sessions WHERE id = ?
 	`, string(id))
 	return scanSession(row)
@@ -65,7 +65,7 @@ func (s *Store) GetSession(ctx context.Context, id core.SessionID) (core.Session
 // limit rows unless limit <= 0.
 func (s *Store) ListSessions(ctx context.Context, parent core.SessionID, limit int) ([]core.Session, error) {
 	query := `
-		SELECT id, parent_id, title, agent, model, cwd, created_at, updated_at
+		SELECT id, parent_id, title, agent, model, effort, cwd, created_at, updated_at
 		FROM sessions WHERE parent_id = ?
 		ORDER BY updated_at DESC, id DESC
 	`
@@ -101,7 +101,7 @@ func (s *Store) ListSessions(ctx context.Context, parent core.SessionID, limit i
 // pathid.Key) before calling.
 func (s *Store) ListRootsByCwd(ctx context.Context, cwd string, limit int) ([]core.Session, error) {
 	query := `
-		SELECT id, parent_id, title, agent, model, cwd, created_at, updated_at
+		SELECT id, parent_id, title, agent, model, effort, cwd, created_at, updated_at
 		FROM sessions WHERE parent_id = '' AND cwd = ?
 		ORDER BY updated_at DESC, id DESC
 	`
@@ -151,11 +151,12 @@ func scanSession(row sessionScanner) (core.Session, error) {
 
 func scanSessionRow(row sessionScanner) (core.Session, error) {
 	var sess core.Session
-	var id, parentID string
+	var id, parentID, effort string
 	var created, updated int64
-	if err := row.Scan(&id, &parentID, &sess.Title, &sess.Agent, &sess.Model, &sess.Cwd, &created, &updated); err != nil {
+	if err := row.Scan(&id, &parentID, &sess.Title, &sess.Agent, &sess.Model, &effort, &sess.Cwd, &created, &updated); err != nil {
 		return core.Session{}, err
 	}
+	sess.Effort = core.Effort(effort)
 	sess.ID = core.SessionID(id)
 	sess.ParentID = core.SessionID(parentID)
 	sess.CreatedAt = time.UnixMilli(created)

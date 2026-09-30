@@ -167,3 +167,23 @@ func TestCompact_LLMErrorSavesNothing(t *testing.T) {
 		t.Errorf("messages = %d, want 1", len(msgs))
 	}
 }
+
+func TestCompact_SendsSmallModelsLowestEffort(t *testing.T) {
+	f := newFixture(t, defaultCfg())
+	small := llmtest.New(llmtest.Text("the summary"))
+	f.llms.clients[smallModel] = small
+	f.llms.clients[mainModel] = llmtest.New()
+	f.llms.infos = map[core.ModelRef]core.ModelInfo{
+		smallModel: {Efforts: []core.Effort{core.EffortMedium, core.EffortLow, core.EffortHigh}, DefaultEffort: core.EffortHigh},
+	}
+	sess := f.create("build")
+	f.save(sess.ID, core.RoleUser, text("fix the bug"))
+	f.save(sess.ID, core.RoleAssistant, text("looking"))
+
+	if err := f.svc.Compact(context.Background(), sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	if reqs := small.Requests(); len(reqs) != 1 || reqs[0].Effort != core.EffortLow {
+		t.Errorf("small-model requests = %+v, want one with effort low", reqs)
+	}
+}

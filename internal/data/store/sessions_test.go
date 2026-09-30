@@ -225,3 +225,24 @@ func TestSessions_UpdateMissingIsErrNotFound(t *testing.T) {
 		t.Errorf("UpdateSession missing: err = %v, want ErrNotFound", err)
 	}
 }
+
+func TestSessions_EffortRoundTrips(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	sess := core.Session{ID: "ses_e", Effort: core.EffortHigh, CreatedAt: time.UnixMilli(1), UpdatedAt: time.UnixMilli(1)}
+	if err := s.CreateSession(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetSession(ctx, "ses_e")
+	if err != nil || got.Effort != core.EffortHigh {
+		t.Fatalf("GetSession = %+v, %v; want effort high", got, err)
+	}
+	sess.Effort = core.EffortLow
+	if err := s.UpdateSession(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListSessions(ctx, "", 0)
+	if err != nil || len(list) != 1 || list[0].Effort != core.EffortLow {
+		t.Fatalf("ListSessions = %+v, %v; want one session with effort low", list, err)
+	}
+}

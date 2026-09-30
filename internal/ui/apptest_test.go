@@ -87,6 +87,12 @@ type configureCall struct {
 	Agent, Model string
 }
 
+// effortCall is one recorded SessionService.SetEffort call.
+type effortCall struct {
+	ID     core.SessionID
+	Effort core.Effort
+}
+
 // renameCall is one recorded SessionService.Rename call.
 type renameCall struct {
 	ID    core.SessionID
@@ -95,7 +101,7 @@ type renameCall struct {
 
 // recSessions implements core.SessionService over one stored session
 // (info, msgs, todos) plus the listed ones (others, with their messages
-// in otherMsgs), recording Configure and Rename calls.
+// in otherMsgs), recording Configure, SetEffort, and Rename calls.
 type recSessions struct {
 	mu        sync.Mutex
 	info      core.Session
@@ -105,6 +111,7 @@ type recSessions struct {
 	otherMsgs map[core.SessionID][]core.Message
 	listCwd   string
 	configure []configureCall
+	efforts   []effortCall
 	renames   []renameCall
 	msgCalls  map[core.SessionID]int
 }
@@ -159,6 +166,13 @@ func (f *recSessions) Configure(_ context.Context, id core.SessionID, agent, mod
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.configure = append(f.configure, configureCall{ID: id, Agent: agent, Model: model})
+	return nil
+}
+
+func (f *recSessions) SetEffort(_ context.Context, id core.SessionID, e core.Effort) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.efforts = append(f.efforts, effortCall{ID: id, Effort: e})
 	return nil
 }
 

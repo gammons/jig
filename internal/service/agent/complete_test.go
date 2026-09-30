@@ -17,7 +17,7 @@ func TestComplete_JoinsText(t *testing.T) {
 		{Kind: core.StreamFinish, FinishReason: "stop"},
 	}})
 
-	got, err := Complete(context.Background(), llm, "be brief", "say hi")
+	got, err := Complete(context.Background(), llm, "be brief", "say hi", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,17 @@ func TestComplete_StreamError(t *testing.T) {
 		Events: []core.StreamEvent{{Kind: core.StreamText, Text: "partial"}},
 		Err:    boom,
 	})
-	if _, err := Complete(context.Background(), llm, "s", "u"); !errors.Is(err, boom) {
+	if _, err := Complete(context.Background(), llm, "s", "u", ""); !errors.Is(err, boom) {
 		t.Errorf("err = %v, want %v", err, boom)
+	}
+}
+
+func TestComplete_SendsEffort(t *testing.T) {
+	llm := llmtest.New(llmtest.Text("ok"))
+	if _, err := Complete(context.Background(), llm, "s", "u", core.EffortLow); err != nil {
+		t.Fatal(err)
+	}
+	if reqs := llm.Requests(); len(reqs) != 1 || reqs[0].Effort != core.EffortLow {
+		t.Errorf("requests = %+v, want one with effort low", reqs)
 	}
 }
