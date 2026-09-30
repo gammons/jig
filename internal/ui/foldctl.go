@@ -54,10 +54,17 @@ func (c foldCtl) toggle() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	if _, ok := a.sess.track.fold.toggle(transcript.BlockID(it.ID)); !ok {
+	g, ok := a.sess.track.fold.toggle(transcript.BlockID(it.ID))
+	if !ok {
 		return nil
 	}
-	return c.relayout()
+	cmd := c.relayout()
+	if g == transcript.BlockID(it.ID) {
+		// Expanding a header that was the list's last item must not let
+		// SetItems' follow rule move the selection to its last member.
+		a.w.list.Select(it.ID)
+	}
+	return cmd
 }
 
 // relayout re-lays out the groups after a fold or search change and

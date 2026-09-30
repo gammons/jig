@@ -296,6 +296,27 @@ func TestFold_ToggleRerendersOnlyTheFlippedHeader(t *testing.T) {
 	}
 }
 
+func TestFold_OOnAFollowedHeaderKeepsTheSelection(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("look around")
+	ta.startTool("m1", "c1", "read", `{"path":"a.go"}`)
+	ta.finishTool("m1", "c1", "read", "1: package a", false)
+	ta.startTool("m1", "c2", "read", `{"path":"b.go"}`)
+	ta.finishTool("m1", "c2", "read", "1: package b", false)
+	ta.key("esc")
+	if got := ta.selectedID(); got != "g/c1" {
+		t.Fatalf("selected = %q before o, want g/c1", got)
+	}
+	ta.key("o")
+	if got := ta.listIDs(); !slices.Equal(got[1:], []string{"g/c1", "t/c1", "t/c2"}) {
+		t.Fatalf("after o, list = %v, want the group expanded", got)
+	}
+	if got := ta.selectedID(); got != "g/c1" {
+		t.Errorf("selected = %q after o, want the header g/c1", got)
+	}
+}
+
 func TestFold_OOnAMemberCollapsesToTheHeader(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, resumeGroups())
