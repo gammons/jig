@@ -23,6 +23,7 @@ func DefaultBindings() []ext.Keybind {
 		{Mode: "normal", Key: "enter", Command: string(TranscriptDetails)},
 		{Mode: "normal", Key: "/", Command: string(TranscriptSearch)},
 		{Mode: "normal", Key: "y", Command: string(TranscriptYank)},
+		{Mode: "normal", Key: "o", Command: string(TranscriptFold)},
 		{Mode: "normal", Key: "?", Command: string(HelpKeys)},
 		{Mode: "normal", Key: "ctrl+c", Command: string(RunCancel)},
 	}

@@ -43,3 +43,25 @@ func (c foldCtl) relist(changed []transcript.BlockID) tea.Cmd {
 	}
 	return normalKeys{a}.syncDetails(before)
 }
+
+// toggle expands or collapses the selected group header, or collapses
+// the group of the selected member (the selection then moves to its
+// header). It does nothing on any other block.
+func (c foldCtl) toggle() tea.Cmd {
+	a := c.a
+	it, ok := a.w.list.Selected()
+	if !ok {
+		return nil
+	}
+	if _, ok := a.sess.track.fold.toggle(transcript.BlockID(it.ID)); !ok {
+		return nil
+	}
+	return c.relayout()
+}
+
+// relayout re-lays out the groups after a fold or search change and
+// rebuilds the list.
+func (c foldCtl) relayout() tea.Cmd {
+	c.a.sess.track.fold.regroup(c.a.sess.proj.Blocks())
+	return c.relist(nil)
+}

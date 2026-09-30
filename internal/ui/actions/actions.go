@@ -23,6 +23,7 @@ const (
 	TranscriptSearch  ID = "transcript.search"
 	TranscriptYank    ID = "transcript.yank"
 	TranscriptDetails ID = "transcript.details"
+	TranscriptFold    ID = "transcript.fold"
 	RunCancel         ID = "run.cancel"
 	ViewSidebar       ID = "view.sidebar"
 	ViewTheme         ID = "view.theme"
@@ -59,6 +60,7 @@ func builtinActions() []Action {
 		{ID: TranscriptSearch, Title: "Search transcript", Group: "Transcript"},
 		{ID: TranscriptYank, Title: "Yank block", Group: "Transcript"},
 		{ID: TranscriptDetails, Title: "Toggle details", Group: "Transcript"},
+		{ID: TranscriptFold, Title: "Toggle group", Group: "Transcript"},
 		{ID: RunCancel, Title: "Cancel run", Group: "Transcript"},
 		{ID: ViewSidebar, Title: "Toggle sidebar", Group: "View"},
 		{ID: ViewTheme, Title: "Switch theme…", Group: "View", Drill: true},

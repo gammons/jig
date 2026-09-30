@@ -232,3 +232,69 @@ func TestFold_UpsertDoesNotDuplicateTheLayout(t *testing.T) {
 		t.Errorf("regroup with nothing new reports a restructure; order = %v", f.order)
 	}
 }
+
+func TestFold_OTogglesAGroup(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, resumeGroups())
+	ta.key("esc")
+	ta.app.w.list.Select("g/c1")
+	ta.key("o")
+	want := []string{"u/u1", "g/c1", "t/c1", "m/a2/0", "t/c2", "m/a3/0"}
+	if got := ta.listIDs(); !slices.Equal(got, want) {
+		t.Fatalf("after o, list = %v, want %v", got, want)
+	}
+	if got := ta.selectedID(); got != "g/c1" {
+		t.Errorf("selected = %q, want the header g/c1", got)
+	}
+	view := xansi.Strip(ta.view())
+	for _, s := range []string{"▾ explored · 1 read, 1 grep", "  ▸ read  a.go · 1 lines", `  ▸ grep  "TODO" · 1 matches`} {
+		if !strings.Contains(view, s) {
+			t.Errorf("view has no %q:\n%s", s, view)
+		}
+	}
+	ta.key("o")
+	if got, want := ta.listIDs(), []string{"u/u1", "g/c1", "m/a3/0"}; !slices.Equal(got, want) {
+		t.Errorf("after o again, list = %v, want %v", got, want)
+	}
+}
+
+func TestFold_OOnAMemberCollapsesToTheHeader(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, resumeGroups())
+	ta.key("esc")
+	ta.app.w.list.Select("g/c1")
+	ta.key("o")
+	ta.app.w.list.Select("t/c2")
+	ta.key("o")
+	if got, want := ta.listIDs(), []string{"u/u1", "g/c1", "m/a3/0"}; !slices.Equal(got, want) {
+		t.Errorf("list = %v, want %v", got, want)
+	}
+	if got := ta.selectedID(); got != "g/c1" {
+		t.Errorf("selected = %q, want the header g/c1", got)
+	}
+}
+
+func TestFold_OElsewhereDoesNothing(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, resumeGroups())
+	ta.key("esc") // the selection is on the reply, m/a3/0
+	before := ta.app.sess.track.versions["g/c1"]
+	ta.key("o")
+	if got, want := ta.listIDs(), []string{"u/u1", "g/c1", "m/a3/0"}; !slices.Equal(got, want) {
+		t.Errorf("list = %v, want %v unchanged", got, want)
+	}
+	if got := ta.app.sess.track.versions["g/c1"]; got != before {
+		t.Errorf("header version %d → %d, want nothing re-rendered", before, got)
+	}
+}
+
+func TestFold_KeyCanBeRemapped(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, resumeGroups(), withKeybinds(map[string]string{"normal.z": "transcript.fold"}))
+	ta.key("esc")
+	ta.app.w.list.Select("g/c1")
+	ta.key("z")
+	if got := ta.listIDs(); len(got) != 6 {
+		t.Errorf("after the remapped z, list = %v, want the group expanded", got)
+	}
+}

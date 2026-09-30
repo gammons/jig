@@ -34,6 +34,7 @@ func TestResolve_DefaultsAndOverride(t *testing.T) {
 		{"normal", "enter", TranscriptDetails},
 		{"normal", "/", TranscriptSearch},
 		{"normal", "y", TranscriptYank},
+		{"normal", "o", TranscriptFold},
 		{"normal", "?", HelpKeys},
 		{"normal", "ctrl+c", RunCancel},
 	}
