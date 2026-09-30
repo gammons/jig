@@ -60,6 +60,37 @@ func resumed() core.Session {
 	return core.Session{ID: "ses_r", Title: "Old title", Agent: "build", Model: "anthropic/claude-sonnet-5", Cwd: testWorkDir}
 }
 
+// TestPicker_ReasoningItemNamesWhatItWillDo: the view.reasoning item's
+// title says what choosing it does, so it shows the current state: "Hide
+// streamed reasoning" while it's on (the default), "Show streamed
+// reasoning" once it's off, whether turned off here or by a saved pref.
+// The keybindings list keeps the neutral catalogue title.
+func TestPicker_ReasoningItemNamesWhatItWillDo(t *testing.T) {
+	t.Parallel()
+	title := func(ta *testApp) string {
+		t.Helper()
+		return itemByID(t, loadItems(ta, rootLevel()), string(actions.ViewReasoning)).Title
+	}
+
+	ta := newTestApp(t)
+	if got := title(ta); got != "Hide streamed reasoning" {
+		t.Errorf("with reasoning shown, title = %q, want %q", got, "Hide streamed reasoning")
+	}
+	ta.run(ta.app.runAction(actions.ViewReasoning))
+	if got := title(ta); got != "Show streamed reasoning" {
+		t.Errorf("after hiding, title = %q, want %q", got, "Show streamed reasoning")
+	}
+	keys := itemByID(t, loadItems(ta, picker.Level{ID: levelKeys}), string(actions.ViewReasoning))
+	if keys.Title != "Toggle streamed reasoning" {
+		t.Errorf("keybindings title = %q, want the neutral %q", keys.Title, "Toggle streamed reasoning")
+	}
+
+	saved := newTestApp(t, withPrefs(core.Prefs{HideReasoning: true}))
+	if got := title(saved); got != "Show streamed reasoning" {
+		t.Errorf("with HideReasoning saved, title = %q, want %q", got, "Show streamed reasoning")
+	}
+}
+
 func TestPicker_RootListsActionsWithKeysAndRecent(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t, withPrefs(core.Prefs{Recent: []string{"model.switch", "gone.action"}}))

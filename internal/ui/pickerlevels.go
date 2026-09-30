@@ -97,7 +97,8 @@ func (l levels) load(level picker.Level) tea.Cmd {
 	a := l.a
 	switch level.ID {
 	case levelRoot:
-		return itemsCmd(level.ID, rootItems(a.opts.Actions, a.opts.Keymap, keymapMode(a.view.pick.prev), a.sess.info, effortControllable(a.sess)))
+		items := rootItems(a.opts.Actions, a.opts.Keymap, keymapMode(a.view.pick.prev), a.sess.info, effortControllable(a.sess))
+		return itemsCmd(level.ID, withReasoningTitle(items, a.w.render.hideReasoning))
 	case levelKeys:
 		return itemsCmd(level.ID, keyItems(a.opts.Actions, a.opts.Keymap))
 	case levelThemes:
@@ -156,6 +157,21 @@ func rootItems(c *actions.Catalogue, km actions.Keymap, mode string, info core.S
 		out = append(out, it)
 	}
 	return out
+}
+
+// withReasoningTitle renames the view.reasoning item after what choosing
+// it does, so the picker shows whether streamed reasoning is on.
+func withReasoningTitle(items []picker.Item, hidden bool) []picker.Item {
+	title := "Hide streamed reasoning"
+	if hidden {
+		title = "Show streamed reasoning"
+	}
+	for i := range items {
+		if items[i].ID == string(actions.ViewReasoning) {
+			items[i].Title = title
+		}
+	}
+	return items
 }
 
 // keysDetail joins keys (bound key strings, which name a config-supplied
