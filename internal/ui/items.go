@@ -85,6 +85,22 @@ func (t *itemTrack) visible(ids []transcript.BlockID) []foldEntry {
 	return out
 }
 
+// upsert builds, each at a new version, the items that show ids (see
+// visible). An entry never issued before is one blocklist.Upsert appends
+// at the end of the list, so it joins fold.order too: regroup compares a
+// new layout against order, and an item listed by an upsert (a streaming
+// block's first tick) but missing from order would make a later layout
+// that absorbs it look like a plain append, leaving it listed.
+func (t *itemTrack) upsert(s *sessionState, ids []transcript.BlockID) []blocklist.Item {
+	entries := t.visible(ids)
+	for _, e := range entries {
+		if t.versions[e.id] == 0 {
+			t.fold.order = append(t.fold.order, e)
+		}
+	}
+	return t.build(s, entries, bumpAll)
+}
+
 // layoutItems builds the whole list from entries (a full layout), so the
 // live set is rebuilt from scratch: a member hidden since it was last
 // built is no longer live.

@@ -395,10 +395,10 @@ func (s *sessionState) tick() []transcript.BlockID {
 }
 
 // items builds, each at a new version, the items that show the blocks
-// ids (a member of a collapsed group shows as its header), and tracks
-// which of them are live.
+// ids (a member of a collapsed group shows as its header), tracks which
+// of them are live, and records the new ones in the fold layout.
 func (s *sessionState) items(ids []transcript.BlockID) []blocklist.Item {
-	return s.track.build(s, s.track.visible(ids), bumpAll)
+	return s.track.upsert(s, ids)
 }
 
 // allItems regroups the blocks and builds every item of the layout, in

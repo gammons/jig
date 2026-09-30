@@ -155,3 +155,61 @@ func TestFold_ThemeChangeRerendersHeader(t *testing.T) {
 		t.Errorf("header version after a theme change = %d, want > %d", got, before)
 	}
 }
+
+// twoReadsThenReasoning forms g/c1 from two reads, then starts step m2
+// with reasoning that a stream tick lists as a plain item.
+func (ta *testApp) twoReadsThenReasoning() {
+	ta.t.Helper()
+	ta.sendAndAdopt("look around")
+	ta.startTool("m1", "c1", "read", `{"path":"a.go"}`)
+	ta.finishTool("m1", "c1", "read", "1: package a", false)
+	ta.startTool("m1", "c2", "read", `{"path":"b.go"}`)
+	ta.finishTool("m1", "c2", "read", "1: package b", false)
+	if got := ta.listIDs(); !slices.Equal(got[1:], []string{"g/c1"}) {
+		ta.t.Fatalf("list = %v, want [<user> g/c1]", got)
+	}
+}
+
+func (ta *testApp) reasonInStepTwo() {
+	ta.t.Helper()
+	ta.event(event.MessageStarted{Base: rootBase(), MessageID: "m2"})
+	ta.event(event.ReasoningDelta{Base: rootBase(), MessageID: "m2", Text: "now grep"})
+	ta.fire()
+}
+
+func TestFold_ReasoningAbsorbedAfterATickLeavesTheList(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.twoReadsThenReasoning()
+	ta.reasonInStepTwo()
+	if got := ta.listIDs(); !slices.Equal(got[1:], []string{"g/c1", "m/m2/0"}) {
+		t.Fatalf("after the tick, list = %v, want [<user> g/c1 m/m2/0]", got)
+	}
+	ta.startTool("m2", "c3", "grep", `{"pattern":"TODO"}`)
+	if got := ta.listIDs(); !slices.Equal(got[1:], []string{"g/c1"}) {
+		t.Fatalf("after the grep, list = %v, want [<user> g/c1]", got)
+	}
+	ta.event(event.RunFinished{Base: rootBase()})
+	if got := ta.listIDs(); !slices.Equal(got[1:], []string{"g/c1"}) {
+		t.Errorf("after the run, list = %v, want [<user> g/c1]", got)
+	}
+}
+
+func TestFold_ReasoningAbsorbedIntoAnOpenGroupIsNested(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.twoReadsThenReasoning()
+	f := &ta.app.sess.track.fold
+	f.toggle("g/c1")
+	f.regroup(ta.app.sess.proj.Blocks())
+	foldCtl{ta.app}.relist(nil)
+	ta.reasonInStepTwo()
+	ta.startTool("m2", "c3", "grep", `{"pattern":"TODO"}`)
+	want := []string{"g/c1", "t/c1", "t/c2", "m/m2/0", "t/c3"}
+	if got := ta.listIDs(); !slices.Equal(got[1:], want) {
+		t.Fatalf("list = %v, want [<user> %v]", got, want)
+	}
+	if !ta.app.sess.track.nested["m/m2/0"] {
+		t.Error("the absorbed reasoning was never re-issued as nested")
+	}
+}
