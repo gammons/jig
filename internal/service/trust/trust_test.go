@@ -49,11 +49,12 @@ func TestRestrict_DropsProvidersInstructionsSkillsIntegration(t *testing.T) {
 
 func TestRestrict_KeepsAliasesAndModels(t *testing.T) {
 	project := core.Config{
-		DefaultModel: "a/big",
-		SmallModel:   "a/small",
-		ModelAliases: map[string]string{"fast": "a/small"},
-		Theme:        "dark",
-		Permissions:  core.PermissionRules{"bash": {Default: core.Deny}},
+		DefaultModel:  "a/big",
+		DefaultEffort: "high",
+		SmallModel:    "a/small",
+		ModelAliases:  map[string]string{"fast": "a/small"},
+		Theme:         "dark",
+		Permissions:   core.PermissionRules{"bash": {Default: core.Deny}},
 	}
 	got, dropped := Restrict(Layers{Project: project})
 	if !reflect.DeepEqual(got.Project, project) {

@@ -82,6 +82,7 @@ func Effects(l Layers) []Effect {
 func configEffects(out []Effect, p core.Config) []Effect {
 	out = scalar(out, "default_model", p.DefaultModel)
 	out = scalar(out, "small_model", p.SmallModel)
+	out = scalar(out, "default_effort", p.DefaultEffort)
 	out = scalar(out, "theme", p.Theme)
 	out = scalar(out, "integrations.agent_browser.enabled", string(p.AgentBrowser))
 	for name, pc := range p.Providers {
@@ -123,6 +124,9 @@ func providerEffects(out []Effect, prefix string, pc core.ProviderConfig) []Effe
 	}
 	if pc.ImageModels != nil {
 		out = append(out, Effect{Key: prefix + "image_models", Value: list(pc.ImageModels)})
+	}
+	if pc.Efforts != nil {
+		out = append(out, Effect{Key: prefix + "efforts", Value: list(pc.Efforts)})
 	}
 	return out
 }
@@ -216,6 +220,9 @@ func agentEffects(out []Effect, m map[string]core.AgentConfig, withSource bool) 
 		}
 		if a.Model != "" {
 			add("model", a.Model)
+		}
+		if a.Effort != "" {
+			add("effort", a.Effort)
 		}
 		if a.MaxSteps != 0 {
 			add("max_steps", strconv.Itoa(a.MaxSteps))
