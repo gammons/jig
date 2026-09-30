@@ -119,28 +119,24 @@ func (s *idSet) take() []transcript.BlockID {
 // sessionState reconciles the root session's display state: its
 // projection, the session itself (info.Agent/Model are the agent and
 // model the next send uses), the run, the queue, the last step's usage,
-// the summed cost, todos, tool durations, the blocklist item versions it
-// has issued, dirty streaming blocks (rendered on the next streamTick),
-// and live blocks (running tools/subagents, whose spinner each tick
-// advances). model is the model the last root step reported. attach
+// the summed cost, todos, tool durations, and the transcript list's
+// bookkeeping (track). model is the model the last root step reported. attach
 // holds the paths the file picker inserted as @mentions; a send attaches
 // those whose token survives in its text.
 type sessionState struct {
-	attach   []string
-	proj     *transcript.Projection
-	info     core.Session
-	model    string
-	run      runState
-	queued   bool
-	usage    core.Usage
-	cost     float64
-	todos    []core.Todo
-	times    blockTimes
-	versions map[transcript.BlockID]int
-	dirty    idSet
-	live     map[transcript.BlockID]bool
-	cat      catalog
-	clk      clock.Clock
+	attach []string
+	proj   *transcript.Projection
+	info   core.Session
+	model  string
+	run    runState
+	queued bool
+	usage  core.Usage
+	cost   float64
+	todos  []core.Todo
+	times  blockTimes
+	track  itemTrack
+	cat    catalog
+	clk    clock.Clock
 }
 
 // newSessionState starts with root id ("" for a session the first send
@@ -148,7 +144,7 @@ type sessionState struct {
 func newSessionState(id core.SessionID, clk clock.Clock, cat catalog) *sessionState {
 	s := &sessionState{
 		proj: transcript.New(id), info: core.Session{ID: id}, clk: clk,
-		versions: map[transcript.BlockID]int{}, cat: cat,
+		track: newItemTrack(), cat: cat,
 	}
 	s.resetBlocks()
 	return s
@@ -157,8 +153,7 @@ func newSessionState(id core.SessionID, clk clock.Clock, cat catalog) *sessionSt
 // resetBlocks clears the per-block state a new projection invalidates.
 func (s *sessionState) resetBlocks() {
 	s.times = blockTimes{starts: map[transcript.BlockID]time.Time{}, durs: map[transcript.BlockID]time.Duration{}}
-	s.dirty = idSet{}
-	s.live = map[transcript.BlockID]bool{}
+	s.track.reset()
 }
 
 // applyResult is what the App must do after sessionState.apply: re-render
@@ -192,7 +187,7 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 	switch e := ev.(type) {
 	case event.TextDelta, event.ReasoningDelta:
 		for _, id := range ids {
-			s.dirty.add(id)
+			s.track.dirty.add(id)
 		}
 		return applyResult{}
 	case event.MessageStarted:
@@ -223,10 +218,10 @@ func (s *sessionState) apply(ev event.Event) applyResult {
 // withDirty prepends the dirty blocks (emptying the set) to ids, without
 // repeating any.
 func (s *sessionState) withDirty(ids []transcript.BlockID) []transcript.BlockID {
-	if len(s.dirty.order) == 0 {
+	if len(s.track.dirty.order) == 0 {
 		return ids
 	}
-	out := s.dirty.take()
+	out := s.track.dirty.take()
 	for _, id := range ids {
 		if !slices.Contains(out, id) {
 			out = append(out, id)
@@ -333,20 +328,20 @@ func (s *sessionState) endSend(ran bool) (bool, []transcript.BlockID) {
 	if !s.run.returned(ran) {
 		return false, nil
 	}
-	return true, s.dirty.take()
+	return true, s.track.dirty.take()
 }
 
 // dropUser removes the block of a send that never ran and returns every
 // remaining block's item at its current version (nothing re-renders).
 func (s *sessionState) dropUser(id transcript.BlockID) []blocklist.Item {
 	s.proj.DropUser(id)
-	delete(s.versions, id)
+	delete(s.track.versions, id)
 	blocks := s.proj.Blocks()
 	out := make([]blocklist.Item, len(blocks))
 	for i, b := range blocks {
 		out[i] = blocklist.Item{
 			ID:      string(b.ID),
-			Version: s.versions[b.ID],
+			Version: s.track.versions[b.ID],
 			Data:    s.data(b),
 		}
 	}
@@ -378,9 +373,9 @@ func (s *sessionState) load(info core.Session, msgs []core.Message, todos []core
 // dirty one, then every live one.
 func (s *sessionState) tick() []transcript.BlockID {
 	s.run.frame++
-	ids := s.dirty.take()
-	live := make([]transcript.BlockID, 0, len(s.live))
-	for id := range s.live {
+	ids := s.track.dirty.take()
+	live := make([]transcript.BlockID, 0, len(s.track.live))
+	for id := range s.track.live {
 		live = append(live, id)
 	}
 	slices.Sort(live)
@@ -418,18 +413,18 @@ func (s *sessionState) allItems() []blocklist.Item {
 
 // item builds b's blocklist item at its next version. A reasoning block
 // the model is still thinking in counts as live (its spinner animates);
-// it stays in s.live until a tick re-renders it after thinking ends.
+// it stays in s.track.live until a tick re-renders it after thinking ends.
 func (s *sessionState) item(b transcript.Block) blocklist.Item {
-	s.versions[b.ID]++
+	s.track.versions[b.ID]++
 	data := s.data(b)
 	if isLive(b) || data.Thinking {
-		s.live[b.ID] = true
+		s.track.live[b.ID] = true
 	} else {
-		delete(s.live, b.ID)
+		delete(s.track.live, b.ID)
 	}
 	return blocklist.Item{
 		ID:      string(b.ID),
-		Version: s.versions[b.ID],
+		Version: s.track.versions[b.ID],
 		Data:    data,
 	}
 }
