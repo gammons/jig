@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	xansi "github.com/charmbracelet/x/ansi"
 
@@ -170,4 +172,38 @@ func TestRender_GoldenGroups(t *testing.T) {
 		lines = append(lines, renderOne(t, r, it, 80))
 	}
 	golden.Assert(t, "render_groups", strings.Join(lines, "\n"))
+}
+
+func TestGroupDetails(t *testing.T) {
+	t.Parallel()
+	ok := transcript.StateOK
+	members := []transcript.Block{
+		gm("c1", "read", `{"path":"a.go"}`, ok),
+		{ID: "m/a2/0", Kind: transcript.KindReasoning},
+		gm("c2", "grep", `{"pattern":"TODO"}`, ok),
+		{ID: "m/a3/0", Kind: transcript.KindReasoning},
+	}
+	got := groupDetails(members, []time.Duration{0, 2 * time.Second, 0, 0})
+	if got.Header != "group · 1 read, 1 grep" {
+		t.Errorf("header = %q, want %q", got.Header, "group · 1 read, 1 grep")
+	}
+	want := []string{"▸ read  a.go · 1 lines", "∴ thought for 2.0s", `▸ grep  "TODO" · 1 matches`, "∴ thinking"}
+	if !reflect.DeepEqual(got.Lines, want) {
+		t.Errorf("lines = %q\nwant    %q", got.Lines, want)
+	}
+}
+
+func TestGroupYank(t *testing.T) {
+	t.Parallel()
+	ok := transcript.StateOK
+	members := []transcript.Block{
+		gm("c1", "read", `{"path":"a.go"}`, ok),
+		{ID: "m/a2/0", Kind: transcript.KindReasoning, Text: "skipped"},
+		gm("c2", "grep", `{"pattern":"TODO"}`, ok),
+		gm("c3", "glob", `{"pattern":"*.go"}`, ok),
+		gm("c4", "read", `{"path":"x\u001b[2Jy.go"}`, ok),
+	}
+	if got, want := groupYank(members), "a.go\nTODO\n*.go\nxy.go"; got != want {
+		t.Errorf("groupYank = %q, want %q", got, want)
+	}
 }

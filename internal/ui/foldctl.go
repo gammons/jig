@@ -2,6 +2,7 @@ package ui
 
 import (
 	"slices"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -64,4 +65,15 @@ func (c foldCtl) toggle() tea.Cmd {
 func (c foldCtl) relayout() tea.Cmd {
 	c.a.sess.track.fold.regroup(c.a.sess.proj.Blocks())
 	return c.relist(nil)
+}
+
+// group returns group id's member blocks and their durations; false when
+// id is not a group.
+func (c foldCtl) group(id transcript.BlockID) ([]transcript.Block, []time.Duration, bool) {
+	ids, ok := c.a.sess.track.fold.members(id)
+	if !ok {
+		return nil, nil, false
+	}
+	members, durs := groupMembers(c.a.sess, ids)
+	return members, durs, len(members) > 0
 }

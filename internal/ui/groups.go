@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/gammons/jig/internal/bubbles/ansi"
+	"github.com/gammons/jig/internal/bubbles/details"
 	"github.com/gammons/jig/internal/ui/transcript"
 )
 
@@ -116,4 +118,51 @@ func currentCall(members []transcript.Block) string {
 		}
 	}
 	return ""
+}
+
+// groupDetails is a group's details content (tool-call groups spec
+// §5.2): the header "group · <tally>", then one line per member in order,
+// a call's plain one-liner or a reasoning block's label. It needs no port.
+func groupDetails(members []transcript.Block, durs []time.Duration) details.Content {
+	lines := make([]string, 0, len(members))
+	for i, m := range members {
+		if m.Kind == transcript.KindReasoning {
+			lines = append(lines, reasoningLabel(durs[i]))
+			continue
+		}
+		lines = append(lines, ansi.SanitizeLine(oneLiner(m)))
+	}
+	return details.Content{Header: header("group", groupTally(members)), Lines: lines}
+}
+
+// reasoningLabel is a finished reasoning block's line: "∴ thought for
+// <dur>", or "∴ thinking" with no measured duration.
+func reasoningLabel(d time.Duration) string {
+	if d <= 0 {
+		return "∴ thinking"
+	}
+	return "∴ thought for " + thoughtFor(d)
+}
+
+// groupYank is what y copies for a group: each member call's subject, one
+// per line in order (a read's path, a grep's or glob's pattern),
+// sanitized. Reasoning is skipped.
+func groupYank(members []transcript.Block) string {
+	subjects := make([]string, 0, len(members))
+	for _, m := range members {
+		if m.Kind != transcript.KindTool || m.Call == nil {
+			continue
+		}
+		var in struct {
+			Path    string `json:"path"`
+			Pattern string `json:"pattern"`
+		}
+		_ = json.Unmarshal(m.Call.Input, &in)
+		subject := in.Pattern
+		if m.Call.Name == "read" {
+			subject = in.Path
+		}
+		subjects = append(subjects, ansi.SanitizeLine(subject))
+	}
+	return strings.Join(subjects, "\n")
 }

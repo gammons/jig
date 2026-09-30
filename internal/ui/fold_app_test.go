@@ -2,6 +2,7 @@ package ui
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -296,5 +297,62 @@ func TestFold_KeyCanBeRemapped(t *testing.T) {
 	ta.key("z")
 	if got := ta.listIDs(); len(got) != 6 {
 		t.Errorf("after the remapped z, list = %v, want the group expanded", got)
+	}
+}
+
+func TestFold_EnterOnAHeaderShowsItsMembers(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, resumeGroups())
+	ta.key("esc")
+	ta.app.w.list.Select("g/c1")
+	ta.key("enter")
+	if ta.app.view.detailsFor != "g/c1" {
+		t.Fatalf("detailsFor = %q, want g/c1", ta.app.view.detailsFor)
+	}
+	body := xansi.Strip(ta.app.w.details.View())
+	for _, s := range []string{"group · 1 read, 1 grep", "▸ read  a.go · 1 lines", "∴ thinking", `▸ grep  "TODO" · 1 matches`} {
+		if !strings.Contains(body, s) {
+			t.Errorf("details have no %q:\n%s", s, body)
+		}
+	}
+}
+
+func TestFold_YankOnAHeaderCopiesSubjects(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, resumeGroups())
+	ta.key("esc")
+	ta.app.w.list.Select("g/c1")
+	cmd := normalKeys{ta.app}.yank()
+	if cmd == nil {
+		t.Fatal("yank on a header: want a Cmd")
+	}
+	if got := fmt.Sprint(cmd()); got != "a.go\nTODO" {
+		t.Errorf("clipboard = %q, want %q", got, "a.go\nTODO")
+	}
+	if ta.app.view.hint != "yanked" {
+		t.Errorf("hint = %q, want yanked", ta.app.view.hint)
+	}
+}
+
+func TestFold_DetailsFollowCollapse(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, resumeGroups())
+	ta.key("esc")
+	ta.app.w.list.Select("g/c1")
+	ta.key("o")
+	ta.app.w.list.Select("t/c1")
+	ta.key("enter")
+	if ta.app.view.detailsFor != "t/c1" {
+		t.Fatalf("detailsFor = %q, want t/c1", ta.app.view.detailsFor)
+	}
+	ta.key("o")
+	if got := ta.selectedID(); got != "g/c1" {
+		t.Errorf("selected = %q, want g/c1", got)
+	}
+	if ta.app.view.detailsFor != "g/c1" {
+		t.Errorf("detailsFor = %q, want the details to follow to g/c1", ta.app.view.detailsFor)
+	}
+	if body := xansi.Strip(ta.app.w.details.View()); !strings.Contains(body, "group · 1 read, 1 grep") {
+		t.Errorf("details still show the hidden member:\n%s", body)
 	}
 }
