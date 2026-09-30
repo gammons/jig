@@ -9,8 +9,9 @@ import (
 )
 
 // buildRequest assembles one step's LLMRequest from the session history and
-// the run's allowed tools, then applies every ContextTransform in order.
-func (r *Runner) buildRequest(ctx context.Context, rc ext.RunContext, st *run) (core.LLMRequest, error) {
+// allowed (the step's snapshot of allowed tools), then applies every
+// ContextTransform in order.
+func (r *Runner) buildRequest(ctx context.Context, rc ext.RunContext, st *run, allowed []ext.Tool) (core.LLMRequest, error) {
 	history, err := r.d.History.History(ctx, rc.SessionID)
 	if err != nil {
 		return core.LLMRequest{}, fmt.Errorf("agent: loading history: %w", err)
@@ -18,7 +19,7 @@ func (r *Runner) buildRequest(ctx context.Context, rc ext.RunContext, st *run) (
 	req := core.LLMRequest{
 		Model:           rc.Model,
 		Messages:        history,
-		Tools:           toolSpecs(st.allowed),
+		Tools:           toolSpecs(allowed),
 		MaxOutputTokens: st.info.DefaultMaxTokens,
 		Effort:          core.EffectiveEffort(st.info, rc.Effort),
 	}

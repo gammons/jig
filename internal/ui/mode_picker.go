@@ -159,6 +159,12 @@ func (p pickerCtl) chosen(msg picker.ChosenMsg) tea.Cmd {
 			}
 		}
 		a.view.pick.mention = false
+	case levelMCP:
+		return nil // drilling handled by picker.Item.Drill; no bare choice
+	case levelMCPSvr:
+		return p.mcpChosen(msg.Level.Arg, first)
+	case levelMCPTools:
+		// read-only; nothing to do
 	}
 	return tea.Batch(append(cmds, p.remember(levelAction(msg.Level.ID)))...)
 }
@@ -312,3 +318,19 @@ func (p pickerCtl) setAgent(name string) tea.Cmd {
 
 // restyle pushes the current theme to every widget (pushTheme).
 func (p pickerCtl) restyle() { pushTheme(p.a) }
+
+// mcpChosen runs verb on the server named name: copy sets the clipboard
+// (the sign-in URL is looked up from the stored list); every other verb
+// runs through mcpActionCmd.
+func (p pickerCtl) mcpChosen(name, verb string) tea.Cmd {
+	a := p.a
+	if verb == "copy" {
+		for _, s := range a.view.mcp.list {
+			if s.Name == name {
+				return tea.SetClipboard(s.AuthURL)
+			}
+		}
+		return nil
+	}
+	return mcpActionCmd(a.ctx, a.ports, verb, name)
+}

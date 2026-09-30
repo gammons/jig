@@ -127,3 +127,30 @@ paths = ["~/.agents/skills", ".jig/skills"]
 # Reserved for the TUI (Plan 2); headless jig ignores it today.
 [keybinds]
 quit = "ctrl+c"
+
+# MCP servers. Names must match ^[a-z0-9_-]+$. See README.md "MCP
+# servers" for trust, permissions, and .mcp.json compatibility.
+[mcp]
+disabled = ["some-project-server"]     # names; applied after every layer
+
+[mcp.servers.playwright]               # stdio: `command` set
+command = "npx"
+args = ["-y", "@playwright/mcp@latest"]
+env = { DEBUG = "0" }
+cwd = "."                               # optional
+
+[mcp.servers.github]                   # http: `url` set; type = "sse" for legacy SSE
+url = "https://api.githubcopilot.com/mcp/"
+headers = { Authorization = "Bearer {env:GITHUB_TOKEN}" }
+startup_timeout = "10s"                # default 10s
+tool_timeout = "2m"                    # default 2m
+enabled = true                         # default true
+
+[mcp.servers.linear]
+url = "https://mcp.linear.app/sse"
+type = "sse"
+
+[mcp.servers.linear.oauth]             # optional; only for servers without registration support
+client_id = "..."
+client_secret = "{env:LINEAR_CLIENT_SECRET}"
+scopes = ["read"]

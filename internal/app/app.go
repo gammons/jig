@@ -27,6 +27,7 @@ const usage = `usage:
   jig run [--agent A] [--model M] [--effort E] [--yes] [--trust-project] [--session ID] [--cwd DIR] <prompt...>
   jig models [provider]
   jig sessions
+  jig mcp list|auth|logout <name>
   jig version`
 
 // Stdio is the process's standard streams.
@@ -49,6 +50,8 @@ func Run(ctx context.Context, args []string, std Stdio, getenv func(string) stri
 		return modelsCmd(args[1:], std, getenv)
 	case "sessions":
 		return sessionsCmd(ctx, args[1:], std, getenv)
+	case "mcp":
+		return mcpCmd(ctx, args[1:], std, getenv)
 	case "version":
 		fmt.Fprintln(std.Out, "jig", version())
 		return exitOK

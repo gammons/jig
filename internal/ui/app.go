@@ -11,7 +11,6 @@ import (
 	"github.com/gammons/jig/internal/bubbles/overlay"
 	"github.com/gammons/jig/internal/bubbles/picker"
 	"github.com/gammons/jig/internal/bubbles/prompt"
-	"github.com/gammons/jig/internal/bubbles/statusbar"
 	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
@@ -87,20 +86,35 @@ type (
 // resume result arrived mid-send; it is re-read once idle. mouse is the
 // current mouse drag state (mouseCtl).
 type viewState struct {
-	pick         pickerView
-	sidebarPref  *bool
-	detailsOpen  bool
-	hint         string
-	history      []string
-	stream       streamState
-	resizeGen    int
-	pendingW     int
-	listW, listH int
-	keyPrefix    string
-	searching    bool
-	detailsFor   transcript.BlockID
-	resumeHeld   core.SessionID
-	mouse        mouseState
+	pick        pickerView
+	sidebarPref *bool
+	detailsOpen bool
+	hint        string
+	history     []string
+	stream      streamState
+	list        listSizeState
+	keyPrefix   string
+	searching   bool
+	detailsFor  transcript.BlockID
+	resumeHeld  core.SessionID
+	mouse       mouseState
+	mcp         mcpViewState
+}
+
+// listSizeState is the transcript list's applied size and the debounce
+// state for a pending width change (see relayout/applyListWidth).
+type listSizeState struct {
+	resizeGen int
+	pendingW  int
+	w, h      int
+}
+
+// mcpViewState is the App's view of the configured MCP servers: the last
+// list read, and the read-coalescing flags (see onMCPEvent).
+type mcpViewState struct {
+	list    []core.MCPServerStatus
+	pending bool
+	dirty   bool
 }
 
 // App is jig's TUI: a bubbletea model that bridges bus events into
@@ -156,7 +170,7 @@ func tick(d time.Duration, msg tea.Msg) tea.Cmd {
 func (a *App) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		a.w.prompt.Focus(), tea.RequestTerminalVersion, waitEvent(a.sub),
-		prefsCmd(a.ports), agentsCmd(a.ports), catalogCmd(a.ports), branchCmd(a.ctx, a.ports),
+		prefsCmd(a.ports), agentsCmd(a.ports), catalogCmd(a.ports), branchCmd(a.ctx, a.ports), mcpServersCmd(a.ctx, a.ports),
 	}
 	if a.opts.Session != "" {
 		cmds = append(cmds, resumeCmd(a.ctx, a.ports, a.opts.Session))
@@ -183,7 +197,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamTickMsg:
 		cmd = a.onTick()
 	case resizeMsg:
-		if msg.gen == a.view.resizeGen {
+		if msg.gen == a.view.list.resizeGen {
 			a.applyListWidth()
 		}
 	case tea.MouseMsg, mouseScrollMsg:
@@ -236,6 +250,9 @@ func (a *App) View() tea.View {
 
 // onEvent reconciles one bus event and re-arms the bridge.
 func (a *App) onEvent(ev event.Event) tea.Cmd {
+	if _, ok := ev.(event.MCPServerChanged); ok {
+		return onMCPEvent(a)
+	}
 	res := a.sess.apply(ev)
 	if res.reload {
 		a.w.setItems(a.sess.allItems())
@@ -311,13 +328,13 @@ func (a *App) onResult(msg tea.Msg) tea.Cmd {
 			a.img = newImageState(p, a.opts.Tmux)
 		}
 	default:
-		a.onPortResult(msg)
+		return a.onPortResult(msg)
 	}
 	return nil
 }
 
 // onPortResult folds a startup port result into the state.
-func (a *App) onPortResult(msg tea.Msg) {
+func (a *App) onPortResult(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case prefsMsg:
 		prefsCtl{a}.load(msg.prefs)
@@ -334,13 +351,13 @@ func (a *App) onPortResult(msg tea.Msg) {
 	case resumeMsg:
 		if msg.err != nil {
 			a.view.hint = "session: " + ansi.SanitizeLine(msg.err.Error())
-			return
+			return nil
 		}
 		if a.sess.run.busy() {
 			// A send started first (a Load now would drop its blocks):
 			// re-read the session once idle (sender.idle).
 			a.view.resumeHeld = msg.info.ID
-			return
+			return nil
 		}
 		if msg.info.ID != a.sess.info.ID {
 			// A session opened from the picker replaces this one.
@@ -352,7 +369,14 @@ func (a *App) onPortResult(msg tea.Msg) {
 		a.w.prompt.SetAgent(ansi.SanitizeLine(a.sess.info.Agent))
 	case errMsg:
 		a.view.hint = msg.hint()
+	case mcpServersMsg:
+		return a.onMCPResult(msg)
+	case mcpActionMsg:
+		if msg.err != nil {
+			a.view.hint = errMsg{what: "mcp", err: msg.err}.hint()
+		}
 	}
+	return nil
 }
 
 // relayout recomputes the layout for the current size and prompt height
@@ -368,51 +392,27 @@ func (a *App) relayout() tea.Cmd {
 	a.w.confirm.SetSize(a.width, a.height)
 
 	tw, th := a.lay.Transcript.W, a.lay.Transcript.H
-	if a.view.listW == 0 || tw == a.view.listW {
-		a.view.pendingW = tw
+	if a.view.list.w == 0 || tw == a.view.list.w {
+		a.view.list.pendingW = tw
 		a.w.list.SetSize(tw, th)
-		a.view.listW, a.view.listH = tw, th
+		a.view.list.w, a.view.list.h = tw, th
 		return nil
 	}
-	a.w.list.SetSize(a.view.listW, th)
-	a.view.listH = th
-	if tw == a.view.pendingW {
+	a.w.list.SetSize(a.view.list.w, th)
+	a.view.list.h = th
+	if tw == a.view.list.pendingW {
 		return nil
 	}
-	a.view.resizeGen++
-	a.view.pendingW = tw
-	return a.after(resizeDebounce, resizeMsg{gen: a.view.resizeGen})
+	a.view.list.resizeGen++
+	a.view.list.pendingW = tw
+	return a.after(resizeDebounce, resizeMsg{gen: a.view.list.resizeGen})
 }
 
 // applyListWidth gives the transcript list the layout's current size.
 func (a *App) applyListWidth() {
 	a.w.list.SetSize(a.lay.Transcript.W, a.lay.Transcript.H)
-	a.view.listW, a.view.listH = a.lay.Transcript.W, a.lay.Transcript.H
-	a.view.pendingW = a.view.listW
-}
-
-// sync points the permission card at its request (returning its arming
-// tick, if any) and rebuilds the status bar and the sidebar from the state.
-func (a *App) sync() tea.Cmd {
-	cmd := permCtl{a}.sync()
-	a.w.status.Set(a.statusState())
-	if a.lay.SideVisible {
-		a.w.side.SetSections(sidebarSections(a))
-	}
-	return cmd
-}
-
-// statusState is the full status bar state.
-func (a *App) statusState() statusbar.State {
-	st := a.sess.status(a.opts.Aliases)
-	st.Mode = a.mode.String()
-	st.Untrusted = a.opts.Untrusted
-	st.Hint = a.view.hint
-	st.Pending = len(a.sess.proj.Pending())
-	if st.Hint == "" && st.Pending > 0 && (a.mode != modeNormal || !permCtl{a}.onCard()) {
-		st.Hint = permissionHint
-	}
-	return st
+	a.view.list.w, a.view.list.h = a.lay.Transcript.W, a.lay.Transcript.H
+	a.view.list.pendingW = a.view.list.w
 }
 
 // setMode switches the input mode; only INSERT focuses the prompt, and

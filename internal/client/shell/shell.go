@@ -65,7 +65,7 @@ func (Runner) Run(ctx context.Context, s Spec) (Result, error) {
 	cp := newCapture(s.TailBytes, s.SpillPath)
 	cmd.Stdout = cp
 	cmd.Stderr = cp
-	configureProcessGroup(cmd)
+	ConfigureGroup(cmd)
 
 	err := cmd.Run()
 	_ = cp.Close()
@@ -96,6 +96,15 @@ func (Runner) Run(ctx context.Context, s Spec) (Result, error) {
 		return build(0, false), fmt.Errorf("shell: %w", err)
 	}
 	return build(0, false), nil
+}
+
+// ConfigureGroup configures cmd to run in its own session and process
+// group (unix) so that a later shell.KillGroup(cmd.Process.Pid) can kill
+// it and every descendant it spawned; it is a no-op on other platforms.
+// It also sets cmd.Cancel and cmd.WaitDelay (unix) so ctx cancellation
+// kills the group directly.
+func ConfigureGroup(cmd *exec.Cmd) {
+	configureProcessGroup(cmd)
 }
 
 // shellName returns "bash" if it is on PATH, else "sh"; exec.Command

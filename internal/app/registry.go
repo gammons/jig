@@ -13,7 +13,6 @@ import (
 	"github.com/gammons/jig/internal/clock"
 	"github.com/gammons/jig/internal/core/event"
 	"github.com/gammons/jig/internal/core/ext"
-	"github.com/gammons/jig/internal/data/blobfs"
 	"github.com/gammons/jig/internal/data/contextfs"
 	"github.com/gammons/jig/internal/data/fsroot"
 	"github.com/gammons/jig/internal/data/store"
@@ -43,9 +42,9 @@ type registryDeps struct {
 	asker    permission.Asker
 	ids      *ids.Gen
 	spillDir string
-	blobs    *blobfs.Store
 	media    *media.Pipeline
 	tracker  *tools.Tracker
+	mcp      ext.ToolSource
 	debugDeps
 }
 
@@ -61,7 +60,7 @@ type debugDeps struct {
 func buildRegistry(d registryDeps) (ext.View, error) {
 	r := ext.NewRegistry()
 	steps := []func(*ext.Registry, registryDeps) error{
-		addTools, addHooks, addTransforms, addProviders, addCommands, addKeybinds,
+		addTools, addHooks, addTransforms, addProviders, addCommands, addKeybinds, addToolSources,
 	}
 	for _, step := range steps {
 		if err := step(r, d); err != nil {
@@ -156,6 +155,15 @@ func addProviders(r *ext.Registry, d registryDeps) error {
 		if err := r.AddProvider(p); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// addToolSources registers the MCP manager as a ToolSource, when one was
+// built (a non-nil registryDeps.mcp).
+func addToolSources(r *ext.Registry, d registryDeps) error {
+	if d.mcp != nil {
+		return r.SetToolSource(d.mcp)
 	}
 	return nil
 }

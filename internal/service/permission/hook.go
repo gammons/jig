@@ -78,14 +78,14 @@ func (h *Hook) decide(rc ext.RunContext, tool, subject string) core.Action {
 	return worst
 }
 
-// decideOne evaluates tool/subject under Effective(agent, cfg). A bash
+// decideOne evaluates tool/subject under EffectiveFor(agent, h.cfg, tool). A bash
 // allow that came from a pattern (not the tool's default) is downgraded to
 // Ask when the command contains shell metacharacters, since a pattern such
 // as "git status*" would otherwise also allow "git status; rm -rf x".
 // An ask from the tool's Default may be relaxed by h.preset (see
 // WithPreset), under the same downgrade.
 func (h *Hook) decideOne(agent core.PermissionRules, tool, subject string) core.Action {
-	rule := Effective(agent, h.cfg)[tool]
+	rule := EffectiveFor(agent, h.cfg, tool)
 	action, fromPattern := evaluate(rule, subject)
 	if action == core.Ask && !fromPattern && rule.Default != core.Deny {
 		if pa, matched := evaluate(core.Rule{Patterns: h.preset[tool].Patterns}, subject); matched && pa == core.Allow {

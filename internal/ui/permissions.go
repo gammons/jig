@@ -113,10 +113,10 @@ func (p permCtl) sync() tea.Cmd {
 	}
 	a.w.card.Set(req)
 	cmd := p.guard(req, blk)
-	if a.view.listW != a.w.cardAt.width {
-		a.w.card.SetWidth(a.view.listW)
+	if a.view.list.w != a.w.cardAt.width {
+		a.w.card.SetWidth(a.view.list.w)
 	}
-	next := cardKey{block: blk, ver: a.w.card.Version(), width: a.view.listW}
+	next := cardKey{block: blk, ver: a.w.card.Version(), width: a.view.list.w}
 	if next == a.w.cardAt {
 		return cmd
 	}

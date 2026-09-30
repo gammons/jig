@@ -148,6 +148,18 @@ func TestTighten_KeptAndDroppedAreNilWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestTighten_DropsGlobAllow(t *testing.T) {
+	baseline := Effective(nil, nil)
+	add := core.PermissionRules{"mcp__*": {Default: core.Allow}}
+	kept, dropped := Tighten(baseline, add)
+	if _, ok := kept["mcp__*"]; ok {
+		t.Errorf("kept = %v, want the glob allow key dropped", kept)
+	}
+	if dropped["mcp__*"].Default != core.Allow {
+		t.Errorf("dropped = %v, want the glob allow reported dropped", dropped)
+	}
+}
+
 func TestTighten_DoesNotMutateInputs(t *testing.T) {
 	baseline := Effective(nil, bashRules("", map[string]core.Action{"*": core.Allow}))
 	add := bashRules(core.Deny, map[string]core.Action{"a": core.Allow, "b": core.Ask, "c": core.Deny})

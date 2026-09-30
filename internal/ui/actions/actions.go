@@ -27,6 +27,7 @@ const (
 	ViewSidebar       ID = "view.sidebar"
 	ViewTheme         ID = "view.theme"
 	ViewReasoning     ID = "view.reasoning"
+	MCPServers        ID = "mcp.servers"
 	HelpKeys          ID = "help.keys"
 	AppQuit           ID = "app.quit"
 	PickerOpen        ID = "picker.open"
@@ -63,6 +64,7 @@ func builtinActions() []Action {
 		{ID: ViewSidebar, Title: "Toggle sidebar", Group: "View"},
 		{ID: ViewTheme, Title: "Switch theme…", Group: "View", Drill: true},
 		{ID: ViewReasoning, Title: "Streamed reasoning…", Group: "View", Drill: true},
+		{ID: MCPServers, Title: "MCP servers…", Group: "MCP", Drill: true},
 		{ID: HelpKeys, Title: "Keybindings", Group: "App", Drill: true},
 		{ID: AppQuit, Title: "Quit", Group: "App"},
 		{ID: PickerOpen, Title: "Open picker", Group: "App"},

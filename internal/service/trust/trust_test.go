@@ -255,6 +255,24 @@ func mutationFixture() Layers {
 	}
 	l.GlobalMD = map[string]core.AgentConfig{"plan": {Permissions: core.PermissionRules{"bash": {Patterns: pats("ls", "allow")}}}}
 	l.Project.Permissions["bash"].Patterns["ls"] = core.Ask
+	disabledFalse := false
+	l.Project.MCP = core.MCPConfig{
+		Servers: map[string]core.MCPServer{
+			"stdio-srv": {
+				Name: "stdio-srv", Source: "/p/.mcp.json", Transport: core.MCPStdio,
+				Command: "npx", Args: []string{"-y", "pkg"},
+				Env: map[string]string{"DEBUG": "1"},
+			},
+			"http-srv": {
+				Name: "http-srv", Source: "/p/.jig/config.toml", Transport: core.MCPHTTP,
+				URL:     "https://example.com/mcp",
+				Headers: map[string]string{"Authorization": "Bearer tok"},
+				OAuth:   core.MCPOAuth{ClientSecret: "cs", Scopes: []string{"read", "write"}},
+			},
+			"toggle-srv": {Name: "toggle-srv", Source: "/p/.mcp.json", Enabled: &disabledFalse},
+		},
+		Disabled: []string{"other"},
+	}
 	return l
 }
 
@@ -290,6 +308,29 @@ func TestRestrict_DoesNotMutateOrAliasInputs(t *testing.T) {
 	}
 	got.Project.Agents["zzz"] = core.AgentConfig{}
 	got.ProjectMD["zzz"] = core.AgentConfig{}
+	for i := range got.Project.MCP.Disabled {
+		got.Project.MCP.Disabled[i] = "evil"
+	}
+	got.Project.MCP.Disabled = append(got.Project.MCP.Disabled, "zzz")
+	for name, s := range got.Project.MCP.Servers {
+		for k := range s.Env {
+			s.Env[k] = "evil"
+		}
+		for k := range s.Headers {
+			s.Headers[k] = "evil"
+		}
+		for i := range s.Args {
+			s.Args[i] = "evil"
+		}
+		for i := range s.OAuth.Scopes {
+			s.OAuth.Scopes[i] = "evil"
+		}
+		if s.Enabled != nil {
+			*s.Enabled = true
+		}
+		got.Project.MCP.Servers[name] = s
+	}
+	got.Project.MCP.Servers["zzz"] = core.MCPServer{}
 	if !reflect.DeepEqual(in, mutationFixture()) {
 		t.Fatal("Restrict's output aliases its input Layers")
 	}
@@ -314,7 +355,7 @@ func runtimeRule(l Layers, name, tool string) core.Rule {
 		agent = permission.Overlay(agent, layer[name].Permissions)
 	}
 	cfg := permission.Overlay(l.Global.Permissions, l.Project.Permissions)
-	return permission.Effective(agent, cfg)[tool]
+	return permission.EffectiveFor(agent, cfg, tool)
 }
 
 func rank(a core.Action) int {

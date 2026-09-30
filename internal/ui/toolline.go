@@ -64,9 +64,92 @@ func toolLine(b transcript.Block, dur time.Duration) (icon, name, summary string
 	case "skill":
 		icon, name, summary = skillLine(b)
 	default:
-		icon, name, summary = unknownLine(b)
+		if strings.HasPrefix(b.Call.Name, "mcp__") {
+			icon, name, summary = mcpLine(b)
+		} else {
+			icon, name, summary = unknownLine(b)
+		}
 	}
 	return
+}
+
+// mcpLine formats an MCP tool call: name is "<server> <tool>", taken from
+// Result.Metadata when present, else split from the call name
+// ("mcp__<server>__<tool...>"). summary is the first string value in the
+// input JSON, by key order, sanitized and truncated (spec §7.4).
+func mcpLine(b transcript.Block) (icon, name, summary string) {
+	var server, tool string
+	if b.Result != nil {
+		server, tool = b.Result.Metadata["mcp.server"], b.Result.Metadata["mcp.tool"]
+	}
+	if server == "" && tool == "" {
+		parts := strings.SplitN(b.Call.Name, "__", 3)
+		if len(parts) == 3 {
+			server, tool = parts[1], parts[2]
+		} else if len(parts) == 2 {
+			server, tool = parts[1], ""
+		}
+	}
+	name = strings.TrimSpace(ansi.SanitizeLine(server) + " " + ansi.SanitizeLine(tool))
+	summary = truncateRunes(ansi.SanitizeLine(firstStringValue(b.Call.Input)), unknownRunes)
+	return defaultIcon, name, summary
+}
+
+// firstStringValue returns the first string value found in raw's top-level
+// JSON object, in the key order it appears in the source. Decoding with
+// json.Decoder's token stream (rather than into a map) keeps that order.
+func firstStringValue(raw json.RawMessage) string {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	// Expect the opening '{'.
+	tok, err := dec.Token()
+	if err != nil {
+		return ""
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '{' {
+		return ""
+	}
+	for dec.More() {
+		// Key.
+		if _, err := dec.Token(); err != nil {
+			return ""
+		}
+		// Value.
+		v, err := dec.Token()
+		if err != nil {
+			return ""
+		}
+		if s, ok := v.(string); ok {
+			return s
+		}
+		if d, ok := v.(json.Delim); ok && (d == '{' || d == '[') {
+			if err := skipValue(dec, d); err != nil {
+				return ""
+			}
+		}
+	}
+	return ""
+}
+
+// skipValue consumes the rest of a JSON array or object value (opened by
+// the delimiter already read), so the decoder's next Token is past it.
+func skipValue(dec *json.Decoder, open json.Delim) error {
+	depth := 1
+	for depth > 0 {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		if d, ok := tok.(json.Delim); ok {
+			switch d {
+			case '{', '[':
+				depth++
+			case '}', ']':
+				depth--
+			}
+		}
+	}
+	_ = open
+	return nil
 }
 
 func readLine(b transcript.Block) (icon, name, summary string) {

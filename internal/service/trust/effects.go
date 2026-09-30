@@ -66,6 +66,7 @@ func Effects(l Layers) []Effect {
 	out = agentEffects(out, l.Project.Agents, false)
 	out = agentEffects(out, l.ProjectMD, true)
 	out = tokenEffects(out, l.ProjectTokens)
+	out = mcpEffects(out, l)
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if a.Key != b.Key {
@@ -132,8 +133,10 @@ func providerEffects(out []Effect, prefix string, pc core.ProviderConfig) []Effe
 }
 
 // tokenRE matches "{env:VAR}" and "{file:path}" substitution tokens (the
-// same syntax internal/data/config substitutes).
-const tokenRE = `\{(env|file):[^}]*\}`
+// same syntax internal/data/config substitutes), plus "${VAR}" and
+// "${VAR:-default}" tokens (the .mcp.json syntax, spec §5.1/§5.2): a
+// server value holding one is a name, not a secret, and prints raw.
+const tokenRE = `\{(env|file):[^}]*\}|\$\{[^}]*\}`
 
 // tokensIn appends every substitution token in s to dst.
 func tokensIn(dst []string, s string) []string {

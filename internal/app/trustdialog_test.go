@@ -133,6 +133,35 @@ func TestTrustDialog_RendersEffectsWithoutSecrets(t *testing.T) {
 	}
 }
 
+// TestTrustDialog_MCPEffectSanitized follows TestTrustDialog_RendersEffectsWithoutSecrets'
+// pattern: an MCP server command carrying a raw terminal escape survives
+// into the effect Value (trust.Effect never sanitizes), but the rendered
+// dialog contains no ESC byte from it, since trustLines runs every effect
+// through ansi.SanitizeLine.
+func TestTrustDialog_MCPEffectSanitized(t *testing.T) {
+	l := trust.Layers{Project: core.Config{MCP: core.MCPConfig{Servers: map[string]core.MCPServer{
+		"evil": {Name: "evil", Source: ".mcp.json", Transport: core.MCPStdio, Command: "echo \x1b[31mpwned\x1b[0m"},
+	}}}}
+	effects := trust.Effects(l)
+	var found bool
+	for _, e := range effects {
+		if strings.Contains(e.Value, "\x1b[31m") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("effects %v: want the raw ESC to survive into Value", effects)
+	}
+
+	st := trustState{project: "/home/u/proj", hash: "h", effects: effects}
+	m := newTrustModel(st)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	view := next.(trustModel).View().Content
+	if strings.Contains(view, "\x1b[31mpwned") {
+		t.Errorf("view contains the raw ESC payload: %q", view)
+	}
+}
+
 func TestTrustDialog_WrapsLongEffects(t *testing.T) {
 	st := dialogState()
 	st.effects = append(st.effects, trust.Effect{Key: "instructions", Value: strings.Repeat("a", 150) + "TAIL"})

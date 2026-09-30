@@ -17,6 +17,7 @@ type Config struct {
 	Keybinds      map[string]string
 	Theme         string
 	AgentBrowser  Toggle // TOML: [integrations.agent_browser] enabled = ...
+	MCP           MCPConfig
 }
 
 // ProviderConfig configures one LLM provider.
