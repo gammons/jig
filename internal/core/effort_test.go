@@ -64,6 +64,8 @@ func TestEffectiveEffort(t *testing.T) {
 		{"clamp up", levels, EffortNone, EffortLow},
 		{"tie goes lower", sparse, EffortMedium, EffortLow},
 		{"unknown want uses default", levels, "turbo", EffortMedium},
+		{"default above levels clamps", ModelInfo{Efforts: []Effort{EffortLow, EffortMedium, EffortHigh}, DefaultEffort: EffortXHigh}, "", EffortHigh},
+		{"default below levels clamps", ModelInfo{Efforts: []Effort{EffortLow, EffortHigh}, DefaultEffort: EffortMinimal}, "", EffortLow},
 	}
 	for _, tt := range tests {
 		if got := EffectiveEffort(tt.info, tt.want); got != tt.out {

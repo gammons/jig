@@ -46,16 +46,19 @@ func ParseEffort(s string) (Effort, error) {
 }
 
 // EffectiveEffort is the level a request to a model described by info
-// carries when want was asked for: "" when the model has no levels; the
-// catalog default when want is unset (or off the scale); want itself when
-// the model lists it; else the model's level nearest want on the scale,
-// the lower one on a tie.
+// carries when want was asked for: "" when the model has no levels; when
+// want is unset (or off the scale), the catalog default in its place, or
+// "" when there is none; want itself when the model lists it; else the
+// model's level nearest want on the scale, the lower one on a tie.
 func EffectiveEffort(info ModelInfo, want Effort) Effort {
 	if len(info.Efforts) == 0 {
 		return ""
 	}
 	if !want.Known() {
-		return info.DefaultEffort
+		want = info.DefaultEffort
+	}
+	if !want.Known() {
+		return ""
 	}
 	if slices.Contains(info.Efforts, want) {
 		return want
@@ -73,9 +76,6 @@ func EffectiveEffort(info ModelInfo, want Effort) Effort {
 		if bestDist < 0 || d < bestDist || (d == bestDist && r < best.rank()) {
 			best, bestDist = e, d
 		}
-	}
-	if best == "" {
-		return info.DefaultEffort
 	}
 	return best
 }
