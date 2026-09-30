@@ -325,6 +325,29 @@ func TestManager_AuthenticateFlow(t *testing.T) {
 	}
 }
 
+// TestManager_AuthenticateRightAfterStart reproduces `jig mcp auth`: Start
+// then Authenticate at once. Start's background connect must not be able
+// to supersede (and cancel) the sign-in, even when its goroutine only gets
+// to run after Authenticate has begun.
+func TestManager_AuthenticateRightAfterStart(t *testing.T) {
+	h := newHarness(t, httpServer("gh", "https://gh.example/mcp"))
+	sess := newFakeSession()
+	h.auth.sess = sess
+	startDial := make(chan struct{})
+	h.auth.waitBefore = startDial
+	h.dialer.script("gh", fakeDial{block: true, started: startDial})
+	h.dialer.script("gh", fakeDial{})
+
+	h.m.Start(context.Background())
+	err := h.m.Authenticate(context.Background(), "gh")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	if got := statusOf(h.m, "gh"); got.State != core.MCPReady {
+		t.Errorf("State = %q (err %q), want ready", got.State, got.Err)
+	}
+}
+
 func TestManager_AuthenticateCancel(t *testing.T) {
 	h := newHarness(t, httpServer("gh", "https://gh.example/mcp"))
 	sess := newFakeSession()

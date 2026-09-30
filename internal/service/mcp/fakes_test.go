@@ -235,12 +235,20 @@ type fakeAuth struct {
 	sess  *fakeSession
 	err   error
 	calls int
+
+	// waitBefore, if non-nil, is read by Begin before it returns, so a
+	// test can hold Begin until some other goroutine has made progress.
+	waitBefore chan struct{}
 }
 
 func (a *fakeAuth) Begin(ctx context.Context, srv core.MCPServer) (Session, error) {
 	a.mu.Lock()
 	a.calls++
+	wait := a.waitBefore
 	a.mu.Unlock()
+	if wait != nil {
+		<-wait
+	}
 	if a.err != nil {
 		return nil, a.err
 	}

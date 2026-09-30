@@ -236,11 +236,28 @@ func (m *Manager) Start(ctx context.Context) {
 		st.status.State = core.MCPConnecting
 		toConnect = append(toConnect, name)
 	}
+	// Claim each server's generation here, under the lock, rather than in
+	// the goroutine: an Authenticate called right after Start (as `jig mcp
+	// auth` does) must supersede this connect, never the other way round.
+	type claim struct {
+		name   string
+		gen    int
+		ctx    context.Context
+		cancel context.CancelFunc
+	}
+	claims := make([]claim, 0, len(toConnect))
+	for _, name := range toConnect {
+		st := m.servers[name]
+		st.generation++
+		cctx, cancel := context.WithCancel(m.baseCtx)
+		st.cancel = cancel
+		claims = append(claims, claim{name, st.generation, cctx, cancel})
+	}
 	m.mu.Unlock()
 
-	for _, name := range toConnect {
+	for _, c := range claims {
 		m.wg.Add(1)
-		go m.connectServer(name)
+		go m.connectServer(c.name, c.gen, c.ctx, c.cancel)
 	}
 }
 
