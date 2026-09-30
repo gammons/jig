@@ -66,7 +66,12 @@ func pushTheme(a *App) {
 	for _, p := range a.view.col {
 		if p.kind == paneDetails {
 			p.body.SetStyles(set.Details)
+			continue
 		}
+		for id := range p.track.versions {
+			p.track.versions[id]++
+		}
+		p.list.SetStyles(set.Blocklist, a.theme.version)
 	}
 }
 

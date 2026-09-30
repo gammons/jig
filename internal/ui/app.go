@@ -71,7 +71,10 @@ func (m mode) String() string {
 // Messages the App schedules for itself.
 type (
 	streamTickMsg struct{}
-	resizeMsg     struct{ gen int }
+	resizeMsg     struct {
+		gen  int
+		pane *pane
+	}
 )
 
 // viewState is the App's presentation state: the sidebar preference, the
@@ -188,9 +191,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamTickMsg:
 		cmd = a.onTick()
 	case resizeMsg:
-		if msg.gen == a.sess.main.sz.resizeGen {
-			a.applyListWidth()
-		}
+		applyResizeMsg(a, msg)
 	case tea.MouseMsg, mouseScrollMsg:
 		cmd = mouseCtl{a}.handle(msg)
 	default:

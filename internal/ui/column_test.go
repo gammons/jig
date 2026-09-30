@@ -13,6 +13,7 @@ import (
 	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/core/event"
 	"github.com/gammons/jig/internal/golden"
+	"github.com/gammons/jig/internal/ui/transcript"
 )
 
 // TestColumn_EnterOpensDetailsEntry: enter on a selected bash block opens
@@ -771,4 +772,214 @@ func TestMouse_SelectCopyInSubagentPane(t *testing.T) {
 	if !strings.Contains(got, "first child line") || !strings.Contains(got, "second child line") {
 		t.Errorf("clipboard = %q, want both child lines", got)
 	}
+}
+
+// TestColumn_NarrowTakeover: at 100 wide, opening the subagent pane
+// takes over the whole region (main's blocks are not shown); tab back
+// to main shows main's blocks plus a crumb row with a hint naming the
+// column's top title.
+func TestColumn_NarrowTakeover(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withSize(100, 30))
+	ta.sendAndAdopt("find it")
+	ta.startSubagent()
+	ta.event(event.TextDelta{Base: childBase(), MessageID: "k1", Text: "child text here"})
+	ta.key("esc")
+	ta.key("enter")
+
+	if ta.app.view.focus != focusColumn {
+		t.Fatalf("focus = %v, want focusColumn", ta.app.view.focus)
+	}
+	view := xansi.Strip(ta.view())
+	if strings.Contains(view, "find it") {
+		t.Errorf("narrow column-focused view still shows main's blocks:\n%s", view)
+	}
+	if !strings.Contains(view, "child text here") {
+		t.Errorf("narrow column-focused view missing the child's text:\n%s", view)
+	}
+
+	ta.key("tab")
+	if ta.app.view.focus != focusMain {
+		t.Fatalf("focus after tab = %v, want focusMain", ta.app.view.focus)
+	}
+	view = xansi.Strip(ta.view())
+	if !strings.Contains(view, "find it") {
+		t.Errorf("narrow main-focused view missing main's blocks:\n%s", view)
+	}
+	if strings.Contains(view, "child text here") {
+		t.Errorf("narrow main-focused view still shows the column's blocks:\n%s", view)
+	}
+	if !strings.Contains(view, "tab → ↳ explore: find the config") {
+		t.Errorf("narrow main-focused view missing the crumb hint:\n%s", view)
+	}
+}
+
+// TestColumn_ResizeAppliesToTopPane (Review Focus 2): the column's top
+// pane's list width is debounced by its own resizeGen, independent of
+// main's; a stale resizeMsg for a popped pane is dropped without panic
+// and leaves main untouched.
+func TestColumn_ResizeAppliesToTopPane(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withSize(160, 30))
+	ta.sendAndAdopt("find it")
+	ta.startSubagent()
+	ta.key("esc")
+	ta.key("enter")
+
+	top := columnTop(ta.app)
+	if top == nil || top.kind != paneTranscript {
+		t.Fatalf("test setup: top().kind = %v, want paneTranscript", top)
+	}
+	mainW := ta.app.sess.main.sz.listW
+
+	ta.send(tea.WindowSizeMsg{Width: 200, Height: 30})
+	ta.fire()
+	if got := columnTop(ta.app).sz.listW; got != 99 {
+		t.Errorf("top().listW after resize+fire = %d, want 99", got)
+	}
+
+	// Pop the pane, then deliver its stale resizeMsg: no panic, and
+	// main's width is unchanged.
+	poppedTop := top
+	staleGen := poppedTop.sz.resizeGen
+	ta.key("esc")
+	if columnOpen(ta.app) {
+		t.Fatal("test setup: column still open after esc")
+	}
+	mainWAfterPop := ta.app.sess.main.sz.listW
+	ta.send(resizeMsg{gen: staleGen, pane: poppedTop})
+	if got := ta.app.sess.main.sz.listW; got != mainWAfterPop {
+		t.Errorf("a stale pane resizeMsg changed main's width: %d, want %d", got, mainWAfterPop)
+	}
+	_ = mainW
+
+	// A resizeMsg for a pane not in col and not main is dropped: build
+	// an unrelated pane and deliver a resizeMsg naming it.
+	other := &pane{kind: paneTranscript}
+	other.sz.listW, other.sz.resizeGen = 5, 1
+	ta.send(resizeMsg{gen: 1, pane: other})
+	if other.sz.listW != 5 {
+		t.Errorf("a dropped resizeMsg mutated an unrelated pane: listW = %d, want 5", other.sz.listW)
+	}
+}
+
+// TestColumn_ThemeRestylesChildPane (Review Focus 1): pushTheme bumps
+// every item version in the column's child pane and restyles its list,
+// so its View differs from before in the child region.
+func TestColumn_ThemeRestylesChildPane(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("find it")
+	ta.startSubagent()
+	ta.event(event.TextDelta{Base: childBase(), MessageID: "k1", Text: "child text"})
+	ta.key("esc")
+	ta.key("enter")
+
+	top := columnTop(ta.app)
+	if top == nil || top.kind != paneTranscript {
+		t.Fatalf("test setup: top().kind = %v, want paneTranscript", top)
+	}
+	before := map[string]int{}
+	for id, v := range top.track.versions {
+		before[string(id)] = v
+	}
+	if len(before) == 0 {
+		t.Fatal("test setup: no items in the child pane")
+	}
+	beforeView := columnTop(ta.app).list.View()
+
+	if !ta.app.theme.preview("nord") {
+		t.Fatal("test setup: nord preview did not apply")
+	}
+	pushTheme(ta.app)
+	ta.send(nil)
+
+	for id, v := range before {
+		if got := top.track.versions[transcript.BlockID(id)]; got <= v {
+			t.Errorf("child item %s version = %d, want > %d", id, got, v)
+		}
+	}
+	afterView := columnTop(ta.app).list.View()
+	if afterView == beforeView {
+		t.Error("theme push did not change the column's rendered view")
+	}
+}
+
+// TestColumn_ChildFinishStopsSpinners (Review Focus 3): a running child
+// bash's spinner stops once the child's tool and the run both finish;
+// after the root settles and the queue returns, no further streamTick
+// is scheduled.
+func TestColumn_ChildFinishStopsSpinners(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("find it")
+	ta.startSubagent()
+	ta.event(event.ToolCallStarted{Base: childBase(), MessageID: "k1",
+		Call: core.ToolCall{ID: "k1", Name: "bash", Input: []byte(`{"command":"ls"}`)}})
+	ta.key("esc")
+	ta.key("enter")
+
+	top := columnTop(ta.app)
+	if top == nil || top.kind != paneTranscript {
+		t.Fatalf("test setup: top().kind = %v, want paneTranscript", top)
+	}
+	if len(top.track.live) == 0 {
+		t.Fatal("test setup: child bash not tracked as live")
+	}
+
+	ta.event(event.ToolCallFinished{Base: childBase(), MessageID: "k1", Result: core.ToolResult{CallID: "k1", Name: "bash", Output: "ok"}})
+	ta.event(event.RunFinished{Base: childBase(), MessageID: "k1"})
+	ta.fire()
+	if n := len(columnTop(ta.app).track.live); n != 0 {
+		t.Errorf("top().live after child finish = %d, want 0", n)
+	}
+
+	ta.event(event.RunFinished{Base: rootBase(), MessageID: "m1"})
+	ta.returnSend()
+	ta.fire() // deliver the tick scheduled before the root settled
+	if len(ta.deferred) != 0 {
+		t.Errorf("deferred ticks after the root settled = %+v, want none", ta.deferred)
+	}
+}
+
+// TestColumn_GoldenNested: 160×30, drilled two levels deep (a
+// grandchild's pane), the full breadcrumb path shown.
+func TestColumn_GoldenNested(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withSize(160, 30))
+	ta.sendAndAdopt("find it")
+	ta.startSubagent()
+	ta.event(event.ToolCallStarted{Base: childBase(), MessageID: "k1",
+		Call: core.ToolCall{ID: "c2", Name: "task", Input: []byte(`{"agent":"general","description":"deeper"}`)}})
+	ta.event(event.SubagentSpawned{Base: childBase(), Child: "ses_g", Agent: "general", Description: "deeper", CallID: "c2"})
+	ta.event(event.TextDelta{Base: event.Base{SessionID: "ses_g", RootID: "ses_1"}, MessageID: "g1", Text: "grandchild text"})
+	ta.key("esc")
+	ta.key("enter") // main -> child pane
+	ta.key("enter") // child -> grandchild pane
+	golden.Assert(t, "app_subagent_nested", ta.view())
+}
+
+// TestColumn_GoldenWide: 160×30, the subagent pane open beside main.
+func TestColumn_GoldenWide(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withSize(160, 30))
+	ta.sendAndAdopt("find it")
+	ta.startSubagent()
+	ta.event(event.TextDelta{Base: childBase(), MessageID: "k1", Text: "**bold** child text"})
+	ta.key("esc")
+	ta.key("enter")
+	golden.Assert(t, "app_subagent_view_wide", ta.view())
+}
+
+// TestColumn_GoldenNarrow: 100×30, the subagent pane takes over the
+// whole region.
+func TestColumn_GoldenNarrow(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withSize(100, 30))
+	ta.sendAndAdopt("find it")
+	ta.startSubagent()
+	ta.event(event.TextDelta{Base: childBase(), MessageID: "k1", Text: "**bold** child text"})
+	ta.key("esc")
+	ta.key("enter")
+	golden.Assert(t, "app_subagent_view_narrow", ta.view())
 }

@@ -1,10 +1,17 @@
 package ui
 
-import tea "charm.land/bubbletea/v2"
+import (
+	"slices"
+
+	tea "charm.land/bubbletea/v2"
+)
 
 // relayout recomputes the layout for the current size and prompt height
-// and sizes every widget to it. The transcript list's height applies at
-// once; a width change is debounced (it re-renders every block).
+// and sizes every widget to it. Each transcript pane's list height
+// applies at once; a width change is debounced separately per pane
+// (resizePane, keyed by that pane's own resizeGen), so main and the
+// column's transcript panes each coalesce their own resize bursts
+// without interfering with one another (spec §5.1).
 func (a *App) relayout() tea.Cmd {
 	a.lay = layoutFor(a)
 	a.w.status.SetWidth(a.lay.Status.W)
@@ -12,13 +19,14 @@ func (a *App) relayout() tea.Cmd {
 	a.w.side.SetSize(a.lay.Side.W, a.lay.Side.H)
 	a.w.picker.SetSize(a.width, a.height)
 	a.w.confirm.SetSize(a.width, a.height)
+	var cmds []tea.Cmd
 	if columnOpen(a) {
 		bw, bh := a.lay.Side.W, max(a.lay.Side.H-columnHeaderRows, 0)
 		for _, p := range a.view.col {
 			if p.kind == paneDetails {
 				p.body.SetSize(bw, bh)
 			} else {
-				p.list.SetSize(bw, bh)
+				cmds = append(cmds, resizePane(a, p, bw, bh))
 			}
 		}
 	}
@@ -27,29 +35,61 @@ func (a *App) relayout() tea.Cmd {
 	if a.lay.MainCrumb {
 		th = max(th-columnHeaderRows, 0)
 	}
-	if a.sess.main.sz.listW == 0 || tw == a.sess.main.sz.listW {
-		a.sess.main.sz.pendingW = tw
-		a.sess.main.list.SetSize(tw, th)
-		a.sess.main.sz.listW, a.sess.main.sz.listH = tw, th
-		return nil
-	}
-	a.sess.main.list.SetSize(a.sess.main.sz.listW, th)
-	a.sess.main.sz.listH = th
-	if tw == a.sess.main.sz.pendingW {
-		return nil
-	}
-	a.sess.main.sz.resizeGen++
-	a.sess.main.sz.pendingW = tw
-	return a.after(resizeDebounce, resizeMsg{gen: a.sess.main.sz.resizeGen})
+	cmds = append(cmds, resizePane(a, a.sess.main, tw, th))
+	return tea.Batch(cmds...)
 }
 
-// applyListWidth gives the transcript list the layout's current size.
-func (a *App) applyListWidth() {
-	th := a.lay.Transcript.H
-	if a.lay.MainCrumb {
-		th = max(th-columnHeaderRows, 0)
+// resizePane gives p's transcript list height h at once; a width change
+// from p's currently applied width is debounced (resizeDebounce), so a
+// burst of resizes re-renders every block in p once, not once per step.
+// The very first size (p.sz.listW == 0, before anything has been
+// applied) and a width matching what's already shown apply at once.
+func resizePane(a *App, p *pane, w, h int) tea.Cmd {
+	if p.sz.listW == 0 || w == p.sz.listW {
+		p.sz.pendingW = w
+		p.list.SetSize(w, h)
+		p.sz.listW, p.sz.listH = w, h
+		return nil
 	}
-	a.sess.main.list.SetSize(a.lay.Transcript.W, th)
-	a.sess.main.sz.listW, a.sess.main.sz.listH = a.lay.Transcript.W, th
-	a.sess.main.sz.pendingW = a.sess.main.sz.listW
+	p.list.SetSize(p.sz.listW, h)
+	p.sz.listH = h
+	if w == p.sz.pendingW {
+		return nil
+	}
+	p.sz.resizeGen++
+	p.sz.pendingW = w
+	return a.after(resizeDebounce, resizeMsg{gen: p.sz.resizeGen, pane: p})
+}
+
+// applyPaneWidth gives p's transcript list its pending debounced width.
+func applyPaneWidth(p *pane, w, h int) {
+	p.list.SetSize(w, h)
+	p.sz.listW, p.sz.listH = w, h
+	p.sz.pendingW = w
+}
+
+// applyResizeMsg applies a debounced resizeMsg to its pane, if that pane
+// is still main or still in the column and msg.gen still matches its
+// current debounce generation; a message for any other pane (popped
+// from the column, or unrelated) is dropped (spec §5.1).
+func applyResizeMsg(a *App, msg resizeMsg) {
+	p := msg.pane
+	if p == nil {
+		return
+	}
+	if p == a.sess.main {
+		if msg.gen != p.sz.resizeGen {
+			return
+		}
+		th := a.lay.Transcript.H
+		if a.lay.MainCrumb {
+			th = max(th-columnHeaderRows, 0)
+		}
+		applyPaneWidth(p, a.lay.Transcript.W, th)
+		return
+	}
+	if msg.gen != p.sz.resizeGen || !slices.Contains(a.view.col, p) {
+		return
+	}
+	applyPaneWidth(p, a.lay.Side.W, max(a.lay.Side.H-columnHeaderRows, 0))
 }
