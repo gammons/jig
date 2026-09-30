@@ -126,6 +126,7 @@ func (s *idSet) take() []transcript.BlockID {
 type sessionState struct {
 	attach []string
 	main   *pane
+	kids   map[core.SessionID]*pane
 	info   core.Session
 	model  string
 	run    runState
@@ -143,7 +144,7 @@ type sessionState struct {
 // from the App's theme).
 func newSessionState(id core.SessionID, clk clock.Clock, cat catalog, main *pane) *sessionState {
 	return &sessionState{
-		main: main, info: core.Session{ID: id}, clk: clk, cat: cat,
+		main: main, kids: map[core.SessionID]*pane{}, info: core.Session{ID: id}, clk: clk, cat: cat,
 	}
 }
 
@@ -284,6 +285,7 @@ func (s *sessionState) adopt(info core.Session) bool {
 		s.info.Effort = prev.Effort
 	}
 	main.resetBlocks()
+	s.kids = map[core.SessionID]*pane{}
 	return true
 }
 

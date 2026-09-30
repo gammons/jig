@@ -249,6 +249,7 @@ func (a *App) onEvent(ev event.Event) tea.Cmd {
 		a.w.setItems(a.sess.main, a.sess.allItems())
 	}
 	cmds := []tea.Cmd{waitEvent(a.sub), foldCtl{a}.apply(res)}
+	cmds = append(cmds, kidsCtl{a}.onEvent(ev))
 	if res.settled {
 		cmds = append(cmds, a.sender().afterRun())
 	}
@@ -311,6 +312,8 @@ func (a *App) onResult(msg tea.Msg) tea.Cmd {
 		return a.sender().done(msg)
 	case detailsMsg:
 		return detailsCtl{a}.result(msg)
+	case childLoadedMsg:
+		return kidsCtl{a}.childLoaded(msg)
 	case cardArmMsg:
 		permCtl{a}.armed(msg)
 	case tea.TerminalVersionMsg:
@@ -354,6 +357,7 @@ func (a *App) onPortResult(msg tea.Msg) tea.Cmd {
 			installMain(a, freshSession(a.sess, msg.info.ID, a.w.render, &a.theme.set))
 			a.view.detailsOpen = false
 		}
+		kidsCtl{a}.clearKids()
 		a.sess.load(msg.info, msg.msgs, msg.todos)
 		a.w.setItems(a.sess.main, a.sess.allItems())
 		a.w.prompt.SetAgent(ansi.SanitizeLine(a.sess.info.Agent))

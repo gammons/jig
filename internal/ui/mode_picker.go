@@ -297,6 +297,7 @@ func freshSession(old *sessionState, id core.SessionID, r *renderer, set *theme.
 // check).
 func installMain(a *App, s *sessionState) {
 	a.sess = s
+	kidsCtl{a}.clearKids()
 	a.sess.main.list.SetHighlight(a.mode == modeNormal)
 	a.sess.main.list.SetStyles(a.theme.set.Blocklist, a.theme.version)
 	if s.main.track.fold.search {

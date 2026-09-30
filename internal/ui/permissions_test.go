@@ -403,21 +403,21 @@ func TestApp_SubagentDetailsRefreshPerTick(t *testing.T) {
 		defer ta.sessions.mu.Unlock()
 		return ta.sessions.msgCalls["ses_c"]
 	}
-	if n := calls(); n != 1 {
-		t.Fatalf("Messages(ses_c) calls after opening = %d, want 1", n)
+	if n := calls(); n != 2 { // +1: the child pane loads once on spawn (kids.go); P3 replaces this test.
+		t.Fatalf("Messages(ses_c) calls after opening = %d, want 2", n)
 	}
 	for range 3 {
 		ta.event(event.TextDelta{Base: childBase(), MessageID: "k2", Text: "more "})
 	}
-	if n := calls(); n != 1 {
+	if n := calls(); n != 2 {
 		t.Fatalf("child events re-read at once (%d calls); want it deferred to the tick", n)
 	}
 	ta.fire()
-	if n := calls(); n != 2 {
-		t.Fatalf("Messages(ses_c) calls after one tick = %d, want 2", n)
+	if n := calls(); n != 3 {
+		t.Fatalf("Messages(ses_c) calls after one tick = %d, want 3", n)
 	}
 	ta.fire()
-	if n := calls(); n != 2 {
+	if n := calls(); n != 3 {
 		t.Fatalf("a tick with no child events re-read (%d calls)", n)
 	}
 	if !strings.Contains(xansi.Strip(ta.view()), "child says hi") {

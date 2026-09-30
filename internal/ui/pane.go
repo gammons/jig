@@ -38,6 +38,18 @@ type pane struct {
 	track   itemTrack
 	times   blockTimes
 	sz      listSize
+	title   string // a kid pane's breadcrumb text
+	load    kidLoad
+}
+
+// kidLoad is a kid pane's on-demand history load (spec §4.2): while
+// loading is set, live events aren't applied to the pane's projection but
+// appended to buffered instead, and replayed once the load resolves. gen
+// guards a stale load's result from applying after a newer one started.
+type kidLoad struct {
+	loading  bool
+	buffered []event.Event
+	gen      int
 }
 
 // newTranscriptPane builds a paneTranscript pane over proj, with its own

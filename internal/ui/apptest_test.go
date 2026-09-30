@@ -148,6 +148,9 @@ func (f *recSessions) Messages(_ context.Context, id core.SessionID) ([]core.Mes
 	if msgs, ok := f.otherMsgs[id]; ok {
 		return msgs, nil
 	}
+	if id != f.info.ID {
+		return nil, nil
+	}
 	return f.msgs, nil
 }
 
