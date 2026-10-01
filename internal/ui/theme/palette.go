@@ -217,6 +217,56 @@ func mixColors(fg, bg string, alpha float64) string {
 	return fmt.Sprintf("#%02X%02X%02X", r, g, b)
 }
 
+// tint is mixColors, except that when either color is an ANSI-16 index
+// (so no mix is possible) it returns fg rather than bg: the caller wants
+// a softened fg, and plain fg beats losing the color altogether.
+func tint(fg, bg string, alpha float64) string {
+	_, _, _, ok1 := parseHex(fg)
+	_, _, _, ok2 := parseHex(bg)
+	if !ok1 || !ok2 {
+		return fg
+	}
+	return mixColors(fg, bg, alpha)
+}
+
+// successColor is the palette's "done/added" foreground: Accent blended
+// halfway toward TextMuted, so finished todos and added files read as
+// green without being the theme's loudest color.
+func successColor(p Palette) string {
+	return tint(p.Accent, p.TextMuted, successAlpha)
+}
+
+// successAlpha is Accent's share of successColor.
+const successAlpha = 0.55
+
+// removedLineBg is a removed diff line's background: a light wash of
+// Error over Background, the same idea as the added line's
+// SelectionBgFocused tint, so a deletion is marked without drowning the
+// code in solid red.
+func removedLineBg(p Palette) string {
+	return tint(p.Error, p.Background, removedTintAlpha)
+}
+
+// removedTintAlpha is Error's share of removedLineBg.
+const removedTintAlpha = 0.2
+
+// gaugeTrackColor is the unfilled part of the sidebar's context gauge:
+// TextMuted halfway toward Background (the sidebar is drawn over the
+// screen's Background), unless that sinks too close to Background to see
+// (or can't be mixed), then TextMuted itself. Border, used before, sits
+// at a WCAG contrast of ~1.1-1.3 on many themes: practically invisible.
+func gaugeTrackColor(p Palette) string {
+	c := mixColors(p.TextMuted, p.Background, 0.5)
+	if r, ok := Contrast(c, p.Background); ok && r >= minTrackContrast {
+		return c
+	}
+	return p.TextMuted
+}
+
+// minTrackContrast is the lowest WCAG contrast gaugeTrackColor accepts
+// against the sidebar's background.
+const minTrackContrast = 1.6
+
 // parseHex parses s as "#RRGGBB". ok is false for any other form,
 // including a bare ANSI-16 index string.
 func parseHex(s string) (r, g, b uint8, ok bool) {

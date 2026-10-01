@@ -105,19 +105,19 @@ func statusStyles(p Palette) statusbar.Styles {
 // sidebarStyles maps p onto sidebar.Styles: section headers use Primary
 // like every other pane title, the base text/muted tones use the
 // palette's dedicated Sidebar* colors (falling back to the message pane's
-// via Complete), Success reuses Accent (the palette has no dedicated
-// green, the same gap codeStyles works around), and a Gauge's unfilled
-// track uses Border, the same role it plays in blocklistStyles.
+// via Complete), Success is successColor (Accent softened toward
+// TextMuted; the palette has no dedicated green), and a Gauge's unfilled
+// track uses gaugeTrackColor, which stays visible on every theme.
 func sidebarStyles(p Palette) sidebar.Styles {
 	return sidebar.Styles{
 		Header:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Primary)),
 		Normal:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.SidebarText)),
 		Muted:      lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.SidebarTextMuted)),
 		Accent:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
-		Success:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Success:    lipgloss.NewStyle().Foreground(lipgloss.Color(successColor(p))),
 		Warning:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
 		Error:      lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
-		GaugeEmpty: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Border)),
+		GaugeEmpty: lipgloss.NewStyle().Foreground(lipgloss.Color(gaugeTrackColor(p))),
 	}
 }
 
@@ -280,10 +280,11 @@ func markdownStyles(p Palette) mdrender.Styles {
 // Primary/Accent to match the rest of the UI's accent colors; Type and
 // Func also draw from Accent (bolded for Func) since the palette has no
 // dedicated third accent. String and Number share Warning, the same
-// stand-out color markdownStyles uses for code. Added and Removed use the
-// palette's derived focused-selection tint and its Error color as
-// backgrounds — the palette has no dedicated green/red pair, so Error is
-// the only color guaranteed to read as "bad" across every theme.
+// stand-out color markdownStyles uses for code. Added uses the palette's
+// derived focused-selection tint as a background and Removed a matching
+// light wash of Error (removedLineBg) — the palette has no dedicated
+// green/red pair, so Error is the only color guaranteed to read as "bad"
+// across every theme, and a full-strength Error fill is far too loud.
 func codeStyles(p Palette) coderender.Styles {
 	return coderender.Styles{
 		Plain:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
@@ -296,7 +297,7 @@ func codeStyles(p Palette) coderender.Styles {
 		Comment:  lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color(p.TextMuted)),
 		Operator: lipgloss.NewStyle().Foreground(lipgloss.Color(p.TextMuted)),
 		Added:    lipgloss.NewStyle().Background(lipgloss.Color(p.SelectionBgFocused)),
-		Removed:  lipgloss.NewStyle().Background(lipgloss.Color(p.Error)),
+		Removed:  lipgloss.NewStyle().Background(lipgloss.Color(removedLineBg(p))),
 		Hunk:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Accent)),
 		Gutter:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.TextMuted)),
 	}

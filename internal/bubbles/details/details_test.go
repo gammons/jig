@@ -1,10 +1,12 @@
 package details
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
 	"charm.land/lipgloss/v2"
+	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/gammons/jig/internal/golden"
 )
@@ -202,7 +204,7 @@ func TestDetails_HitTest(t *testing.T) {
 	// clamping through the exported API would mask the bounds check
 	// under test), the same cell is past the end.
 	m2 := m
-	m2.content.Lines = lines(5)
+	m2.lines = lines(5)
 	if _, _, ok := m2.HitTest(0, 5); ok {
 		t.Errorf("HitTest(0,5) with 5 lines ok = true, want false (past content)")
 	}
@@ -332,5 +334,40 @@ func TestDetails_TabsExpandBeforeFitting(t *testing.T) {
 	body := strings.Split(m.View(), "\n")[2]
 	if want := "a    b    c         "; body != want {
 		t.Errorf("body row = %q, want %q (tabs as 4 spaces, exactly 20 cells)", body, want)
+	}
+}
+
+// TestDetails_WrapsLongLines: a body line wider than the pane wraps onto
+// further lines (never cut), keeping its style on each continuation;
+// scrolling, Lines, and a width change all follow the wrapped lines.
+func TestDetails_WrapsLongLines(t *testing.T) {
+	t.Parallel()
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000"))
+	m := New(WithoutHeader())
+	m.SetSize(10, 5)
+	m.SetContent(Content{Lines: []string{red.Render("aaaa bbbb cccc dddd"), "short"}})
+
+	got := m.Lines()
+	plain := make([]string, len(got))
+	for i, l := range got {
+		plain[i] = strings.TrimRight(xansi.Strip(l), " ")
+	}
+	if want := []string{"aaaa bbbb", "cccc dddd", "short"}; !slices.Equal(plain, want) {
+		t.Fatalf("Lines() = %q, want %q", plain, want)
+	}
+	if !strings.Contains(got[1], "38;2;255;0;0") {
+		t.Errorf("continuation line %q lost the line's color", got[1])
+	}
+	view := strings.Split(xansi.Strip(m.View()), "\n")
+	if strings.TrimSpace(view[1]) != "cccc dddd" {
+		t.Errorf("View() row 1 = %q, want the wrapped continuation", view[1])
+	}
+	if line, _, ok := m.HitTest(0, 2); !ok || line != 2 {
+		t.Errorf("HitTest(0,2) = (%d,%v), want line 2 (the drawn line index)", line, ok)
+	}
+
+	m.SetSize(40, 5)
+	if n := len(m.Lines()); n != 2 {
+		t.Errorf("after widening, Lines() has %d lines, want 2 (unwrapped)", n)
 	}
 }

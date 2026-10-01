@@ -78,7 +78,7 @@ func TestBuild_CodeFromPalette(t *testing.T) {
 		Comment:  lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color(p.TextMuted)),
 		Operator: lipgloss.NewStyle().Foreground(lipgloss.Color(p.TextMuted)),
 		Added:    lipgloss.NewStyle().Background(lipgloss.Color(p.SelectionBgFocused)),
-		Removed:  lipgloss.NewStyle().Background(lipgloss.Color(p.Error)),
+		Removed:  lipgloss.NewStyle().Background(lipgloss.Color(removedLineBg(p))),
 		Hunk:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Accent)),
 		Gutter:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.TextMuted)),
 	}
@@ -306,10 +306,10 @@ func TestBuild_SidebarFromPalette(t *testing.T) {
 		Normal:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.SidebarText)),
 		Muted:      lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.SidebarTextMuted)),
 		Accent:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
-		Success:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Success:    lipgloss.NewStyle().Foreground(lipgloss.Color(successColor(p))),
 		Warning:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
 		Error:      lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
-		GaugeEmpty: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Border)),
+		GaugeEmpty: lipgloss.NewStyle().Foreground(lipgloss.Color(gaugeTrackColor(p))),
 	}
 	if !reflect.DeepEqual(set.Sidebar, want) {
 		t.Errorf("Sidebar = %+v, want %+v", set.Sidebar, want)
@@ -413,7 +413,7 @@ func TestBuild_RenderFromPalette(t *testing.T) {
 		Warn:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
 		Dim:     lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 		User:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)).Background(lipgloss.Color(p.Surface)),
-		Added:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Added:   lipgloss.NewStyle().Foreground(lipgloss.Color(successColor(p))),
 		Removed: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
 	}
 	if !reflect.DeepEqual(set.Render, want) {
