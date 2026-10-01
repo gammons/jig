@@ -89,6 +89,15 @@ jig mcp logout <name>    # forget a server's stored token
 
 See [[MCP Servers|MCP-Servers]].
 
+## `jig import opencode`
+
+```
+jig import opencode [--db PATH] [--dry-run]
+```
+
+One-time migration of opencode sessions into jig's store. See
+[[Importing from opencode|Importing-from-opencode]].
+
 ## The model catalog
 
 The model catalog comes from [catwalk](https://catwalk.charm.land), cached

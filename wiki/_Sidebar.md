@@ -14,6 +14,7 @@
 - [[Skills]]
 - [[Permissions and Trust|Permissions-and-Trust]]
 - [[MCP Servers|MCP-Servers]]
+- [[Importing from opencode|Importing-from-opencode]]
 
 **Reference**
 - [[Tools and Output Limits|Tools-and-Output-Limits]]
