@@ -14,22 +14,45 @@ stack: [fantasy](https://github.com/charmbracelet/fantasy) for LLM access,
 [catwalk](https://github.com/charmbracelet/catwalk) for the model catalog,
 and [Bubble Tea](https://github.com/charmbracelet/bubbletea) for the UI.
 
+## Why jig?
+
+- **One self-contained binary.** Pure Go with no cgo: no Node or Bun
+  runtime, no `node_modules`, and nothing else to install. It can be built
+  fully static.
+- **Modest memory.** An idle TUI uses about 50 MB, where opencode used about
+  150 MB on the same machine. The transcript's render cache is capped (8 MB by
+  default), so a long session doesn't keep growing.
+- **No client/server split.** One process runs one session, and does it
+  well. There is no background server, port, or daemon to manage.
+- **Fast where it counts.** UI responsiveness has budgets, and benchmarks
+  enforce them. On a 2,000-message session, a keystroke redraws in under
+  1.5 ms and a streaming update in under 5 ms. A missed budget means the
+  algorithm gets fixed; the budget is never raised.
+- **Built-in agent-browser support.** If
+  [agent-browser](https://github.com/vercel-labs/agent-browser) is on your
+  `PATH`, jig loads its skills, lets its read-only commands run without
+  asking, and shows its screenshots in the transcript.
+- **Images, both ways.** Attach images with `@file` or `--attach`, or let
+  the model `read` one. jig shows them inline in the terminal (kitty,
+  sixel, or half-block).
+- **Secure by default.** An untrusted repo's config can only tighten your
+  settings, and a subagent can never exceed its parent's permissions.
+  Text from models and tools is sanitized before it reaches your terminal.
+- **Built for the keyboard.** jig is a vim-style modal TUI, and every action
+  is in one ctrl+p picker. There are no slash commands to memorize.
+- **Works with your Claude Code setup.** It reads `.claude/agents/*.md`,
+  `SKILL.md` skills, `AGENTS.md`/`CLAUDE.md`, and `.mcp.json` as they are.
+
 ## Highlights
 
-- Vim-style modal TUI: move through the transcript, search, and yank in
-  NORMAL mode; every action is in the ctrl+p picker (no slash commands)
 - Subagent transcripts stream live in a side column, and runs of
   read/grep/glob/bash calls fold into collapsible groups
 - Permission cards answer with allow, always, deny, or deny with a
-  message; a subagent can never exceed its parent's permissions
-- Project config is trust-gated: an untrusted repo can only tighten your
-  settings
+  message
 - Any provider in the catwalk catalog, with model aliases, per-agent
   models, and reasoning effort
-- Works with Claude Code's agents (`.claude/agents/*.md`), skills
-  (`SKILL.md`), `AGENTS.md`/`CLAUDE.md`, and `.mcp.json`
 - MCP servers over stdio, HTTP, and SSE, with OAuth sign-in on request
-- Inline images (kitty, sixel, or half-block), 59 themes, and custom themes
+- 59 built-in themes, plus your own custom themes
 
 ## Install
 
