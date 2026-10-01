@@ -46,11 +46,13 @@ type messageRow struct {
 // translator accumulates one session's translated core.Session and
 // core.Message slice as messageRows are fed to it via add, and its Stats.
 type translator struct {
-	agents  map[string]bool
-	sess    core.Session
-	msgs    []core.Message
-	stats   Stats
-	lastDir string // location.directory from the session's last location-switched message
+	agents      map[string]bool
+	sess        core.Session
+	msgs        []core.Message
+	stats       Stats
+	lastDir     string    // location.directory from the session's last location-switched message
+	lastCreated time.Time // CreatedAt of the last message appendMessage appended
+	hasLast     bool
 }
 
 // sessionModel is the shape of session_v2.model.
@@ -158,6 +160,24 @@ func (t *translator) finish() (core.Session, []core.Message, Stats) {
 	return t.sess, t.msgs, t.stats
 }
 
+// appendMessage appends m to t.msgs, first bumping its CreatedAt forward
+// to the previous appended message's CreatedAt + 1ms if needed, so
+// CreatedAt is strictly increasing in feed (seq) order within a session
+// even when opencode rows tie (or invert) on created_at (finding 1 of the
+// final review: ListMessages orders by created_at then id, which can
+// disagree with seq on a tie). A synthetic message merged into a previous
+// one does not call this, so it never bumps t.lastCreated.
+func (t *translator) appendMessage(m core.Message) {
+	if t.hasLast {
+		if min := t.lastCreated.Add(time.Millisecond); m.CreatedAt.Before(min) {
+			m.CreatedAt = min
+		}
+	}
+	t.lastCreated = m.CreatedAt
+	t.hasLast = true
+	t.msgs = append(t.msgs, m)
+}
+
 // skip records a bad-JSON message in t.stats.
 func (t *translator) skip(m messageRow, err error) {
 	t.stats.SkippedMessages = append(t.stats.SkippedMessages, fmt.Sprintf("%s: %v", m.ID, err))
@@ -198,7 +218,7 @@ func (t *translator) addUser(m messageRow) {
 		return
 	}
 
-	t.msgs = append(t.msgs, core.Message{
+	t.appendMessage(core.Message{
 		ID:        core.MessageID(m.ID),
 		SessionID: t.sess.ID,
 		Role:      core.RoleUser,
@@ -258,7 +278,7 @@ func (t *translator) addSynthetic(m messageRow) {
 		return
 	}
 
-	t.msgs = append(t.msgs, core.Message{
+	t.appendMessage(core.Message{
 		ID:        core.MessageID(m.ID),
 		SessionID: t.sess.ID,
 		Role:      core.RoleUser,
@@ -290,7 +310,7 @@ func (t *translator) addCompaction(m messageRow) {
 		return
 	}
 
-	t.msgs = append(t.msgs, core.Message{
+	t.appendMessage(core.Message{
 		ID:        core.MessageID(m.ID),
 		SessionID: t.sess.ID,
 		Role:      core.RoleAssistant,

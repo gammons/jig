@@ -583,6 +583,37 @@ func TestBadJSON(t *testing.T) {
 	}
 }
 
+// TestAppendMessage_StrictlyIncreasingOnTies feeds three rows sharing the
+// same Created, whose ids sort in reverse lexical order (msg_c, msg_b,
+// msg_a), in that seq order (as Each would feed them). Finding 1 of the
+// final review: opencode rows can tie (or invert) on created_at while
+// disagreeing with seq order, so ListMessages' created_at-then-id sort
+// could reorder them. The translator must keep CreatedAt strictly
+// increasing in the order messages are appended, so ListMessages' sort
+// reproduces seq order instead.
+func TestAppendMessage_StrictlyIncreasingOnTies(t *testing.T) {
+	row := baseSessionRow()
+	tr := newTranslator(row, map[string]bool{"build": true})
+
+	const created = int64(5000)
+	tr.add(msgRow("msg_c", "user", map[string]any{"text": "c"}, created))
+	tr.add(msgRow("msg_b", "user", map[string]any{"text": "b"}, created))
+	tr.add(msgRow("msg_a", "user", map[string]any{"text": "a"}, created))
+
+	_, msgs, _ := tr.finish()
+	if len(msgs) != 3 {
+		t.Fatalf("len(msgs) = %d, want 3", len(msgs))
+	}
+	if !msgs[0].CreatedAt.Equal(time.UnixMilli(created)) {
+		t.Errorf("msgs[0].CreatedAt = %v, want its original time %v (unchanged, first message)", msgs[0].CreatedAt, time.UnixMilli(created))
+	}
+	for i := 1; i < len(msgs); i++ {
+		if !msgs[i].CreatedAt.After(msgs[i-1].CreatedAt) {
+			t.Errorf("msgs[%d].CreatedAt = %v, want strictly after msgs[%d].CreatedAt = %v", i, msgs[i].CreatedAt, i-1, msgs[i-1].CreatedAt)
+		}
+	}
+}
+
 func TestDroppedTypes(t *testing.T) {
 	row := baseSessionRow()
 	tr := newTranslator(row, map[string]bool{"build": true})

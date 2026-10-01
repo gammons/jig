@@ -87,7 +87,7 @@ func (t *translator) addAssistant(m messageRow) {
 		}
 	}
 
-	t.msgs = append(t.msgs, core.Message{
+	t.appendMessage(core.Message{
 		ID:        core.MessageID(m.ID),
 		SessionID: t.sess.ID,
 		Role:      core.RoleAssistant,

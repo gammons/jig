@@ -7,9 +7,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
+	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/data/opencode/opencodetest"
+	"github.com/gammons/jig/internal/data/store"
 )
 
 var errStop = errors.New("stop")
@@ -314,4 +317,142 @@ func TestOpen_NotOpencode(t *testing.T) {
 	if !errors.As(err, &ne) {
 		t.Errorf("Open error = %v (%T), want *NotOpencodeError", err, err)
 	}
+}
+
+// TestEach_SameMillisecondTieKeepsSeqOrderThroughStore is a reader-level
+// regression test for finding 1 of the final review: two messages at the
+// same Created where the later-seq message's id sorts lexically smaller
+// than the earlier one's. ListMessages orders by (created_at, id), so
+// without the translator's CreatedAt bump this would come back in id
+// order (msg_a before msg_b) rather than seq order (msg_b then msg_a). It
+// round-trips through a real store.Store, exactly as `jig import opencode`
+// does, to prove the fix holds end to end.
+func TestEach_SameMillisecondTieKeepsSeqOrderThroughStore(t *testing.T) {
+	path := fixturePath(t)
+	sessions := []opencodetest.Session{
+		{
+			ID: "ses_tie", Directory: "/work", Created: 1, Updated: 1,
+			Messages: []opencodetest.Message{
+				{ID: "msg_b", Type: "user", Data: `{"text":"first in seq"}`, Seq: 1, Created: 100},
+				{ID: "msg_a", Type: "user", Data: `{"text":"second in seq"}`, Seq: 2, Created: 100},
+			},
+		},
+	}
+	if err := opencodetest.Write(path, sessions); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	src, err := Open(context.Background(), path, Options{})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer src.Close()
+
+	var item Item
+	err = src.Each(context.Background(), func(i Item) error {
+		item = i
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Each: %v", err)
+	}
+	if len(item.Messages) != 2 {
+		t.Fatalf("got %d messages, want 2", len(item.Messages))
+	}
+
+	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "jig.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer st.Close()
+	if err := st.ImportSession(context.Background(), item.Session, item.Messages, nil); err != nil {
+		t.Fatalf("ImportSession: %v", err)
+	}
+
+	got, err := st.ListMessages(context.Background(), item.Session.ID)
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ListMessages returned %d messages, want 2", len(got))
+	}
+	if string(got[0].ID) != "msg_b" || string(got[1].ID) != "msg_a" {
+		t.Errorf("ListMessages order = [%s, %s], want [msg_b, msg_a] (seq order, despite msg_a < msg_b lexically)", got[0].ID, got[1].ID)
+	}
+	if !got[0].CreatedAt.Before(got[1].CreatedAt) {
+		t.Errorf("got[0].CreatedAt = %v, want strictly before got[1].CreatedAt = %v", got[0].CreatedAt, got[1].CreatedAt)
+	}
+}
+
+// TestEach_FeedOrderSortsStableByCreatedAtThenID is a reader-level
+// (translator-driven) check, independent of internal/data/store, that
+// sorting Each's yielded messages by (CreatedAt, ID) — exactly what
+// ListMessages' ORDER BY does — reproduces the feed (seq) order Each
+// produced them in. It covers the same same-millisecond, reverse-id tie
+// as the store round-trip test above, so the invariant is checked even if
+// a future change makes data/opencode unable to import internal/data/store.
+func TestEach_FeedOrderSortsStableByCreatedAtThenID(t *testing.T) {
+	path := fixturePath(t)
+	sessions := []opencodetest.Session{
+		{
+			ID: "ses_tie", Directory: "/work", Created: 1, Updated: 1,
+			Messages: []opencodetest.Message{
+				{ID: "msg_b", Type: "user", Data: `{"text":"first in seq"}`, Seq: 1, Created: 100},
+				{ID: "msg_a", Type: "user", Data: `{"text":"second in seq"}`, Seq: 2, Created: 100},
+			},
+		},
+	}
+	if err := opencodetest.Write(path, sessions); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	src, err := Open(context.Background(), path, Options{})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer src.Close()
+
+	var item Item
+	err = src.Each(context.Background(), func(i Item) error {
+		item = i
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Each: %v", err)
+	}
+
+	feedOrder := make([]string, len(item.Messages))
+	for i, m := range item.Messages {
+		feedOrder[i] = string(m.ID)
+	}
+
+	sorted := append([]string(nil), feedOrder...)
+	msgs := item.Messages
+	sort.SliceStable(sorted, func(i, j int) bool {
+		mi, mj := indexByID(msgs, sorted[i]), indexByID(msgs, sorted[j])
+		if !msgs[mi].CreatedAt.Equal(msgs[mj].CreatedAt) {
+			return msgs[mi].CreatedAt.Before(msgs[mj].CreatedAt)
+		}
+		return sorted[i] < sorted[j]
+	})
+
+	if len(sorted) != len(feedOrder) {
+		t.Fatalf("len(sorted) = %d, want %d", len(sorted), len(feedOrder))
+	}
+	for i := range feedOrder {
+		if sorted[i] != feedOrder[i] {
+			t.Errorf("(created_at, id) sort = %v, want feed order %v", sorted, feedOrder)
+			break
+		}
+	}
+}
+
+// indexByID returns the index of the message with the given id in msgs.
+func indexByID(msgs []core.Message, id string) int {
+	for i, m := range msgs {
+		if string(m.ID) == id {
+			return i
+		}
+	}
+	return -1
 }
