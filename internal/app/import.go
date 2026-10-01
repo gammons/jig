@@ -69,27 +69,28 @@ func defaultOpencodeDB(getenv func(string) string) string {
 	return filepath.Join(base, "opencode", "opencode.db")
 }
 
-// runImportOpencode builds the store, the opencode source, and the media
-// pipeline, drives importer.Run, and prints the summary.
+// runImportOpencode opens and validates the opencode source first (so a
+// bad --db never creates jig's database), builds jig's store, drives
+// importer.Run, and prints the summary.
 func runImportOpencode(ctx context.Context, opts importOpts, std Stdio, getenv func(string) string) int {
 	e, err := loadEnv("", getenv, staticTrust(false))
 	if err != nil {
 		printLine(std.Err, err.Error())
 		return exitConfig
 	}
-	st, closeStore, err := importStoreFor(ctx, e, opts.dryRun)
-	if err != nil {
-		printLine(std.Err, "error: "+err.Error())
-		return exitRunFailed
-	}
-	defer closeStore()
-
 	src, err := openOpencodeSource(ctx, e, opts.db, std.Err)
 	if err != nil {
 		printLine(std.Err, err.Error())
 		return exitConfig
 	}
 	defer src.Close()
+
+	st, closeStore, err := importStoreFor(ctx, e, opts.dryRun)
+	if err != nil {
+		printLine(std.Err, "error: "+err.Error())
+		return exitRunFailed
+	}
+	defer closeStore()
 
 	pipeline := media.New(blobfs.New(e.blobsDir()))
 	summary, err := importer.Run(ctx, sourceAdapter{src}, st, pipeline, importer.Options{

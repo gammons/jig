@@ -204,6 +204,14 @@ func TestE2E_ImportOpencode_BadDB(t *testing.T) {
 	_, stderr, code := runJig(t, env, "import", "opencode", "--db", filepath.Join(env.root, "missing.db"))
 	wantCode(t, code, 2, "", stderr)
 
+	// A failed import must not have created jig's own database (finding 2
+	// of the final review: opening and migrating jig.db used to happen
+	// before the opencode source was validated).
+	jigDBBeforeSessions := filepath.Join(env.root, "data", "jig", "jig.db")
+	if _, err := os.Stat(jigDBBeforeSessions); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("stat %s = %v, want fs.ErrNotExist (a failed import must create no jig database)", jigDBBeforeSessions, err)
+	}
+
 	// Creates the jig data dir's own jig.db.
 	if _, _, code := runJig(t, env, "sessions"); code != 0 {
 		t.Fatalf("jig sessions: exit %d", code)
