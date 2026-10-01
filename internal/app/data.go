@@ -23,9 +23,14 @@ import (
 // the public one explicitly unless CATWALK_URL is set.
 const defaultCatwalkURL = "https://catwalk.charm.land"
 
+// jigDBPath is the path of jig's own SQLite store (<DataDir>/jig.db).
+func jigDBPath(e env) string {
+	return filepath.Join(e.paths.DataDir, "jig.db")
+}
+
 // openStore opens the SQLite store at <DataDir>/jig.db.
 func openStore(ctx context.Context, e env) (*store.Store, error) {
-	return store.Open(ctx, filepath.Join(e.paths.DataDir, "jig.db"))
+	return store.Open(ctx, jigDBPath(e))
 }
 
 // prefsPath is the path to jig's persisted preferences file

@@ -20,6 +20,7 @@ Source: [github.com/gammons/jig](https://github.com/gammons/jig)
 - **[[Skills]]** — `SKILL.md` discovery, using superpowers.
 - **[[Permissions and Trust|Permissions-and-Trust]]** — allow/ask/deny rules, subagent limits, project trust.
 - **[[MCP Servers|MCP-Servers]]** — stdio/HTTP/SSE servers, `.mcp.json`, OAuth sign-in.
+- **[[Importing from opencode|Importing-from-opencode]]** — bring opencode sessions into jig.
 
 ## Reference
 

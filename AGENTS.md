@@ -82,6 +82,8 @@ internal/client/search/                 rg + Go fallback glob/grep
 internal/client/mcp/                    MCP client transport (stdio, http/sse), Manager wiring
 internal/client/mcpauth/                OAuth callback listener (client/mcpauth)
 internal/data/mcptokens/                MCP OAuth token storage (0600, keyed by server URL)
+internal/data/opencode/                 opencode SQLite reader + session/message/tool translator (read-only)
+internal/data/opencode/opencodetest/    fixture opencode SQLite databases for tests
 internal/service/mcp/                   MCP Manager, ToolSource, per-server state
 internal/service/agents/                builtins, merge, model resolution, tool filtering
 internal/service/permission/            rules, evaluation, ToolHook, askers, Tighten
@@ -94,6 +96,7 @@ internal/service/task/                  task tool (subagents)
 internal/service/session/               sessions, history, compaction, titles
 internal/service/chat/                  ChatService facade the UIs call
 internal/service/media/                 image decode/scale/re-encode into blobs
+internal/service/importer/              drives opencode sessions into the store: skip-if-present, orphan subagents, media, summary
 internal/ui/                            (Plan 2) the TUI App: bus bridge, wintree layout, modes, send/queue/cancel, streaming reconciliation
 internal/ui/plain/                      headless renderer (io.Writer)
 internal/ui/transcript/                 (Plan 2) transcript projection, core-only; Groups finds runs of read/grep/glob/bash calls
@@ -371,6 +374,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Write a file atomically (temp file, fsync, rename) | `atomicfile.Write(path, data, perm)` |
 | Content-addressed blob storage (SHA-256 refs) | `blobfs.New(dir)` / `(*Store).Put`, `.Open` |
 | Turn image bytes into a bounded, stored `core.Media` (+ `core.ImageInfo`) | `media.New(blobs).Process(data)`; `media.IsImagePath(p)` |
+| Import a session (and its messages/todos) into the store in one transaction, bringing it in from an external source | `(*store.Store).ImportSession(ctx, sess, msgs, todos)` / `.SessionExists(ctx, id)` |
 | Build a `core.ToolResult` for a tool's `Run` | `core.ToolError(call, msg)` (sets `IsError`) / `core.ToolOK(call, output)` |
 | Resolve a tool's `path` input against `rc.WorkDir` | `resolvePath(workDir, path)` in `service/tools` (also backs `subjectPath` for `ext.Subjecter`) |
 | Permission subject for a search tool's `path` input | `searchSubject(rc, input)` in `service/tools` |
