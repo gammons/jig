@@ -81,7 +81,7 @@ func (m Model) render() string {
 		first = false
 		lines = append(lines, padLine(m.styles.Header.Render(ansi.Truncate(sec.Title, inner, "…")), inner))
 		for _, row := range sec.Rows {
-			lines = append(lines, rowLine(row, m.styles, inner))
+			lines = append(lines, rowLines(row, m.styles, inner)...)
 		}
 	}
 	margin := strings.Repeat(" ", min(padX, m.width/2))
@@ -91,20 +91,32 @@ func (m Model) render() string {
 	return clip(lines, m.width, m.height)
 }
 
-// rowLine renders one indented row, padded to exactly width cells.
-func rowLine(row Row, st Styles, width int) string {
+// rowLines renders one indented row, each line padded to exactly width
+// cells: one line, unless the row is a Wrap row whose text needs more.
+func rowLines(row Row, st Styles, width int) []string {
 	inner := max(0, width-2)
-	var content string
 	if row.Gauge != nil {
-		content = renderGauge(*row.Gauge, inner, toneStyle(row.Tone, st), st.GaugeEmpty)
-	} else {
-		text := row.Text
-		if row.Icon != "" {
-			text = row.Icon + " " + text
-		}
-		content = toneStyle(row.Tone, st).Render(ansi.Truncate(text, inner, "…"))
+		return []string{padLine("  "+renderGauge(*row.Gauge, inner, toneStyle(row.Tone, st), st.GaugeEmpty), width)}
 	}
-	return padLine("  "+content, width)
+	style := toneStyle(row.Tone, st)
+	lead := ""
+	if row.Icon != "" {
+		lead = row.Icon + " "
+	}
+	if !row.Wrap || inner <= ansi.Width(lead) {
+		return []string{padLine("  "+style.Render(ansi.Truncate(lead+row.Text, inner, "…")), width)}
+	}
+	hang := strings.Repeat(" ", ansi.Width(lead))
+	wrapped := strings.Split(ansi.Wrap(row.Text, inner-len(hang)), "\n")
+	out := make([]string, len(wrapped))
+	for i, l := range wrapped {
+		prefix := hang
+		if i == 0 {
+			prefix = lead
+		}
+		out[i] = padLine("  "+style.Render(prefix+l), width)
+	}
+	return out
 }
 
 // renderGauge draws a Used-of-Limit bar filling width cells, ending in a

@@ -1,6 +1,7 @@
 package sidebar
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -210,4 +211,36 @@ func TestGolden_SidebarFull(t *testing.T) {
 		{Title: "Subagents", Rows: nil},
 	})
 	golden.Assert(t, "sidebar_full", m.View())
+}
+
+// TestSidebar_WrapRow: a Wrap row's long text wraps onto further lines,
+// hanging under the text past its icon, instead of being cut with "…";
+// a plain row is still cut.
+func TestSidebar_WrapRow(t *testing.T) {
+	t.Parallel()
+	m := New()
+	m.SetSize(24, 8) // inner 20, row text 18
+	m.SetSections([]Section{{Title: "Session", Rows: []Row{
+		{Icon: "•", Text: "fix the parser bug in the lexer tokenizer", Wrap: true},
+		{Text: "a plain row that is far too long"},
+	}}})
+	lines := strings.Split(xansi.Strip(m.View()), "\n")
+	got := make([]string, 0, 4)
+	for _, l := range lines[1:5] {
+		got = append(got, strings.TrimRight(l, " "))
+	}
+	want := []string{
+		"    • fix the parser",
+		"      bug in the lexer",
+		"      tokenizer",
+		"    a plain row that …",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("rows =\n%q\nwant\n%q", got, want)
+	}
+	for i, l := range lines {
+		if w := xansi.StringWidth(l); w != 24 {
+			t.Errorf("line %d is %d cells, want 24", i, w)
+		}
+	}
 }

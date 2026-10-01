@@ -20,9 +20,9 @@ type RenderStyles struct {
 }
 
 // renderStyles maps p onto RenderStyles: OK is TextMuted (a finished tool
-// line recedes to gray; only its outcome detail stands out), Added reuses
-// Accent (the palette's one stand-out-success color, the same role it
-// plays for sidebar.Success in sidebarStyles), Error, Denied, and Removed
+// line recedes to gray; only its outcome detail stands out), Added is
+// successColor (Accent softened toward TextMuted, the same color as
+// sidebar.Success in sidebarStyles), Error, Denied, and Removed
 // share the palette's Error color (jig has no separate "denied" hue),
 // Warn uses Warning like every other awaiting/pending indicator, and
 // Tool/Dim fall back to Text/TextMuted like every other one-liner and
@@ -37,7 +37,7 @@ func renderStyles(p Palette) RenderStyles {
 		Warn:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Warning)),
 		Dim:     lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
 		User:    lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)).Background(lipgloss.Color(panelFill(p))),
-		Added:   lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
+		Added:   lipgloss.NewStyle().Foreground(lipgloss.Color(successColor(p))),
 		Removed: lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error)),
 	}
 }

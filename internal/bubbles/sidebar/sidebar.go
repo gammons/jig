@@ -22,11 +22,14 @@ type Gauge struct {
 }
 
 // Row is one line of a Section. A Row with a non-nil Gauge renders as a
-// filled bar with a percentage instead of Icon/Text.
+// filled bar with a percentage instead of Icon/Text. A Wrap row's text
+// word-wraps onto as many lines as it needs instead of being cut with
+// "…" (continuation lines hang under the text, past the icon).
 type Row struct {
 	Icon, Text string
 	Tone       Tone
 	Gauge      *Gauge
+	Wrap       bool
 }
 
 // Section is a titled group of Rows. A Section with no Rows is not drawn.
@@ -107,7 +110,7 @@ func sectionsEqual(a, b []Section) bool {
 		}
 		for j, r := range a[i].Rows {
 			q := b[i].Rows[j]
-			if r.Icon != q.Icon || r.Text != q.Text || r.Tone != q.Tone || (r.Gauge == nil) != (q.Gauge == nil) {
+			if r.Icon != q.Icon || r.Text != q.Text || r.Tone != q.Tone || r.Wrap != q.Wrap || (r.Gauge == nil) != (q.Gauge == nil) {
 				return false
 			}
 			if r.Gauge != nil && *r.Gauge != *q.Gauge {

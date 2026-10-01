@@ -16,7 +16,7 @@ import (
 const newSessionTitle = "new session"
 
 // sidebarSections builds the sidebar from the App's state: Session
-// (title, context gauge, cost, agent · model) and Todos, which are cheap
+// (title, context gauge, then cost · agent · model on one row) and Todos, which are cheap
 // and rebuilt every time, then Files, Subagents, and Browser, which scan
 // the projection and are rebuilt only when it changed (sideCache). Every
 // row's text is sanitized.
@@ -60,14 +60,14 @@ func (s *sessionState) sessionSection(aliases map[string]string) sidebar.Section
 		title = newSessionTitle
 	}
 	ref := s.modelRef()
-	rows := []sidebar.Row{{Text: ansi.SanitizeLine(title)}}
+	rows := []sidebar.Row{{Text: ansi.SanitizeLine(title), Wrap: true}}
 	if limit := s.contextWindow(ref); limit > 0 {
 		rows = append(rows, sidebar.Row{Gauge: &sidebar.Gauge{Used: s.usage.Input + s.usage.CacheRead, Limit: limit}})
 	}
-	rows = append(rows,
-		sidebar.Row{Text: fmt.Sprintf("$%.2f", s.cost), Tone: sidebar.Muted},
-		sidebar.Row{Text: ansi.SanitizeLine(s.info.Agent + " · " + displayModel(ref, aliases)), Tone: sidebar.Muted},
-	)
+	rows = append(rows, sidebar.Row{
+		Text: fmt.Sprintf("$%.2f · ", s.cost) + ansi.SanitizeLine(s.info.Agent+" · "+displayModel(ref, aliases)),
+		Tone: sidebar.Muted,
+	})
 	return sidebar.Section{Title: "Session", Rows: rows}
 }
 

@@ -50,7 +50,7 @@ func TestSidebar_SectionsFromState(t *testing.T) {
 	}
 	side := xansi.Strip(raw)
 	for _, want := range []string{
-		"Session", "Tidy up", "25%", "$0.25", "build · claude-sonnet-5",
+		"Session", "Tidy up", "25%", "$0.25 · build · claude-sonnet-5",
 		"Todos", "✓ read the code", "● fix the bug", "○ write tests",
 		"Files", "A new.go", "M old.go",
 		"Subagents", "✓ explore", "map the repo",
@@ -67,6 +67,21 @@ func TestSidebar_SectionsFromState(t *testing.T) {
 	side = xansi.Strip(ta.app.w.side.View())
 	if !strings.Contains(side, "○ ship it") || strings.Contains(side, "read the code") || strings.Contains(side, "child todo") {
 		t.Errorf("todos after updates:\n%s", side)
+	}
+}
+
+// TestSidebar_SessionTitleWraps: a long session title wraps onto as many
+// sidebar lines as it needs instead of being cut with "…".
+func TestSidebar_SessionTitleWraps(t *testing.T) {
+	t.Parallel()
+	title := "refactor the session sidebar so that long titles wrap neatly"
+	ta := newTestApp(t, withSize(150, 40), withResume(core.Session{ID: "ses_1", Title: title, Agent: "build"}, nil, nil))
+	side := xansi.Strip(ta.app.w.side.View())
+	if strings.Contains(side, "…") {
+		t.Errorf("title was truncated:\n%s", side)
+	}
+	if got := strings.Join(strings.Fields(side), " "); !strings.Contains(got, title) {
+		t.Errorf("sidebar lacks the full title %q:\n%s", title, side)
 	}
 }
 

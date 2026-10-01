@@ -5,6 +5,7 @@
 package details
 
 import (
+	"slices"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -14,7 +15,9 @@ import (
 
 // Content is one selection's details: a header line and the pre-rendered
 // body lines (text, code, or image cells). Lines may carry SGR escapes or
-// kitty placeholder cells; View never re-wraps or cuts inside them.
+// kitty placeholder cells. A line wider than the pane is word-wrapped
+// (the active style carried onto each continuation line); a line that
+// fits, such as an image row, is never touched.
 type Content struct {
 	Header string
 	Lines  []string
@@ -52,6 +55,7 @@ type Model struct {
 	styles   Styles
 	w, h     int
 	content  Content
+	lines    []string // content.Lines as drawn: tabs expanded, wrapped to w
 	scroll   int
 	noHeader bool
 }
@@ -67,7 +71,11 @@ func New(opts ...Option) Model {
 
 // SetSize sets the outer size: View returns exactly h lines of w cells.
 func (m *Model) SetSize(w, h int) {
+	rewrap := w != m.w
 	m.w, m.h = w, h
+	if rewrap {
+		m.relines()
+	}
 	m.scroll = clamp(m.scroll, 0, m.maxScroll())
 }
 
@@ -77,6 +85,7 @@ func (m *Model) SetStyles(st Styles) { m.styles = st }
 // SetContent replaces the shown content and resets the scroll to the top.
 func (m *Model) SetContent(c Content) {
 	m.content = c
+	m.relines()
 	m.scroll = 0
 }
 
@@ -84,7 +93,25 @@ func (m *Model) SetContent(c Content) {
 // clamped to the new content (a live refresh of the same block).
 func (m *Model) ReplaceContent(c Content) {
 	m.content = c
+	m.relines()
 	m.scroll = clamp(m.scroll, 0, m.maxScroll())
+}
+
+// relines rebuilds lines from the content at the current width: each
+// tab expanded to 4 spaces (a tab has no cell width of its own, so the
+// terminal's tab stops would break the layout), then any line wider than
+// the pane wrapped onto as many lines as it needs.
+func (m *Model) relines() {
+	out := make([]string, 0, len(m.content.Lines))
+	for _, l := range m.content.Lines {
+		l = strings.ReplaceAll(l, "\t", "    ")
+		if m.w <= 0 || ansi.Width(l) <= m.w {
+			out = append(out, l)
+			continue
+		}
+		out = append(out, strings.Split(lipgloss.Wrap(l, m.w, ""), "\n")...)
+	}
+	m.lines = out
 }
 
 // ScrollBy moves the scroll by n lines (negative scrolls up), clamped to
@@ -104,7 +131,7 @@ func (m Model) bodyHeight() int {
 }
 
 func (m Model) maxScroll() int {
-	return max(0, len(m.content.Lines)-m.bodyHeight())
+	return max(0, len(m.lines)-m.bodyHeight())
 }
 
 // Header returns the current content's header text, for a caller that
@@ -128,11 +155,12 @@ func (m Model) BodyOrigin() (x, y int, ok bool) {
 }
 
 // View renders the header line, a border rule, and the body: exactly w×h
-// cells. Body lines are cut or padded to width with ansi.Cut, which is
-// escape- and wide-rune-aware, so a line carrying SGR or a kitty
-// placeholder cell is never cut mid-escape. With w<=0 (and h>0) it still
-// returns exactly h rows, each zero cells wide. With WithoutHeader, the
-// header and border rows are omitted and the body fills the whole pane.
+// cells. Body lines were already wrapped to w (relines); padLine pads
+// them with ansi.Cut, which is escape- and wide-rune-aware, so a line
+// carrying SGR or a kitty placeholder cell is never cut mid-escape. With
+// w<=0 (and h>0) it still returns exactly h rows, each zero cells wide.
+// With WithoutHeader, the header and border rows are omitted and the body
+// fills the whole pane.
 func (m Model) View() string {
 	if m.h <= 0 {
 		return ""
@@ -147,28 +175,22 @@ func (m Model) View() string {
 	}
 
 	bh := m.bodyHeight()
-	expanded := m.Lines()
 	for i := 0; i < bh; i++ {
 		idx := m.scroll + i
 		line := ""
-		if idx < len(expanded) {
-			line = expanded[idx]
+		if idx < len(m.lines) {
+			line = m.lines[idx]
 		}
 		lines = append(lines, padLine(line, m.w))
 	}
 	return strings.Join(lines[:m.h], "\n")
 }
 
-// Lines returns the content lines with tabs expanded to 4 spaces, exactly
-// as View draws them (before cutting or padding to width).
+// Lines returns the body lines exactly as View draws them (tabs expanded
+// to 4 spaces and wrapped to the pane's width), before padding. HitTest's
+// line index counts into this slice.
 func (m Model) Lines() []string {
-	out := make([]string, len(m.content.Lines))
-	for i, l := range m.content.Lines {
-		// A tab has no cell width of its own: expand it before
-		// fitting, or the terminal's tab stops break the layout.
-		out[i] = strings.ReplaceAll(l, "\t", "    ")
-	}
-	return out
+	return slices.Clone(m.lines)
 }
 
 // HitTest maps a cell (x, y) inside the pane to a content line and column.
@@ -185,7 +207,7 @@ func (m Model) HitTest(x, y int) (line, col int, ok bool) {
 		return 0, 0, false
 	}
 	idx := m.scroll + y - headerRows
-	if idx >= len(m.content.Lines) {
+	if idx >= len(m.lines) {
 		return 0, 0, false
 	}
 	return idx, x, true
