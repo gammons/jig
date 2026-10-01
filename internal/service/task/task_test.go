@@ -217,6 +217,46 @@ func TestTask_SpawnsChildWithResolvedModel(t *testing.T) {
 	}
 }
 
+// The resolved model is announced on SubagentSpawned and recorded in the
+// result's metadata (on success and on a child error), so a resumed
+// transcript can show it too.
+func TestTask_ReportsResolvedModel(t *testing.T) {
+	haiku := core.ModelRef{Provider: "anthropic", Model: "haiku"}
+	sub := exploreAgent(haiku)
+	for _, tc := range []struct {
+		name   string
+		runErr error
+	}{{"ok", nil}, {"child error", errors.New("boom")}} {
+		t.Run(tc.name, func(t *testing.T) {
+			agentsSvc := &fakeAgents{byName: map[string]core.Agent{"explore": sub}, subs: []core.Agent{sub}}
+			runner := &fakeRunner{runFn: func(context.Context, ext.RunContext, string) (core.Message, error) {
+				return core.Message{}, tc.runErr
+			}}
+			pub := &recordingPublisher{}
+			tool := New(&fakeSessions{}, agentsSvc, runner, pub, testClock(), nil)
+			call := mustTaskCall(t, map[string]any{"agent": "explore", "description": "d", "prompt": "p"})
+
+			res, err := tool.Run(context.Background(), ext.RunContext{SessionID: "parent1"}, call)
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if res.IsError != (tc.runErr != nil) {
+				t.Fatalf("IsError = %v, want %v", res.IsError, tc.runErr != nil)
+			}
+			if got := res.Metadata[core.MetaTaskModel]; got != "anthropic/haiku" {
+				t.Errorf("Metadata[%q] = %q, want %q", core.MetaTaskModel, got, "anthropic/haiku")
+			}
+			sp, ok := pub.events[0].(event.SubagentSpawned)
+			if !ok {
+				t.Fatalf("event type = %T, want event.SubagentSpawned", pub.events[0])
+			}
+			if sp.Model != "anthropic/haiku" {
+				t.Errorf("SubagentSpawned.Model = %q, want %q", sp.Model, "anthropic/haiku")
+			}
+		})
+	}
+}
+
 func TestTask_InheritsParentModelWhenUnset(t *testing.T) {
 	opus := core.ModelRef{Provider: "anthropic", Model: "opus"}
 	sub := exploreAgent(core.ModelRef{}) // no model of its own

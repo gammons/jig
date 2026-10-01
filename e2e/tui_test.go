@@ -215,7 +215,7 @@ func TestE2E_TUISubagentView(t *testing.T) {
 	write("ggj")
 	from := scr.mark()
 	write("\r")
-	scr.waitFor(ctx, t, from, "main › ↳ explore: look around")
+	scr.waitFor(ctx, t, from, "main › ↳ explore (m2): look around")
 	scr.waitFor(ctx, t, from, "child found it")
 	from = scr.mark()
 	write("\x1b")

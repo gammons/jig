@@ -95,7 +95,7 @@ func columnBodySize(a *App) (int, int) {
 // longer names a block or group.
 func columnEntryFor(a *App, owner *pane, id transcript.BlockID) (*pane, tea.Cmd) {
 	if b, ok := owner.proj.Block(id); ok && b.Kind == transcript.KindSubagent && b.Sub != nil && b.Sub.Child != "" {
-		p, cmd := kidsCtl{a}.kid(b.Sub.Child, b.Sub.Agent, b.Sub.Description)
+		p, cmd := kidsCtl{a}.kid(b.Sub.Child, b.Sub.Agent, b.Sub.Model, b.Sub.Description)
 		return p, cmd
 	}
 	w, h := columnBodySize(a)

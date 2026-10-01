@@ -56,16 +56,16 @@ func TestApply_SubagentLifecycle(t *testing.T) {
 	}{
 		{"task call starts", taskStarted(), []BlockID{"t/c1"}, StateRunning,
 			Subagent{Agent: "explore", Description: "find x"}},
-		{"child spawned", event.SubagentSpawned{Base: rootBase(), Child: "k1", Agent: "explore", Description: "find x", CallID: "c1"},
-			[]BlockID{"t/c1"}, StateRunning, Subagent{Child: "k1", Agent: "explore", Description: "find x"}},
+		{"child spawned", event.SubagentSpawned{Base: rootBase(), Child: "k1", Agent: "explore", Model: "anthropic/haiku", Description: "find x", CallID: "c1"},
+			[]BlockID{"t/c1"}, StateRunning, Subagent{Child: "k1", Agent: "explore", Model: "anthropic/haiku", Description: "find x"}},
 		{"child tool starts", toolStarted("k1", "r1", "read"), []BlockID{"t/c1"}, StateRunning,
-			Subagent{Child: "k1", Agent: "explore", Description: "find x", Tools: 1, Current: "read"}},
+			Subagent{Child: "k1", Agent: "explore", Model: "anthropic/haiku", Description: "find x", Tools: 1, Current: "read"}},
 		{"child tool finishes", toolFinished("k1", "r1", "read"), []BlockID{"t/c1"}, StateRunning,
-			Subagent{Child: "k1", Agent: "explore", Description: "find x", Tools: 1}},
+			Subagent{Child: "k1", Agent: "explore", Model: "anthropic/haiku", Description: "find x", Tools: 1}},
 		{"second child tool starts", toolStarted("k1", "r2", "grep"), []BlockID{"t/c1"}, StateRunning,
-			Subagent{Child: "k1", Agent: "explore", Description: "find x", Tools: 2, Current: "grep"}},
+			Subagent{Child: "k1", Agent: "explore", Model: "anthropic/haiku", Description: "find x", Tools: 2, Current: "grep"}},
 		{"task call finishes", event.ToolCallFinished{Base: rootBase(), MessageID: "m1", Result: *mkResult("c1", "task", "done", false)},
-			[]BlockID{"t/c1"}, StateOK, Subagent{Child: "k1", Agent: "explore", Description: "find x", Tools: 2}},
+			[]BlockID{"t/c1"}, StateOK, Subagent{Child: "k1", Agent: "explore", Model: "anthropic/haiku", Description: "find x", Tools: 2}},
 	}
 	version := 0
 	for _, tt := range tests {

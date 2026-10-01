@@ -45,7 +45,11 @@ func (r *Renderer) handle(e event.Event) {
 	switch ev := e.(type) {
 	case event.SubagentSpawned:
 		r.children[ev.Child] = depth + 1
-		r.line(depth, "↳ %s: %s", ev.Agent, ev.Description)
+		agent := ev.Agent
+		if ev.Model != "" {
+			agent += " (" + ev.Model + ")"
+		}
+		r.line(depth, "↳ %s: %s", agent, ev.Description)
 	case event.MessageStarted:
 		if !child && r.wrote {
 			r.newStep = true

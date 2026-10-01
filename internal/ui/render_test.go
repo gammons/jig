@@ -391,7 +391,7 @@ func TestRender_Golden(t *testing.T) {
 		blocks := []blockData{
 			{Block: transcript.Block{
 				Kind: transcript.KindSubagent, State: transcript.StateRunning,
-				Sub: &transcript.Subagent{Agent: "explore", Description: "find the bug", Tools: 3, Current: "grep"},
+				Sub: &transcript.Subagent{Agent: "explore", Model: "anthropic/haiku", Description: "find the bug", Tools: 3, Current: "grep"},
 			}, Frame: 5},
 			{Block: transcript.Block{
 				Kind: transcript.KindSubagent, State: transcript.StateAwaiting,
@@ -399,7 +399,7 @@ func TestRender_Golden(t *testing.T) {
 			}, Frame: 1},
 			{Block: transcript.Block{
 				Kind: transcript.KindSubagent, State: transcript.StateOK,
-				Sub: &transcript.Subagent{Agent: "explore", Description: "find the bug", Tools: 5},
+				Sub: &transcript.Subagent{Agent: "explore", Model: "openrouter/anthropic/claude-sonnet-4", Description: "find the bug", Tools: 5},
 			}},
 			{Block: transcript.Block{
 				Kind: transcript.KindSubagent, State: transcript.StateError,

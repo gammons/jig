@@ -125,8 +125,8 @@ func assertSubagentRouting(t *testing.T, env *testEnv, extra, agentName string) 
 	if !strings.Contains(stdout, "parent done") {
 		t.Errorf("stdout = %q, want the parent's final text", stdout)
 	}
-	if !strings.Contains(stderr, "↳ "+agentName) {
-		t.Errorf("stderr = %q, want a %s spawn line", stderr, agentName)
+	if !strings.Contains(stderr, "↳ "+agentName+" (jigtest/m2): look around") {
+		t.Errorf("stderr = %q, want a %s spawn line naming its model jigtest/m2", stderr, agentName)
 	}
 	if strings.Contains(stderr, "✗") {
 		t.Errorf("stderr = %q, want no failed tool call", stderr)

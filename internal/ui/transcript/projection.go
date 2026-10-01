@@ -230,6 +230,9 @@ func (b *Block) finish(r core.ToolResult) {
 		if child := childOf(r.Output); child != "" {
 			b.Sub.Child = child
 		}
+		if m := r.Metadata[core.MetaTaskModel]; m != "" {
+			b.Sub.Model = m
+		}
 		b.Sub.Current = ""
 	}
 }

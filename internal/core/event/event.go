@@ -96,11 +96,13 @@ type PermissionResolved struct {
 
 // SubagentSpawned announces that a subagent session was created under a
 // parent session. CallID is the parent's task tool call that spawned it,
-// which disambiguates parallel task calls.
+// which disambiguates parallel task calls. Model is the subagent's
+// resolved model ("provider/model").
 type SubagentSpawned struct {
 	Base
 	Child       core.SessionID
 	Agent       string
+	Model       string
 	Description string
 	CallID      string
 }

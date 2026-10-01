@@ -148,6 +148,7 @@ func (t *taskTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 		Base:        event.Base{SessionID: rc.SessionID, RootID: rc.RootID},
 		Child:       childID,
 		Agent:       in.Agent,
+		Model:       model.String(),
 		Description: in.Description,
 		CallID:      call.ID,
 	})
@@ -178,11 +179,21 @@ func (t *taskTool) Run(ctx context.Context, rc ext.RunContext, call core.ToolCal
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return core.ToolResult{}, ctxErr
 		}
-		return core.ToolError(call, wrapResult(childID, fmt.Sprintf("error: %v", err))), nil
+		return withModel(core.ToolError(call, wrapResult(childID, fmt.Sprintf("error: %v", err))), model), nil
 	}
 	t.debug(ctx, "task end", "child", string(childID), "dur", dur, "outcome", "ok")
 
-	return core.ToolOK(call, wrapResult(childID, joinText(msg))), nil
+	return withModel(core.ToolOK(call, wrapResult(childID, joinText(msg))), model), nil
+}
+
+// withModel records the subagent's model in res's metadata
+// (core.MetaTaskModel), so a reloaded transcript can show it.
+func withModel(res core.ToolResult, model core.ModelRef) core.ToolResult {
+	if res.Metadata == nil {
+		res.Metadata = map[string]string{}
+	}
+	res.Metadata[core.MetaTaskModel] = model.String()
+	return res
 }
 
 // resolveChild returns the session to run: an existing subagent session

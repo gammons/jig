@@ -85,6 +85,7 @@ type Block struct {
 type Subagent struct {
 	Child       core.SessionID
 	Agent       string
+	Model       string // resolved "provider/model"; "" until known
 	Description string
 	Tools       int
 	Current     string

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/bubbles/blocklist"
 	"github.com/gammons/jig/internal/bubbles/mdrender"
@@ -271,22 +273,34 @@ func (r *renderer) styleCounts(head, added, removed string) string {
 	return out
 }
 
-// renderSubagent renders "↳ <agent>  <description>  <spinner> N tools ·
-// <current>", or the finished state's glyph in place of the spinner
-// portion once the task call is settled (spec §5.4).
+// renderSubagent renders "↳ <agent> · <model>  <description>  <spinner> N
+// tools · <current>", or the finished state's glyph in place of the spinner
+// portion once the task call is settled (spec §5.4). The model (its short
+// name, dimmed) is shown once known.
 func (r *renderer) renderSubagent(b transcript.Block, frame int) string {
 	sub := b.Sub
-	prefix := "↳ " + ansi.SanitizeLine(sub.Agent) + "  " + ansi.SanitizeLine(sub.Description) + "  "
+	head := "↳ " + ansi.SanitizeLine(sub.Agent)
+	var model string
+	if m := ansi.SanitizeLine(shortModel(sub.Model)); m != "" {
+		model = " · " + m
+	}
+	tail := "  " + ansi.SanitizeLine(sub.Description) + "  "
+	line := func(st lipgloss.Style, rest string) string {
+		if model == "" {
+			return st.Render(head + tail + rest)
+		}
+		return st.Render(head) + r.set.Render.Dim.Render(model) + st.Render(tail+rest)
+	}
 
 	switch b.State {
 	case transcript.StateOK:
-		return r.set.Render.OK.Render(prefix + "✓")
+		return line(r.set.Render.OK, "✓")
 	case transcript.StateError:
-		return r.set.Render.Error.Render(prefix + "✗")
+		return line(r.set.Render.Error, "✗")
 	case transcript.StateDenied:
-		return r.set.Render.Denied.Render(prefix + "⊘")
+		return line(r.set.Render.Denied, "⊘")
 	case transcript.StateCancelled:
-		return r.set.Render.Dim.Render(prefix + "⊘")
+		return line(r.set.Render.Dim, "⊘")
 	}
 
 	status := fmt.Sprintf("%c %d tools", spinnerGlyph(frame), sub.Tools)
@@ -294,12 +308,12 @@ func (r *renderer) renderSubagent(b transcript.Block, frame int) string {
 		status += " · " + ansi.SanitizeLine(sub.Current)
 	}
 	if b.State == transcript.StateAwaiting {
-		return r.set.Render.Warn.Render(prefix + status + " ⚠")
+		return line(r.set.Render.Warn, status+" ⚠")
 	}
 	if b.State == transcript.StatePending {
-		return r.set.Render.Dim.Render(prefix + status)
+		return line(r.set.Render.Dim, status)
 	}
-	return r.set.Render.Tool.Render(prefix + status)
+	return line(r.set.Render.Tool, status)
 }
 
 // renderNotice renders a notice's headline (Title if set, else Text) dim,

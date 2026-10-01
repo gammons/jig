@@ -61,6 +61,10 @@ type ToolResult struct {
 	Media    []Media
 }
 
+// MetaTaskModel is the ToolResult.Metadata key under which the task tool
+// records the subagent's resolved model ("provider/model").
+const MetaTaskModel = "task.model"
+
 // Part is one piece of a Message's content.
 type Part struct {
 	Kind       PartKind

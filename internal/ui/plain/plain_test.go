@@ -57,7 +57,7 @@ func TestPlain_RootTextToStdoutToolsToStderr(t *testing.T) {
 func TestPlain_ChildIndentedAndTextSuppressed(t *testing.T) {
 	out, errw := render(
 		event.TextDelta{Base: base("root"), Text: "delegating"},
-		event.SubagentSpawned{Base: base("root"), Child: "kid", Agent: "explore", Description: "find files"},
+		event.SubagentSpawned{Base: base("root"), Child: "kid", Agent: "explore", Model: "anthropic/haiku", Description: "find files"},
 		event.TextDelta{Base: base("kid"), Text: "child text"},
 		event.ToolCallStarted{Base: base("kid"), Call: call("read", `{"path":"a"}`)},
 		event.ToolCallFinished{Base: base("kid"), Result: core.ToolResult{Output: "nope", IsError: true}},
@@ -70,7 +70,7 @@ func TestPlain_ChildIndentedAndTextSuppressed(t *testing.T) {
 	if out != "delegating\n" {
 		t.Errorf("stdout = %q, want %q", out, "delegating\n")
 	}
-	want := "↳ explore: find files\n" +
+	want := "↳ explore (anthropic/haiku): find files\n" +
 		"  → read {\"path\":\"a\"}\n" +
 		"    ✗ nope\n" +
 		"  ↳ general: deeper\n" +

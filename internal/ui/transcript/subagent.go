@@ -45,6 +45,9 @@ func (g *lineage) spawn(l *blockList, root core.SessionID, e event.SubagentSpawn
 	if e.Agent != "" {
 		b.Sub.Agent = e.Agent
 	}
+	if e.Model != "" {
+		b.Sub.Model = e.Model
+	}
 	if e.Description != "" {
 		b.Sub.Description = e.Description
 	}

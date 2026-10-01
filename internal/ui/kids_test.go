@@ -36,6 +36,38 @@ func TestKids_SpawnCreatesLivePane(t *testing.T) {
 	}
 }
 
+func TestKids_PaneTitleShowsShortModel(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t)
+	ta.sendAndAdopt("find it")
+	call := core.ToolCall{ID: "c9", Name: "task", Input: []byte(`{"agent":"explore","description":"find the config"}`)}
+	ta.event(event.ToolCallStarted{Base: rootBase(), MessageID: "m1", Call: call})
+	ta.event(event.SubagentSpawned{Base: rootBase(), Child: "ses_c", Agent: "explore",
+		Model: "openrouter/anthropic/claude-sonnet-4", Description: "find the config", CallID: "c9"})
+
+	p, ok := ta.app.sess.kids["ses_c"]
+	if !ok {
+		t.Fatal("kids[ses_c] not created on spawn")
+	}
+	if want := "↳ explore (claude-sonnet-4): find the config"; p.title != want {
+		t.Errorf("title = %q, want %q", p.title, want)
+	}
+}
+
+func TestShortModel(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{
+		"":                                     "",
+		"anthropic/haiku":                      "haiku",
+		"openrouter/anthropic/claude-sonnet-4": "claude-sonnet-4",
+		"bare":                                 "bare",
+	} {
+		if got := shortModel(in); got != want {
+			t.Errorf("shortModel(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestKids_LoadThenReplayNoDuplicates(t *testing.T) {
 	t.Parallel()
 	stored := []core.Message{
@@ -45,7 +77,7 @@ func TestKids_LoadThenReplayNoDuplicates(t *testing.T) {
 	ta := newTestApp(t, withSessions(nil, map[core.SessionID][]core.Message{"ses_c": stored}))
 	ta.sendAndAdopt("find it")
 
-	p, cmd := kidsCtl{ta.app}.kid("ses_c", "explore", "find the config")
+	p, cmd := kidsCtl{ta.app}.kid("ses_c", "explore", "", "find the config")
 	if !p.load.loading {
 		t.Fatal("test setup: pane should be loading")
 	}
@@ -75,7 +107,7 @@ func TestKids_RunFailedReplayedOnlyIfNotLoaded(t *testing.T) {
 		}
 		ta := newTestApp(t, withSessions(nil, map[core.SessionID][]core.Message{"ses_c": stored}))
 		ta.sendAndAdopt("find it")
-		p, cmd := kidsCtl{ta.app}.kid("ses_c", "explore", "find the config")
+		p, cmd := kidsCtl{ta.app}.kid("ses_c", "explore", "", "find the config")
 		ta.event(event.RunFailed{Base: childBase(), Err: "boom"})
 		ta.run(cmd)
 		if n := countNotices(p, "run failed"); n != 1 {
@@ -90,7 +122,7 @@ func TestKids_RunFailedReplayedOnlyIfNotLoaded(t *testing.T) {
 		}
 		ta := newTestApp(t, withSessions(nil, map[core.SessionID][]core.Message{"ses_c": stored}))
 		ta.sendAndAdopt("find it")
-		p, cmd := kidsCtl{ta.app}.kid("ses_c", "explore", "find the config")
+		p, cmd := kidsCtl{ta.app}.kid("ses_c", "explore", "", "find the config")
 		ta.event(event.RunFailed{Base: childBase(), Err: "boom"})
 		ta.run(cmd)
 		if n := countNotices(p, "run failed"); n != 1 {
@@ -114,7 +146,7 @@ func TestKids_LoadErrorShowsNotice(t *testing.T) {
 	t.Parallel()
 	ta := newTestApp(t)
 	ta.sendAndAdopt("find it")
-	p, _ := kidsCtl{ta.app}.kid("ses_c", "explore", "find the config")
+	p, _ := kidsCtl{ta.app}.kid("ses_c", "explore", "", "find the config")
 	ta.run(nil)
 	msg := childLoadedMsg{session: "ses_c", gen: p.load.gen, err: errors.New("boom")}
 	kidsCtl{ta.app}.childLoaded(msg)

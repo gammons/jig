@@ -2,6 +2,7 @@ package ui
 
 import (
 	"slices"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -55,21 +56,36 @@ func (k kidsCtl) onEvent(ev event.Event) tea.Cmd {
 	if !ok {
 		return nil
 	}
-	_, cmd := k.kid(e.Child, e.Agent, e.Description)
+	_, cmd := k.kid(e.Child, e.Agent, e.Model, e.Description)
 	return cmd
+}
+
+// shortModel is the model name of a "provider/model" ref (everything
+// after the last "/"), for compact display; "" stays "".
+func shortModel(ref string) string {
+	return ref[strings.LastIndex(ref, "/")+1:]
+}
+
+// subagentLabel is "<agent> (<short model>)", or just the agent when the
+// model is unknown.
+func subagentLabel(agent, model string) string {
+	if m := shortModel(model); m != "" {
+		return agent + " (" + m + ")"
+	}
+	return agent
 }
 
 // kid returns child's pane, creating and loading it if this is the first
 // time it's seen. The load uses sessionMessagesCmd; every new pane loads,
 // even one created for a subagent that turns out to be brand new (spec
 // §4.2), since the App can't tell the difference up front.
-func (k kidsCtl) kid(child core.SessionID, agent, desc string) (*pane, tea.Cmd) {
+func (k kidsCtl) kid(child core.SessionID, agent, model, desc string) (*pane, tea.Cmd) {
 	a := k.a
 	if p, ok := a.sess.kids[child]; ok {
 		return p, nil
 	}
 	p := newTranscriptPane(transcript.NewChild(a.sess.info.ID, child), a.w.render, &a.theme.set)
-	p.title = ansi.SanitizeLine("↳ " + agent + ": " + desc)
+	p.title = ansi.SanitizeLine("↳ " + subagentLabel(agent, model) + ": " + desc)
 	p.load.loading = true
 	p.load.gen++
 	gen := p.load.gen

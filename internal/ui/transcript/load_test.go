@@ -199,6 +199,19 @@ func TestLoad_TaskCallBecomesSubagentBlock(t *testing.T) {
 			},
 		},
 		{
+			name:  "finished task takes its model from the result metadata",
+			input: input,
+			result: func() *core.ToolResult {
+				r := mkResult("t1", "task", "<task_result session_id=\"ses_child\">\ndone\n</task_result>", false)
+				r.Metadata = map[string]string{core.MetaTaskModel: "anthropic/haiku"}
+				return r
+			}(),
+			want: Block{
+				ID: "t/t1", Kind: KindSubagent, MessageID: "m1", State: StateOK,
+				Sub: &Subagent{Child: "ses_child", Agent: "explore", Model: "anthropic/haiku", Description: "find x"},
+			},
+		},
+		{
 			name:  "resumed task takes its child from the input",
 			input: `{"agent":"explore","description":"again","prompt":"p","session_id":"ses_old"}`,
 			want: Block{
