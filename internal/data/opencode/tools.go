@@ -6,6 +6,7 @@ package opencode
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -137,7 +138,7 @@ func translateTaskResult(output string, metadataSessionID string) string {
 	}
 	body = strings.TrimSpace(body)
 
-	return "<task_result session_id=\"" + childID + "\">\n" + body + "\n</task_result>"
+	return fmt.Sprintf("<task_result session_id=%q>\n%s\n</task_result>", childID, body)
 }
 
 // taskTagIDPattern matches the id attribute of a leading <task id="…" tag.

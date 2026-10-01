@@ -268,6 +268,12 @@ func TestTranslateTaskResult(t *testing.T) {
 			metadataID: "ses_c",
 			want:       "<task_result session_id=\"ses_c\">\nplain\n</task_result>",
 		},
+		{
+			name:       "metadata id containing a quote is %q-escaped like task.wrapResult",
+			output:     "plain",
+			metadataID: `ses_c"evil`,
+			want:       "<task_result session_id=\"ses_c\\\"evil\">\nplain\n</task_result>",
+		},
 	}
 
 	for _, tt := range tests {
