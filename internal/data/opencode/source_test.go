@@ -267,6 +267,38 @@ func TestOpen_Missing(t *testing.T) {
 	}
 }
 
+func TestOpen_PathWithSpecialChars(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "weird?name#1 test.db")
+	sessions := []opencodetest.Session{
+		{ID: "ses_a", Directory: "/work", Created: 1, Updated: 1},
+	}
+	if err := opencodetest.Write(path, sessions); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("os.Stat(%q): %v, want the fixture file to exist at its exact literal path", path, err)
+	}
+
+	src, err := Open(context.Background(), path, Options{})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer src.Close()
+
+	var got []string
+	err = src.Each(context.Background(), func(item Item) error {
+		got = append(got, string(item.Session.ID))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Each: %v", err)
+	}
+	if len(got) != 1 || got[0] != "ses_a" {
+		t.Errorf("got %v, want [ses_a]", got)
+	}
+}
+
 func TestOpen_NotOpencode(t *testing.T) {
 	path := fixturePath(t)
 

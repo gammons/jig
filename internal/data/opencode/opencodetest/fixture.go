@@ -7,9 +7,24 @@ package opencodetest
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
+
+// escapeDSNPath percent-encodes the characters modernc.org/sqlite's DSN
+// parser treats specially (a literal '?' splits the dsn at the path's
+// own query-like suffix, and '#' would similarly be read as a URI
+// fragment), so a path containing one of them names exactly that file
+// rather than a different, truncated one. This is a second copy of
+// internal/data/opencode's escapeDSNPath: opencodetest can't import that
+// unexported helper, and internal/data/opencode must not import
+// opencodetest (layer rule), so each package keeps its own tiny copy
+// rather than share one.
+func escapeDSNPath(path string) string {
+	r := strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
+	return r.Replace(path)
+}
 
 // Session is one opencode session_v2 row to write, along with its
 // messages and todos.
@@ -48,7 +63,7 @@ type Todo struct {
 // uses, plus project_id/slug/version NOT NULL dummy values on session_v2),
 // and inserts sessions, their messages, and their todos.
 func Write(path string, sessions []Session) error {
-	db, err := sql.Open("sqlite", "file:"+path)
+	db, err := sql.Open("sqlite", "file:"+escapeDSNPath(path))
 	if err != nil {
 		return fmt.Errorf("opencodetest: opening %s: %w", path, err)
 	}

@@ -7,11 +7,23 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/gammons/jig/internal/core"
 
 	_ "modernc.org/sqlite"
 )
+
+// escapeDSNPath percent-encodes the characters modernc.org/sqlite's DSN
+// parser treats specially (conn.go's newConn splits the dsn at the
+// path's own literal '?', and a literal '#' would similarly be read as
+// a URI fragment) so a path containing one of them names exactly that
+// file rather than a different, truncated one. '%' is escaped first so
+// a path that already contains a literal "%3F" round-trips unchanged.
+func escapeDSNPath(path string) string {
+	r := strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
+	return r.Replace(path)
+}
 
 // NotOpencodeError is returned by Open when path is a SQLite database
 // that lacks the session_v2 or session_message tables opencode's current
@@ -56,7 +68,7 @@ func Open(ctx context.Context, path string, opts Options) (*Source, error) {
 		return nil, fmt.Errorf("opencode: %w", err)
 	}
 
-	dsn := fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(5000)", path)
+	dsn := fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(5000)", escapeDSNPath(path))
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opencode: opening %s: %w", path, err)
