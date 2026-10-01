@@ -139,9 +139,15 @@ func (r *runner) handle(it Item) error {
 	}
 
 	sess := it.Session
-	if sess.ParentID != "" && r.isOrphan(sess.ParentID) {
-		sess.ParentID = ""
-		r.summary.OrphansAsRoots++
+	if sess.ParentID != "" {
+		orphan, err := r.isOrphan(sess.ParentID)
+		if err != nil {
+			return err
+		}
+		if orphan {
+			sess.ParentID = ""
+			r.summary.OrphansAsRoots++
+		}
 	}
 
 	if r.opts.DryRun {
@@ -257,19 +263,21 @@ func (r *runner) convertToolResult(p core.Part) (core.Part, error) {
 // isOrphan reports whether parentID names a session that is neither
 // imported in this run nor already present in the store: a failed
 // parent, or one skipped because it already exists, is not an orphan
-// (the latter's child keeps its ParentID).
-func (r *runner) isOrphan(parentID core.SessionID) bool {
+// (the latter's child keeps its ParentID). A SessionExists error is
+// propagated rather than treated as "missing", the same way handle's own
+// SessionExists error is handled.
+func (r *runner) isOrphan(parentID core.SessionID) (bool, error) {
 	if r.imported[parentID] {
-		return false
+		return false, nil
 	}
 	if r.failed[parentID] {
-		return true
+		return true, nil
 	}
 	exists, err := r.st.SessionExists(r.ctx, parentID)
-	if err != nil || !exists {
-		return true
+	if err != nil {
+		return false, err
 	}
-	return false
+	return !exists, nil
 }
 
 // sumStats adds b into a, returning the result; a's maps are non-nil in

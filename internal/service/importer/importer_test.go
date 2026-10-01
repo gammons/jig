@@ -25,10 +25,12 @@ func (s *fakeSource) Each(_ context.Context, fn func(Item) error) error {
 }
 
 // fakeStore is a map-backed Store. pre holds IDs that exist before the run
-// starts; failIDs names IDs whose ImportSession call should fail.
+// starts; failIDs names IDs whose ImportSession call should fail;
+// existsErrIDs names IDs whose SessionExists call should fail.
 type fakeStore struct {
 	pre          map[core.SessionID]bool
 	failIDs      map[core.SessionID]bool
+	existsErrIDs map[core.SessionID]bool
 	imported     map[core.SessionID]core.Session
 	importedMsgs map[core.SessionID][]core.Message
 	importCalls  []core.SessionID
@@ -44,6 +46,7 @@ func newFakeStore(pre ...core.SessionID) *fakeStore {
 	return &fakeStore{
 		pre:          preSet,
 		failIDs:      map[core.SessionID]bool{},
+		existsErrIDs: map[core.SessionID]bool{},
 		imported:     map[core.SessionID]core.Session{},
 		importedMsgs: map[core.SessionID][]core.Message{},
 	}
@@ -51,6 +54,9 @@ func newFakeStore(pre ...core.SessionID) *fakeStore {
 
 func (s *fakeStore) SessionExists(_ context.Context, id core.SessionID) (bool, error) {
 	s.existsCalls++
+	if s.existsErrIDs[id] {
+		return false, fmt.Errorf("session exists lookup failed: %s", id)
+	}
 	if s.pre[id] {
 		return true, nil
 	}
@@ -181,6 +187,29 @@ func TestRun_FailedParentChildBecomesRoot(t *testing.T) {
 			t.Errorf("ses_c.ParentID = %q, want ses_p", got.ParentID)
 		}
 	})
+}
+
+func TestRun_ParentLookupErrorPropagates(t *testing.T) {
+	// ses_c's parent, ses_missing, is not itself a session in this
+	// source (so isOrphan must consult the store directly, rather than
+	// r.imported/r.failed, which would short-circuit before calling
+	// SessionExists).
+	src := &fakeSource{items: []Item{
+		{Session: core.Session{ID: "ses_c", ParentID: "ses_missing"}},
+	}}
+	store := newFakeStore()
+	store.existsErrIDs["ses_missing"] = true
+	med := &fakeMedia{}
+
+	wantErr := fmt.Errorf("session exists lookup failed: ses_missing")
+
+	_, err := Run(context.Background(), src, store, med, Options{})
+	if err == nil || err.Error() != wantErr.Error() {
+		t.Fatalf("err = %v, want %v", err, wantErr)
+	}
+	if _, ok := store.imported["ses_c"]; ok {
+		t.Error("ses_c should not have been imported as a root when the parent lookup failed")
+	}
 }
 
 func TestRun_MediaToBlobs(t *testing.T) {
