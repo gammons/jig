@@ -2,12 +2,15 @@ package app
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 
+	"github.com/gammons/jig/internal/core"
 	"github.com/gammons/jig/internal/data/blobfs"
 	"github.com/gammons/jig/internal/data/opencode"
 	"github.com/gammons/jig/internal/service/agents"
@@ -74,12 +77,12 @@ func runImportOpencode(ctx context.Context, opts importOpts, std Stdio, getenv f
 		printLine(std.Err, err.Error())
 		return exitConfig
 	}
-	st, err := openStore(ctx, e)
+	st, closeStore, err := importStoreFor(ctx, e, opts.dryRun)
 	if err != nil {
 		printLine(std.Err, "error: "+err.Error())
 		return exitRunFailed
 	}
-	defer st.Close()
+	defer closeStore()
 
 	src, err := openOpencodeSource(ctx, e, opts.db, std.Err)
 	if err != nil {
@@ -103,6 +106,38 @@ func runImportOpencode(ctx context.Context, opts importOpts, std Stdio, getenv f
 		return exitRunFailed
 	}
 	return exitOK
+}
+
+// importStoreFor returns the importer.Store to use for this run, and a
+// func to release it. A non-dry run (or a dry run whose jig.db already
+// exists) opens the real store, so "already present" counts are accurate.
+// A dry run with no jig.db yet opens none: openStore would create the
+// file and run migrations, which a dry run must never do (spec §3).
+func importStoreFor(ctx context.Context, e env, dryRun bool) (importer.Store, func(), error) {
+	if dryRun {
+		if _, err := os.Stat(jigDBPath(e)); errors.Is(err, os.ErrNotExist) {
+			return noStoreYet{}, func() {}, nil
+		}
+	}
+	st, err := openStore(ctx, e)
+	if err != nil {
+		return nil, nil, err
+	}
+	return st, func() { st.Close() }, nil
+}
+
+// noStoreYet is the importer.Store used for a dry run when jig.db does
+// not exist yet: every session counts as new, and nothing is ever
+// written (a dry run never calls ImportSession; the error is a safety
+// net if that ever changes).
+type noStoreYet struct{}
+
+func (noStoreYet) SessionExists(context.Context, core.SessionID) (bool, error) {
+	return false, nil
+}
+
+func (noStoreYet) ImportSession(context.Context, core.Session, []core.Message, []core.Todo) error {
+	return fmt.Errorf("import: no jig database open (dry run)")
 }
 
 // openOpencodeSource builds jig's known agent names (primary and

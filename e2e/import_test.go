@@ -4,6 +4,9 @@ package e2e
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -165,8 +168,33 @@ func TestE2E_ImportOpencode_DryRun(t *testing.T) {
 	stdout, stderr, code := runJig(t, env, "import", "opencode", "--db", dbPath, "--dry-run")
 	wantCode(t, code, 0, stdout, stderr)
 
+	// Check before sessionIDs: `jig sessions` itself opens (and so
+	// creates) jig.db, which would mask the dry run creating it.
+	jigDB := filepath.Join(env.root, "data", "jig", "jig.db")
+	if _, err := os.Stat(jigDB); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("stat %s = %v, want fs.ErrNotExist (dry run must create no jig database)", jigDB, err)
+	}
+
 	if ids := sessionIDs(t, env); len(ids) != 0 {
 		t.Errorf("sessionIDs after dry run = %v, want none", ids)
+	}
+}
+
+// TestE2E_ImportOpencode_DryRunAfterRealImport checks that a dry run after a
+// real import still reports accurate "already present" counts, since the
+// store already exists and is safe to open read/write without a dry run
+// writing through it.
+func TestE2E_ImportOpencode_DryRunAfterRealImport(t *testing.T) {
+	env := newEnv(t)
+	dbPath := writeOpencodeFixture(t, env)
+
+	stdout, stderr, code := runJig(t, env, "import", "opencode", "--db", dbPath)
+	wantCode(t, code, 0, stdout, stderr)
+
+	stdout, stderr, code = runJig(t, env, "import", "opencode", "--db", dbPath, "--dry-run")
+	wantCode(t, code, 0, stdout, stderr)
+	if !strings.Contains(stdout, "already present: 3") {
+		t.Errorf("dry-run stdout after a real import = %q, want it to contain %q", stdout, "already present: 3")
 	}
 }
 
