@@ -392,6 +392,7 @@ and no-`time.Sleep`/`time.Now`-in-tests hygiene check. Exceptions go in
 | Make untrusted text (model/tool/file/store) safe to render | `ansi.Sanitize(s)` in `internal/bubbles/ansi` (keeps `\n`, `\t`) |
 | Same, for single-line contexts (titles, paths, list rows) | `ansi.SanitizeLine(s)` (`\n`/`\t` → space) |
 | Highlight a search query in styled text without touching escapes | `ansi.Highlight(s, query, on, off)` |
+| Highlight whole whitespace-delimited tokens (case-sensitive, e.g. the prompt's `@path` mentions) | `ansi.HighlightTokens(s, toks, on, off)` |
 | SGR on/off strings for a fg/bg pair (e.g. a search highlight) | `ansi.SGR(fg, bg) (on, off)` |
 | A scrolling list of variable-height blocks with a cursor, cache, and search | `blocklist.New(render, opts...)` / `SetItems`, `Upsert`, `SetSearch`, `View` in `internal/bubbles/blocklist` |
 | Hit-test a screen cell to a block/line/column, or get a block's rendered lines, for mouse selection | `blocklist.HitTest(m, x, y)` / `blocklist.Lines(m, id)` in `internal/bubbles/blocklist` |

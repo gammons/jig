@@ -5,6 +5,8 @@
 package prompt
 
 import (
+	"image/color"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -13,6 +15,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/gammons/jig/internal/bubbles/ansi"
 	"github.com/gammons/jig/internal/bubbles/overlay"
@@ -71,6 +74,7 @@ type Styles struct {
 	Title       lipgloss.Style // top-edge label text (e.g. "⏳ queued")
 	Text        lipgloss.Style // typed/pasted text
 	Placeholder lipgloss.Style // placeholder text
+	Mention     lipgloss.Style // an attached "@path" token (its foreground)
 }
 
 // DefaultStyles returns fixed colors, independent of any theme.
@@ -81,6 +85,7 @@ func DefaultStyles() Styles {
 		Title:       lipgloss.NewStyle().Bold(true),
 		Text:        lipgloss.NewStyle(),
 		Placeholder: lipgloss.NewStyle().Faint(true),
+		Mention:     lipgloss.NewStyle(),
 	}
 }
 
@@ -105,6 +110,8 @@ type Model struct {
 	width  int
 	chips  chips
 	hist   historyState
+	// mentions are the "@path" tokens View colors in Mention.
+	mentions []string
 }
 
 // New builds a Model that opens $EDITOR through edit on ctrl+e. edit may
@@ -156,7 +163,7 @@ func (m *Model) SetStyles(st Styles) {
 func (m *Model) SetWidth(w int) {
 	m.width = w
 	m.ta.SetWidth(w - barW - 2*padX)
-	m.syncPlaceholder()
+	syncPlaceholder(m)
 }
 
 // Height returns the total height: the textarea's current content height
@@ -168,7 +175,7 @@ func (m Model) Height() int {
 // SetAgent sets the agent name shown in the placeholder.
 func (m *Model) SetAgent(name string) {
 	m.agent = name
-	m.syncPlaceholder()
+	syncPlaceholder(m)
 }
 
 // syncPlaceholder rebuilds the textarea's placeholder text from the
@@ -183,10 +190,14 @@ func (m *Model) SetAgent(name string) {
 // ansi.Truncate, which does add "…") keeps the placeholder on one line
 // and makes the cut visible, at any width, including the full width-80
 // case where it comfortably fits untouched.
-func (m *Model) syncPlaceholder() {
+func syncPlaceholder(m *Model) {
 	full := "Message " + m.agent + "…  (ctrl+p actions · @ files)"
 	m.ta.Placeholder = ansi.Truncate(full, max(1, m.ta.Width()), "…")
 }
+
+// SetMentions sets the "@path" tokens drawn in the Mention style wherever
+// one stands as a whole whitespace-delimited token.
+func (m *Model) SetMentions(toks []string) { m.mentions = slices.Clone(toks) }
 
 // SetQueued sets whether the top fill row shows "⏳ queued".
 func (m *Model) SetQueued(q bool) { m.queued = q }
@@ -398,7 +409,7 @@ func (m Model) View() string {
 		return bar + overlay.Fill(s, bg)
 	}
 
-	lines := strings.Split(m.ta.View(), "\n")
+	lines := strings.Split(highlighted(m.ta.View(), m.mentions, m.styles), "\n")
 	rows := make([]string, 0, len(lines)+chromeRows)
 	for i := range padY {
 		top := ""
@@ -415,6 +426,29 @@ func (m Model) View() string {
 		rows = append(rows, fillRow(""))
 	}
 	return strings.Join(rows, "\n")
+}
+
+// highlighted is the textarea's view v with every mention token in st's
+// Mention foreground, switching back to the Text one after it. Only the
+// foreground changes, so the panel fill behind it stays. (A free
+// function, to keep Model under archtest's method budget.)
+func highlighted(v string, mentions []string, st Styles) string {
+	fg := st.Mention.GetForeground()
+	if len(mentions) == 0 || isNoColor(fg) {
+		return v
+	}
+	on := xansi.Style{}.ForegroundColor(fg).String()
+	off := xansi.Style{}.ForegroundColor(nil).String()
+	if text := st.Text.GetForeground(); !isNoColor(text) {
+		off = xansi.Style{}.ForegroundColor(text).String()
+	}
+	return ansi.HighlightTokens(v, mentions, on, off)
+}
+
+// isNoColor reports whether c sets no color.
+func isNoColor(c color.Color) bool {
+	_, none := c.(lipgloss.NoColor)
+	return c == nil || none
 }
 
 // taStyles builds the textarea's Styles from st, with no cursor-line

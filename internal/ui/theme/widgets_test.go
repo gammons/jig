@@ -200,6 +200,7 @@ func TestBuild_PromptFromPalette(t *testing.T) {
 		Title:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Warning)),
 		Text:        lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
 		Placeholder: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		Mention:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
 	}
 	if !reflect.DeepEqual(set.Prompt, want) {
 		t.Errorf("Prompt = %+v, want %+v", set.Prompt, want)

@@ -3,9 +3,11 @@ package ui
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/gammons/jig/internal/bubbles/picker"
 	"github.com/gammons/jig/internal/core"
@@ -186,4 +188,24 @@ func TestPicker_GoldenFiles(t *testing.T) {
 	ta := newTestApp(t, testFiles())
 	ta.key("@")
 	golden.Assert(t, "picker_files", ta.view())
+}
+
+// TestFiles_ChosenMentionHighlighted: a file chosen in the picker shows in
+// the prompt in the theme's mention color; once sent, the next prompt's
+// matching text is plain again.
+func TestFiles_ChosenMentionHighlighted(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, testFiles())
+	on := xansi.Style{}.ForegroundColor(ta.app.theme.set.Prompt.Mention.GetForeground()).String()
+	ta.typeText("see @")
+	ta.typeText("e.go")
+	ta.key("enter")
+	if !strings.Contains(ta.view(), on+"@e.go") {
+		t.Fatalf("the chosen mention is not highlighted:\n%q", ta.view())
+	}
+	ta.key("enter") // send: the attachment is consumed
+	ta.send(tea.PasteMsg{Content: "@e.go again"})
+	if strings.Contains(ta.view(), on+"@e.go") {
+		t.Errorf("a sent mention stays highlighted in the next prompt")
+	}
 }

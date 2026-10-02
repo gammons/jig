@@ -77,9 +77,11 @@ func displayModel(ref string, aliases map[string]string) string {
 }
 
 // sync points the permission card at its request (returning its arming
-// tick, if any) and rebuilds the status bar and the sidebar from the state.
+// tick, if any), colors the prompt's recorded attachments, and rebuilds
+// the status bar and the sidebar from the state.
 func (a *App) sync() tea.Cmd {
 	cmd := permCtl{a}.sync()
+	a.w.prompt.SetMentions(mentionTokens(a.sess.attach))
 	a.w.status.Set(a.statusState())
 	if a.lay.SideVisible {
 		a.w.side.SetSections(sidebarSections(a))

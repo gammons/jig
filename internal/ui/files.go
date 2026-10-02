@@ -91,6 +91,19 @@ func fileItems(files []core.ProjectFile, touched []string) []picker.Item {
 	return out
 }
 
+// mentionTokens is the "@<path>" token of each recorded attachment, the
+// text the prompt colors as a mention.
+func mentionTokens(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = "@" + p
+	}
+	return out
+}
+
 // attachments returns the recorded paths whose "@<path>" token still
 // occurs in text (R19), in recorded order, once each.
 func attachments(text string, recorded []string) []string {

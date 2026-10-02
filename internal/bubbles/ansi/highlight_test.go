@@ -90,3 +90,24 @@ func TestHighlight_MatchAcrossEscape(t *testing.T) {
 		}
 	}
 }
+
+func TestHighlightTokens_WholeTokensOnly(t *testing.T) {
+	tests := []struct {
+		name, s string
+		toks    []string
+		want    string
+	}{
+		{"whole token", "see @a.go now", []string{"@a.go"}, "see [@a.go] now"},
+		{"prefix of a longer token", "see @a.goo", []string{"@a.go"}, "see @a.goo"},
+		{"mid-word", "x@a.go", []string{"@a.go"}, "x@a.go"},
+		{"case-sensitive", "@A.go", []string{"@a.go"}, "@A.go"},
+		{"two tokens, line end", "@a.go @b.go", []string{"@b.go", "@a.go"}, "[@a.go] [@b.go]"},
+		{"escapes kept", "\x1b[31m@a.go\x1b[0m x", []string{"@a.go"}, "\x1b[31m[@a.go]\x1b[0m x"},
+		{"none", "plain", nil, "plain"},
+	}
+	for _, tt := range tests {
+		if got := HighlightTokens(tt.s, tt.toks, "[", "]"); got != tt.want {
+			t.Errorf("%s: HighlightTokens(%q, %q) = %q, want %q", tt.name, tt.s, tt.toks, got, tt.want)
+		}
+	}
+}

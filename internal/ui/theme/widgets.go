@@ -180,7 +180,7 @@ func cardStyles(p Palette) permcard.Styles {
 // transcript's own selection bar color (blocklistStyles); the top-edge
 // label (used for "⏳ queued") uses Warning to stand out as a state
 // indicator, and text/placeholder mirror the message pane's text and its
-// muted, faint variant.
+// muted, faint variant. An attached "@path" mention is Accent.
 func promptStyles(p Palette) prompt.Styles {
 	return prompt.Styles{
 		Fill:        lipgloss.NewStyle().Background(lipgloss.Color(panelFill(p))),
@@ -188,6 +188,7 @@ func promptStyles(p Palette) prompt.Styles {
 		Title:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.Warning)),
 		Text:        lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text)),
 		Placeholder: lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color(p.TextMuted)),
+		Mention:     lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)),
 	}
 }
 

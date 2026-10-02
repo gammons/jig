@@ -32,7 +32,7 @@ func Highlight(s, query, on, off string) string {
 	if len(q) == 0 || s == "" {
 		return s
 	}
-	v := visible(s)
+	v := visible(s, unicode.ToLower)
 	var b strings.Builder
 	last := 0
 	for k := 0; k+len(q) <= len(v.runes); {
@@ -55,9 +55,56 @@ func Highlight(s, query, on, off string) string {
 	return b.String()
 }
 
+// HighlightTokens wraps every occurrence of one of toks in the visible
+// text of s with on/off, where it stands as a whole whitespace-delimited
+// token (case-sensitive; "@a.go" never colors part of "@a.goo"). Escapes
+// are copied byte-for-byte, as in Highlight; when two tokens could start
+// at the same place the longest wins.
+func HighlightTokens(s string, toks []string, on, off string) string {
+	if len(toks) == 0 || s == "" {
+		return s
+	}
+	want := make([][]rune, 0, len(toks))
+	for _, t := range toks {
+		if t != "" {
+			want = append(want, []rune(t))
+		}
+	}
+	v := visible(s, func(r rune) rune { return r })
+	space := func(k int) bool { return k < 0 || k >= len(v.runes) || unicode.IsSpace(v.runes[k]) }
+	var b strings.Builder
+	last := 0
+	for k := 0; k < len(v.runes); k++ {
+		if !space(k - 1) {
+			continue
+		}
+		n := 0
+		for _, q := range want {
+			if len(q) > n && k+len(q) <= len(v.runes) && slices.Equal(v.runes[k:k+len(q)], q) && space(k+len(q)) {
+				n = len(q)
+			}
+		}
+		if n == 0 {
+			continue
+		}
+		start, end := v.starts[k], v.ends[k+n-1]
+		b.WriteString(s[last:start])
+		b.WriteString(on)
+		b.WriteString(s[start:end])
+		b.WriteString(off)
+		last = end
+		k += n - 1
+	}
+	if last == 0 {
+		return s
+	}
+	b.WriteString(s[last:])
+	return b.String()
+}
+
 // visible segments s with xansi.DecodeSequence and collects the runes that
-// are not part of an escape sequence or control.
-func visible(s string) visibleText {
+// are not part of an escape sequence or control, each mapped through fold.
+func visible(s string, fold func(rune) rune) visibleText {
 	var v visibleText
 	var state byte
 	for i := 0; i < len(s); {
@@ -71,7 +118,7 @@ func visible(s string) visibleText {
 		if !isEscape(seg) {
 			for j := 0; j < len(seg); {
 				r, size := utf8.DecodeRuneInString(seg[j:])
-				v.runes = append(v.runes, unicode.ToLower(r))
+				v.runes = append(v.runes, fold(r))
 				v.starts = append(v.starts, i+j)
 				v.ends = append(v.ends, i+j+size)
 				j += size

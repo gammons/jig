@@ -521,3 +521,30 @@ func TestPrompt_PlaceholderTruncatesNarrow(t *testing.T) {
 	}
 	golden.Assert(t, "prompt_placeholder_narrow", view)
 }
+
+// TestPrompt_MentionsHighlighted: a whole "@path" token set through
+// SetMentions is drawn in the Mention style; a longer token sharing its
+// prefix is not.
+func TestPrompt_MentionsHighlighted(t *testing.T) {
+	t.Parallel()
+	st := pinnedStyles()
+	st.Mention = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff00ff"))
+	m := New(nil, WithStyles(st))
+	m.SetWidth(40)
+	m.Insert("see @a.go and @a.goo")
+	m.SetMentions([]string{"@a.go"})
+	view := m.View()
+	// Row 1 is the text row; column 0 the bar, column 1 the padding.
+	at := func(col int) int { return 2 + col }
+	want := st.Mention.GetForeground()
+	for i := range len("@a.go") {
+		if got := cellFg(t, view, at(4+i), 1); !sameColor(got, want) {
+			t.Errorf("mention cell %d fg = %v, want %v", i, got, want)
+		}
+	}
+	for _, col := range []int{0, 10, 14, 15} { // "s", " and", "@a.goo"
+		if got := cellFg(t, view, at(col), 1); sameColor(got, want) {
+			t.Errorf("cell %d fg = %v, want it not in the mention color", col, got)
+		}
+	}
+}
