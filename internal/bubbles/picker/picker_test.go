@@ -157,11 +157,11 @@ func TestPicker_RecentGroupAtRoot(t *testing.T) {
 	}
 }
 
-func TestPicker_DrillAndBackspacePops(t *testing.T) {
+func TestPicker_DrillAndBackspaceStays(t *testing.T) {
 	t.Parallel()
 	sub := Level{ID: "theme", Title: "Theme"}
 	root := []Item{{ID: "pick-theme", Title: "Pick theme", Drill: &sub}}
-	theme := []Item{{ID: "dark", Title: "Dark"}}
+	theme := []Item{{ID: "dark", Title: "Dark"}, {ID: "light", Title: "Light"}}
 	m := New(loadFunc(map[string][]Item{"root": root, "theme": theme}))
 	m.SetSize(100, 40)
 	m = open(t, m, Level{ID: "root", Title: "Root"})
@@ -180,21 +180,24 @@ func TestPicker_DrillAndBackspacePops(t *testing.T) {
 		t.Fatalf("stack depth = %d, want 2", len(m.stack))
 	}
 
-	m, _ = m.Update(keyMsg("backspace"))
-	if got := topLevel(m).ID; got != "root" {
-		t.Fatalf("after backspace, top level = %s, want root", got)
+	// Backspace edits the filter only: clearing it and pressing again
+	// never drops back a level.
+	m = typeText(m, "l")
+	for range 3 {
+		m, _ = m.Update(keyMsg("backspace"))
 	}
-	if len(m.stack) != 1 {
-		t.Fatalf("stack depth = %d, want 1", len(m.stack))
+	if got := topLevel(m).ID; got != "theme" || len(m.stack) != 2 {
+		t.Fatalf("after backspace on an empty filter: top = %s, depth %d; want to stay on theme", got, len(m.stack))
 	}
-	if got := itemIDs(m); len(got) != 1 || got[0] != "pick-theme" {
-		t.Fatalf("root items after pop = %v, want the cached pick-theme item (no reload)", got)
+	if got := itemIDs(m); !slices.Equal(got, []string{"dark", "light"}) {
+		t.Fatalf("items after clearing the filter = %v, want the full list", got)
 	}
 
-	// backspace at the root with an empty query is a no-op.
+	// backspace at the root with an empty query is a no-op too.
+	m = open(t, m, Level{ID: "root", Title: "Root"})
 	m, _ = m.Update(keyMsg("backspace"))
-	if len(m.stack) != 1 {
-		t.Fatalf("root backspace popped past the root: stack depth = %d", len(m.stack))
+	if !m.IsOpen() || len(m.stack) != 1 {
+		t.Fatalf("root backspace: open=%v depth=%d, want the root still open", m.IsOpen(), len(m.stack))
 	}
 }
 

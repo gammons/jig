@@ -304,9 +304,9 @@ func (m Model) onKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.toggleMark(), nil
 	case k.String() == "enter":
 		return m.choose()
-	case k.String() == "backspace" && top.input.Value() == "":
-		return m.pop()
 	default:
+		// backspace included: it only ever edits the filter, and on an
+		// empty one does nothing (it never drops back a level).
 		return m.editQuery(k)
 	}
 }
@@ -317,12 +317,6 @@ func (m Model) onInputKey(k tea.KeyPressMsg, top frame) (Model, tea.Cmd) {
 		text, lvl := top.input.Value(), top.level
 		m.Close()
 		return m, inputCmd(lvl, text)
-	case "backspace":
-		// An emptied input stays put (esc leaves): backspacing out a
-		// name must never drop the user back a level.
-		if top.input.Value() == "" {
-			return m, nil
-		}
 	}
 	ti, cmd := top.input.Update(k)
 	stack := slices.Clone(m.stack)
@@ -406,14 +400,6 @@ func (m Model) choose() (Model, tea.Cmd) {
 	lvl := top.level
 	m.Close()
 	return m, chosenCmd(lvl, []Item{it})
-}
-
-func (m Model) pop() (Model, tea.Cmd) {
-	if len(m.stack) <= 1 {
-		return m, nil
-	}
-	m.stack = m.stack[:len(m.stack)-1]
-	return m, m.previewCmd()
 }
 
 // previewCmd calls preview when the top level's highlighted item changed
