@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/gammons/jig/internal/core"
@@ -32,14 +33,22 @@ func (s *Service) GenerateTitle(ctx context.Context, id core.SessionID, firstPro
 	if err != nil {
 		return err
 	}
-	out, _, err := s.complete(ctx, titleAgent, sess, truncateRunes(firstPrompt, maxTitlePromptRunes))
+	// The tags mark the prompt as text to label, not a request to the
+	// title model (which otherwise tends to answer it).
+	user := "<message>\n" + truncateRunes(firstPrompt, maxTitlePromptRunes) + "\n</message>"
+	out, _, err := s.complete(ctx, titleAgent, sess, user)
 	if err != nil {
 		return err
 	}
-	title := cleanTitle(out)
-	if title == "" {
+	line := titleLine(out)
+	if line == "" {
 		return errors.New("session: title model returned no title")
 	}
+	// Checked before the cap, which would hide a sentence's end.
+	if !looksLikeTitle(line) {
+		return fmt.Errorf("session: title model replied instead of titling: %q", capTitle(line))
+	}
+	title := capTitle(line)
 	placeholder := PlaceholderTitle(firstPrompt)
 	var saved core.Session
 	changed := false
@@ -65,15 +74,38 @@ func PlaceholderTitle(text string) string {
 	return capTitle(firstLine(text))
 }
 
-// cleanTitle is out's first non-empty line with surrounding quotes
-// trimmed, capped at 50 runes.
-func cleanTitle(out string) string {
+// titleLine is out's first non-empty line with surrounding quotes
+// trimmed, uncapped.
+func titleLine(out string) string {
 	for line := range strings.Lines(out) {
 		if t := strings.TrimSpace(strings.Trim(strings.TrimSpace(line), titleQuotes)); t != "" {
-			return capTitle(t)
+			return t
 		}
 	}
 	return ""
+}
+
+// maxTitleWords is the most words a generated title may have; a longer
+// line is a reply, not a title.
+const maxTitleWords = 10
+
+// looksLikeTitle reports whether t (a cleaned title) reads as a title,
+// not as the model answering the prompt: at most maxTitleWords words,
+// and not a sentence (ending in, or containing a break after, '.', '?',
+// or '!'). A title like "Bump v1.2" still passes: its '.' is mid-word.
+func looksLikeTitle(t string) bool {
+	if len(strings.Fields(t)) > maxTitleWords {
+		return false
+	}
+	if strings.ContainsAny(t[len(t)-1:], ".?!") {
+		return false
+	}
+	for _, brk := range []string{". ", "? ", "! "} {
+		if strings.Contains(t, brk) {
+			return false
+		}
+	}
+	return true
 }
 
 // firstLine returns s's first line that is not blank, trimmed of

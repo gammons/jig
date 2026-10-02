@@ -41,6 +41,7 @@ func TestTitle_TrimsAndCaps(t *testing.T) {
 		{"capped at 50 runes", long, strings.Repeat("x", 49) + "…"},
 		{"multibyte cap", strings.Repeat("é", 51), strings.Repeat("é", 49) + "…"},
 		{"exactly 50 runes", strings.Repeat("y", 50), strings.Repeat("y", 50)},
+		{"a mid-word dot is fine", "Bump Go to v1.26", "Bump Go to v1.26"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -69,8 +70,9 @@ func TestTitle_TrimsAndCaps(t *testing.T) {
 			if reqs[0].System[0] != titleAgent.Prompt {
 				t.Errorf("System = %q, want the title prompt", reqs[0].System)
 			}
-			if n := utf8.RuneCountInString(reqs[0].Messages[0].Parts[0].Text); n != 2000 {
-				t.Errorf("user prompt has %d runes, want 2000", n)
+			want := "<message>\n" + strings.Repeat("p", 2000) + "\n</message>"
+			if got := reqs[0].Messages[0].Parts[0].Text; got != want {
+				t.Errorf("user prompt = %q (%d runes), want the first 2000 runes inside <message> tags", got, utf8.RuneCountInString(got))
 			}
 		})
 	}
@@ -83,6 +85,11 @@ func TestTitle_ErrorKeepsPlaceholder(t *testing.T) {
 	}{
 		{"llm error", llmtest.New()},
 		{"empty reply", llmtest.New(llmtest.Text("  \n \"\" \n"))},
+		// The model answered the prompt instead of titling it.
+		{"a reply, not a title", llmtest.New(llmtest.Text("I appreciate you reaching out, but I should clarify that I can't read files."))},
+		{"a short sentence", llmtest.New(llmtest.Text("I can't read files."))},
+		{"a question", llmtest.New(llmtest.Text("Which file should I read?"))},
+		{"too many words", llmtest.New(llmtest.Text("Sure here is a title for this session about reviewing the open PRs"))},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -121,6 +128,16 @@ func TestPlaceholderTitle(t *testing.T) {
 	for in, want := range cases {
 		if got := PlaceholderTitle(in); got != want {
 			t.Errorf("PlaceholderTitle(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestTitle_PromptSaysNotToAnswer(t *testing.T) {
+	f := newFixture(t, defaultCfg())
+	a, _ := f.svc.d.Agents.Get("title")
+	for _, want := range []string{"<message>", "Do not answer"} {
+		if !strings.Contains(a.Prompt, want) {
+			t.Errorf("title prompt lacks %q:\n%s", want, a.Prompt)
 		}
 	}
 }
