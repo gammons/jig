@@ -155,7 +155,8 @@ func keymapMode(m mode) string {
 }
 
 // rootItems lists every action but picker.open, with the keys bound to
-// it in mode as the detail. Drilling actions carry their level; renaming
+// it in mode as the detail. Open session… is pinned first, the picker's
+// main call to action. Drilling actions carry their level; renaming
 // needs a session, and switching effort a model with levels.
 func rootItems(c *actions.Catalogue, km actions.Keymap, mode string, info core.Session, effortOK bool) []picker.Item {
 	if c == nil {
@@ -168,7 +169,7 @@ func rootItems(c *actions.Catalogue, km actions.Keymap, mode string, info core.S
 		}
 		it := picker.Item{
 			ID: string(act.ID), Title: ansi.SanitizeLine(act.Title), Group: act.Group,
-			Detail: keysDetail(km.Keys(mode, act.ID)),
+			Detail: keysDetail(km.Keys(mode, act.ID)), Pinned: act.ID == actions.SessionOpen,
 		}
 		if lvl, ok := drillLevel(act.ID, info.Title); ok {
 			it.Drill = &lvl
@@ -317,7 +318,9 @@ func agentItems(agents []core.Agent, current string) []picker.Item {
 	return out
 }
 
-// sessionItems lists sessions with "<age> · $<cost>" details.
+// sessionItems lists sessions with "<age> · $<cost>" details, grouped by
+// the calendar day each was last updated (dayGroup). list comes most
+// recent first, so the groups do too.
 func sessionItems(list []core.Session, costs []float64, current core.SessionID, now time.Time) []picker.Item {
 	out := make([]picker.Item, len(list))
 	for i, s := range list {
@@ -330,11 +333,28 @@ func sessionItems(list []core.Session, costs []float64, current core.SessionID, 
 			at = s.CreatedAt
 		}
 		out[i] = picker.Item{
-			ID: string(s.ID), Title: title, Current: s.ID == current,
+			ID: string(s.ID), Title: title, Current: s.ID == current, Group: dayGroup(at, now),
 			Detail: fmt.Sprintf("%s · $%.2f", relativeAge(now.Sub(at)), costs[i]),
 		}
 	}
 	return out
+}
+
+// dayGroup names at's calendar day, in now's zone: "Today", "Yesterday",
+// else "Mon, Jan 2", with the year added when it isn't now's.
+func dayGroup(at, now time.Time) string {
+	at = at.In(now.Location())
+	y, m, d := now.Date()
+	today := time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+	switch day := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, now.Location()); {
+	case !day.Before(today):
+		return "Today"
+	case day.Equal(today.AddDate(0, 0, -1)):
+		return "Yesterday"
+	case at.Year() == y:
+		return at.Format("Mon, Jan 2")
+	}
+	return at.Format("Mon, Jan 2 2006")
 }
 
 // relativeAge is d as "just now", "5m ago", "3h ago", or "2d ago".

@@ -165,7 +165,7 @@ func TestPicker_RootListsActionsWithKeysAndRecent(t *testing.T) {
 	}
 	view := xansi.Strip(ta.view())
 	recent := strings.Index(view, "Recent")
-	session := strings.Index(view, "Open session…")
+	session := strings.Index(view, "New session")
 	if recent < 0 || session < 0 || recent > session {
 		t.Errorf("want a Recent group before the Session group:\n%s", view)
 	}
@@ -812,5 +812,56 @@ func TestApp_EffortSurvivesModelRoundTrip(t *testing.T) {
 	switchModel("sonnet")
 	if v := xansi.Strip(ta.view()); !strings.Contains(v, "claude-sonnet-5 · max") {
 		t.Errorf("back on sonnet, the session's max should show again:\n%s", v)
+	}
+}
+
+// TestPicker_OpenSessionLeadsAndCtrlSOpensIt: Open session… is the root's
+// first row (pinned above Recent, the cursor on it), and ctrl+s drills
+// straight into the sessions level from either mode.
+func TestPicker_OpenSessionLeadsAndCtrlSOpensIt(t *testing.T) {
+	t.Parallel()
+	ta := newTestApp(t, withPrefs(core.Prefs{Recent: []string{"model.switch"}}))
+	items := loadItems(ta, rootLevel())
+	if open := itemByID(t, items, "session.open"); !open.Pinned || !strings.Contains(open.Detail, "ctrl+s") {
+		t.Errorf("session.open = %+v, want it pinned with ctrl+s", open)
+	}
+	ta.key("ctrl+p")
+	view := xansi.Strip(ta.view())
+	open, recent := strings.Index(view, "Open session…"), strings.Index(view, "Recent")
+	if open < 0 || recent < 0 || open > recent {
+		t.Errorf("want Open session… above Recent:\n%s", view)
+	}
+	ta.key("esc")
+
+	for _, mode := range []string{"insert", "normal"} {
+		if mode == "normal" {
+			ta.key("esc")
+		}
+		ta.key("ctrl+s")
+		if !ta.app.w.picker.IsOpen() || !strings.Contains(xansi.Strip(ta.view()), "Sessions") {
+			t.Fatalf("%s ctrl+s: want the sessions level open", mode)
+		}
+		ta.key("esc")
+	}
+}
+
+// TestSessionItems_GroupedByDay: sessions are grouped under their
+// (last-updated) calendar day in now's zone: Today, Yesterday, then the
+// date, with the year only when it isn't now's.
+func TestSessionItems_GroupedByDay(t *testing.T) {
+	t.Parallel()
+	now := testStart() // Mon Sep 28 2026, 12:00 UTC
+	list := []core.Session{
+		{ID: "a", UpdatedAt: now.Add(-3 * time.Hour)},
+		{ID: "b", UpdatedAt: now.Add(-13 * time.Hour)}, // Sep 27, 23:00
+		{ID: "c", CreatedAt: now.Add(-50 * time.Hour)}, // Sep 26, no update
+		{ID: "d", UpdatedAt: now.AddDate(-1, 0, 0)},
+	}
+	items := sessionItems(list, make([]float64, len(list)), "", now)
+	want := map[string]string{"a": "Today", "b": "Yesterday", "c": "Sat, Sep 26", "d": "Sun, Sep 28 2025"}
+	for _, it := range items {
+		if it.Group != want[it.ID] {
+			t.Errorf("%s group = %q, want %q", it.ID, it.Group, want[it.ID])
+		}
 	}
 }

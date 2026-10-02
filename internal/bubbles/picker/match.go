@@ -60,8 +60,9 @@ func moveRow(rows []row, cur, dir int) int {
 
 // groupedRows lays out items for an empty query: grouped by Item.Group in
 // first-appearance order under headers (no header for the "" group), with
-// an Actions level's Recent group (from recent, capped at 5) leading and
-// a blank gap row between consecutive groups.
+// an Actions level's Pinned items leading (headerless, listed only there),
+// then its Recent group (from recent, capped at 5), and a blank gap row
+// between consecutive groups.
 func groupedRows(level Level, items []Item, recent []string) []row {
 	var rows []row
 	// gap separates a group from the one before it (never before the first).
@@ -70,8 +71,25 @@ func groupedRows(level Level, items []Item, recent []string) []row {
 			rows = append(rows, row{kind: rowGap})
 		}
 	}
+	pinned := map[string]bool{}
 	if level.Actions {
+		for _, it := range items {
+			if it.Pinned {
+				pinned[it.ID] = true
+				rows = append(rows, row{kind: rowItem, item: it})
+			}
+		}
+		if len(pinned) > 0 {
+			var rest []Item
+			for _, it := range items {
+				if !pinned[it.ID] {
+					rest = append(rest, it)
+				}
+			}
+			items = rest
+		}
 		if rec := recentGroup(items, recent, 5); len(rec) > 0 {
+			gap()
 			rows = append(rows, row{kind: rowHeader, header: "Recent"})
 			for _, it := range rec {
 				rows = append(rows, row{kind: rowItem, item: it})

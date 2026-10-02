@@ -37,6 +37,8 @@ func TestResolve_DefaultsAndOverride(t *testing.T) {
 		{"normal", "o", TranscriptFold},
 		{"normal", "?", HelpKeys},
 		{"normal", "ctrl+c", RunCancel},
+		{"insert", "ctrl+s", SessionOpen},
+		{"normal", "ctrl+s", SessionOpen},
 	}
 	for _, tt := range tests {
 		got, ok := km.Lookup(tt.mode, tt.key)

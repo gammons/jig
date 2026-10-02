@@ -499,3 +499,47 @@ func TestPicker_BorderAndBackgroundCoverBox(t *testing.T) {
 		}
 	}
 }
+
+func TestPicker_InputLevelBackspaceOnEmptyStays(t *testing.T) {
+	t.Parallel()
+	sub := Level{ID: "rename", Title: "Rename", Input: true, Initial: "ab"}
+	root := []Item{{ID: "rename", Title: "Rename", Drill: &sub}}
+	m := New(loadFunc(map[string][]Item{"root": root}))
+	m.SetSize(100, 40)
+	m = open(t, m, Level{ID: "root", Title: "Root"})
+	m, _ = m.Update(keyMsg("enter"))
+	if topLevel(m).ID != "rename" {
+		t.Fatalf("top level = %s, want rename", topLevel(m).ID)
+	}
+	for range 4 { // two clear the text, two more on an empty input
+		m, _ = m.Update(keyMsg("backspace"))
+	}
+	if topLevel(m).ID != "rename" || len(m.stack) != 2 {
+		t.Fatalf("after backspace on empty input: top = %s, depth %d; want to stay on rename", topLevel(m).ID, len(m.stack))
+	}
+}
+
+func TestPicker_PinnedLeadsBeforeRecent(t *testing.T) {
+	t.Parallel()
+	items := []Item{
+		{ID: "new", Title: "New", Group: "Session"},
+		{ID: "open", Title: "Open", Group: "Session", Pinned: true},
+		{ID: "t1", Title: "t1", Group: "Tools"},
+	}
+	m := New(loadFunc(map[string][]Item{"root": items}))
+	m.SetSize(100, 40)
+	m.SetRecent([]string{"t1", "open"})
+	m = open(t, m, Level{ID: "root", Title: "Root", Actions: true})
+
+	got := itemIDs(m)
+	want := []string{"open", "t1", "new", "t1"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("rows = %v, want %v (pinned first, not repeated)", got, want)
+	}
+	if rs := rows(m); rs[0].kind != rowItem || rs[1].kind != rowGap || rs[2].header != "Recent" {
+		t.Fatalf("rows = %+v, want the pinned item, a gap, then Recent", rs[:3])
+	}
+	if it, _ := m.stack[0].current(); it.ID != "open" {
+		t.Errorf("cursor on %q, want the pinned item", it.ID)
+	}
+}

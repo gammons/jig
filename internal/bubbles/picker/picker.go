@@ -29,6 +29,9 @@ type Item struct {
 	ID, Title, Detail, Group string
 	Disabled, Current        bool   // Current shows ●; Disabled is dimmed and cannot be chosen
 	Drill                    *Level // enter opens this level
+	// Pinned leads an Actions level's unfiltered list, above Recent, and
+	// starts with the cursor on it (the main call to action).
+	Pinned bool
 }
 
 // LoadFunc loads a Level's items. It must yield an ItemsMsg (via its
@@ -315,8 +318,10 @@ func (m Model) onInputKey(k tea.KeyPressMsg, top frame) (Model, tea.Cmd) {
 		m.Close()
 		return m, inputCmd(lvl, text)
 	case "backspace":
-		if top.input.Value() == "" && len(m.stack) > 1 {
-			return m.pop()
+		// An emptied input stays put (esc leaves): backspacing out a
+		// name must never drop the user back a level.
+		if top.input.Value() == "" {
+			return m, nil
 		}
 	}
 	ti, cmd := top.input.Update(k)
